@@ -1,0 +1,25 @@
+name: PNXRTP
+main: ru.leshaxarisha.pnxrtp.PNXRTP
+version: 1.1.0
+api: "3.0.6"
+load: POSTWORLD
+author: Lesha x Arisha
+description: Safe random teleport and throttled chunk generation for PowerNukkitX
+
+commands:
+  rtp:
+    description: Random safe teleport
+    usage: /rtp
+    permission: pnxrtp.use
+  rtpgen:
+    description: Manage gradual world generation
+    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|reset>
+    permission: pnxrtp.admin
+
+permissions:
+  pnxrtp.use:
+    description: Allows random teleport
+    default: true
+  pnxrtp.admin:
+    description: Allows managing PNXRTP and chunk generation
+    default: op
