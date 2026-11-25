@@ -69,6 +69,7 @@ public class PNXRTP extends PluginBase {
     private volatile boolean loadPaused;
     private int targetBiomeId = -1;
     private String activeRegionName = "";
+    private final Set<String> completedRegionNames = ConcurrentHashMap.newKeySet();
     private long quotaWindowStart = System.currentTimeMillis();
     private long quotaRequests;
     private Level generationLevel;
@@ -534,6 +535,9 @@ public class PNXRTP extends PluginBase {
                 ring = side = offset = 0;
                 requestAttempts = acceptedRequests = rejectedRequests = finishedQueueEntries = skippedExistingChunks = 0;
                 pendingChunksByWorld.clear();
+                completedRegionNames.clear();
+                config.setProperty("generator.regions.completed", "");
+                savePluginConfig();
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
@@ -895,6 +899,8 @@ public class PNXRTP extends PluginBase {
             for (String profile : regionProfiles()) {
                 String[] p = profile.split(",", 5);
                 if (p.length == 5 && p[0].equalsIgnoreCase(args[2])) {
+                    completedRegionNames.clear();
+                    config.setProperty("generator.regions.completed", "");
                     activateRegionProfile(p);
                     send(sender, english, "§aАктивирован регион " + p[0] + ". После завершения генератор перейдёт к следующему сохранённому региону.");
                     return;
@@ -965,17 +971,27 @@ public class PNXRTP extends PluginBase {
 
     private boolean advanceRegionProfile() {
         List<String> profiles = regionProfiles();
-        if (profiles.size() < 2 || activeRegionName.isBlank()) return false;
+        if (profiles.isEmpty() || activeRegionName.isBlank()) return false;
+        completedRegionNames.add(activeRegionName);
+        config.setProperty("generator.regions.completed", String.join(",", completedRegionNames));
+        savePluginConfig();
+        int activeIndex = -1;
         for (int i = 0; i < profiles.size(); i++) {
-            String[] current = profiles.get(i).split(",", 5);
-            if (current[0].equalsIgnoreCase(activeRegionName)) {
-                String[] next = profiles.get((i + 1) % profiles.size()).split(",", 5);
-                if (next[0].equalsIgnoreCase(activeRegionName)) return false;
-                activateRegionProfile(next);
+            if (profiles.get(i).split(",", 5)[0].equalsIgnoreCase(activeRegionName)) {
+                activeIndex = i;
+                break;
+            }
+        }
+        if (activeIndex < 0) return false;
+        for (int i = activeIndex + 1; i < profiles.size(); i++) {
+            String[] candidate = profiles.get(i).split(",", 5);
+            if (!completedRegionNames.contains(candidate[0])) {
+                activateRegionProfile(candidate);
                 journal("INFO", "Advanced to next saved region: " + activeRegionName);
                 return true;
             }
         }
+        journal("INFO", "All saved regions have been processed");
         return false;
     }
 
@@ -1390,6 +1406,7 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.region.center-x", "0");
         config.setProperty("generator.region.center-z", "0");
         config.setProperty("generator.regions", "");
+        config.setProperty("generator.regions.completed", "");
         config.setProperty("rtp.cooldown-seconds", String.valueOf(DEFAULT_COOLDOWN_SECONDS));
         config.setProperty("rtp.avoid-player-distance", String.valueOf(DEFAULT_AVOID_PLAYERS));
         config.setProperty("rtp.min-distance", "512");
@@ -1415,6 +1432,9 @@ public class PNXRTP extends PluginBase {
         speed = parseInt(config.getProperty("generator.speed"), 1, 1, 4);
         regionShape = config.getProperty("generator.region.shape", "circle").equalsIgnoreCase("square") ? "square" : "circle";
         activeRegionName = config.getProperty("generator.region.active", "");
+        completedRegionNames.clear();
+        String completed = config.getProperty("generator.regions.completed", "");
+        if (!completed.isBlank()) completedRegionNames.addAll(List.of(completed.split(",")));
         customRegionCenter = Boolean.parseBoolean(config.getProperty("generator.region.custom-center", "false"));
         regionCenterX = parseInt(config.getProperty("generator.region.center-x"), 0, -30000000, 30000000);
         regionCenterZ = parseInt(config.getProperty("generator.region.center-z"), 0, -30000000, 30000000);
