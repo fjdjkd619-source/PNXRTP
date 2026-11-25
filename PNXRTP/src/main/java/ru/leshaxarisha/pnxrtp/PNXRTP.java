@@ -520,6 +520,7 @@ public class PNXRTP extends PluginBase {
             case "schedule" -> configureSchedule(sender, args, english);
             case "biome" -> configureBiome(sender, args, english);
             case "validate" -> validateConfiguration(sender, english);
+            case "exclude" -> configureExclusion(sender, args, english);
             case "history" -> sendRecentEvents(sender, english);
             case "backup" -> createBackup(sender, english);
             case "map" -> {
@@ -534,7 +535,7 @@ public class PNXRTP extends PluginBase {
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
-            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|diagnostics|dashboard|history|backup|map|reset");
+            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|exclude|diagnostics|dashboard|history|backup|map|reset");
         }
     }
 
@@ -1034,6 +1035,39 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§eРегион: §f" + regionShape + ", радиус: " + generationRadius + " блоков.");
         send(sender, english, "§eЦентр: §f" + centerX + ", " + centerZ + (customRegionCenter ? " (custom)" : " (spawn)"));
         send(sender, english, "§7Команда: /rtpgen region <circle|square> [centerX centerZ]");
+    }
+
+    private void configureExclusion(CommandSender sender, String[] args, boolean english) {
+        if (args.length < 3 || !(args[1].equalsIgnoreCase("rtp") || args[1].equalsIgnoreCase("generator"))) {
+            send(sender, english, "§eИспользование: /rtpgen exclude <rtp|generator> <add x1 z1 x2 z2|clear>");
+            return;
+        }
+        String key = args[1].equalsIgnoreCase("rtp") ? "rtp.exclusions" : "generator.exclusions";
+        if (args[2].equalsIgnoreCase("clear")) {
+            config.setProperty(key, "");
+            savePluginConfig();
+            send(sender, english, "§aЗоны исключения очищены: " + args[1]);
+            return;
+        }
+        if (!args[2].equalsIgnoreCase("add") || args.length != 7) {
+            send(sender, english, "§eИспользование: /rtpgen exclude <rtp|generator> add <x1> <z1> <x2> <z2>");
+            return;
+        }
+        try {
+            int x1 = Integer.parseInt(args[3]);
+            int z1 = Integer.parseInt(args[4]);
+            int x2 = Integer.parseInt(args[5]);
+            int z2 = Integer.parseInt(args[6]);
+            if (Math.abs((long)x1) > 30000000L || Math.abs((long)x2) > 30000000L
+                    || Math.abs((long)z1) > 30000000L || Math.abs((long)z2) > 30000000L) throw new NumberFormatException();
+            String existing = config.getProperty(key, "");
+            String zone = x1 + "," + z1 + "," + x2 + "," + z2;
+            config.setProperty(key, existing.isBlank() ? zone : existing + ";" + zone);
+            savePluginConfig();
+            send(sender, english, "§aЗона исключения добавлена для " + args[1] + ".");
+        } catch (NumberFormatException ex) {
+            send(sender, english, "§cКоординаты должны быть целыми числами в диапазоне ±30000000.");
+        }
     }
 
     private void configureBiome(CommandSender sender, String[] args, boolean english) {
