@@ -12,6 +12,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - name: Checkout diagnostic branch
         uses: actions/checkout@v4
@@ -34,13 +35,15 @@ jobs:
           du -sh work/db
 
       - name: Build LevelDB scanner
+        timeout-minutes: 4
         run: |
           cd tools/leveldb-scan
-          mvn -B package dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
+          mvn -B -ntp -Dmaven.wagon.httpconnectionManager.ttlSeconds=20 package org.apache.maven.plugins:maven-dependency-plugin:3.7.1:build-classpath -Dmdep.outputFile=target/classpath.txt
 
       - name: Scan actual LevelDB records
+        timeout-minutes: 2
         run: |
-          java -cp "tools/leveldb-scan/target/classes:$(cat tools/leveldb-scan/target/classpath.txt)" \\
+          java -cp "tools/leveldb-scan/target/classes:$(cat tools/leveldb-scan/target/classpath.txt)" \
             LevelDbChunkScanner "$PWD/work/db" "$PWD/leveldb-report.txt"
           echo "=== REPORT SHA256 ==="
           sha256sum leveldb-report.txt
