@@ -13,7 +13,7 @@ commands:
     permission: pnxrtp.use
   rtpgen:
     description: Manage gradual world generation
-    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|dashboard|history|backup|map|reset>
+    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|diagnostics|dashboard|history|backup|map|reset>
     permission: pnxrtp.admin
 
 permissions:
@@ -22,4 +22,7 @@ permissions:
     default: true
   pnxrtp.admin:
     description: Allows managing PNXRTP and chunk generation
+    default: op
+  pnxrtp.cooldown.bypass:
+    description: Bypasses the RTP cooldown
     default: op
