@@ -574,6 +574,8 @@ public class PNXRTP extends PluginBase {
         paused = false;
         autoPaused = false;
         autoStopped = false;
+        loadPaused = false;
+        schedulePaused = false;
         tickCounter = 0;
         generationStartedAt = System.currentTimeMillis();
         sessionFinishedBaseline = finishedQueueEntries;
@@ -925,6 +927,8 @@ public class PNXRTP extends PluginBase {
                 activeRegionName = "";
                 config.setProperty("generator.region.active", "");
             }
+            completedRegionNames.removeIf(name -> name.equalsIgnoreCase(args[2]));
+            config.setProperty("generator.regions.completed", String.join(",", completedRegionNames));
             savePluginConfig();
             send(sender, english, "§aРегион удалён.");
             return;
@@ -1197,6 +1201,12 @@ public class PNXRTP extends PluginBase {
             errors++;
             send(sender, english, "§cОшибка: ID целевого биома вне диапазона.");
         }
+        float tpsPause = parseFloat(config.getProperty("generator.tps.pause-below", "14.0"), 14.0f, 1.0f, 19.9f);
+        float tpsResume = parseFloat(config.getProperty("generator.tps.resume-above", "18.0"), 18.0f, 1.0f, 20.0f);
+        if (tpsResume <= tpsPause) {
+            errors++;
+            send(sender, english, "§cОшибка: generator.tps.resume-above должен быть выше pause-below.");
+        }
         if (getServer().getTicksPerSecondAverage() <= 0) {
             warnings++;
             send(sender, english, "§eПредупреждение: сервер пока не предоставил корректное значение TPS.");
@@ -1439,6 +1449,12 @@ public class PNXRTP extends PluginBase {
         regionCenterX = parseInt(config.getProperty("generator.region.center-x"), 0, -30000000, 30000000);
         regionCenterZ = parseInt(config.getProperty("generator.region.center-z"), 0, -30000000, 30000000);
         targetBiomeId = parseInt(config.getProperty("rtp.target-biome-id", "-1"), -1, -1, 65535);
+        if (!activeRegionName.isBlank() && regionProfiles().stream().noneMatch(profile -> profile.split(",", 5)[0].equalsIgnoreCase(activeRegionName))) {
+            activeRegionName = "";
+            customRegionCenter = false;
+            config.setProperty("generator.region.active", "");
+            config.setProperty("generator.region.custom-center", "false");
+        }
         savePluginConfig();
     }
 
