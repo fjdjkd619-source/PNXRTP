@@ -107,7 +107,7 @@ public class PNXRTP extends PluginBase {
         loadConfig();
         loadProgress();
         loadHistory();
-        getLogger().info("PNXRTP 1.4.2 enabled for PowerNukkitX API 3.0.6");
+        getLogger().info("PNXRTP 1.5.0 enabled for PowerNukkitX API 3.0.6");
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
