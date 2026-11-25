@@ -49,8 +49,8 @@ public final class ChunkDiag extends PluginBase {
         }
 
         if (mode.equals("here")) {
-            int cx = ((int) Math.floor(player.getX())) >> 4;
-            int cz = ((int) Math.floor(player.getZ())) >> 4;
+            int cx = player.getFloorX() >> 4;
+            int cz = player.getFloorZ() >> 4;
             inspectOne(sender, level, cx, cz);
             return true;
         }
