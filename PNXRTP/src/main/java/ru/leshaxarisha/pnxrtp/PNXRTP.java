@@ -628,12 +628,12 @@ public class PNXRTP extends PluginBase {
                 if (maxText.equals("max")) continue;
                 long used = Long.parseLong(usedText);
                 long max = Long.parseLong(maxText);
-                if (max > 0 && max < (1L << 60)) return (int) Math.min(100, used * 100L / max);
+                if (max > 0 && max < (1L << 60)) return (int) Math.min(100.0, ((double) used / (double) max) * 100.0);
             } catch (Exception ignored) { }
         }
         Runtime runtime = Runtime.getRuntime();
         long used = runtime.totalMemory() - runtime.freeMemory();
-        return (int) Math.min(100, used * 100L / runtime.maxMemory());
+        return (int) Math.min(100.0, ((double) used / (double) runtime.maxMemory()) * 100.0);
     }
 
     private void loadConfig() {
@@ -702,7 +702,9 @@ public class PNXRTP extends PluginBase {
             if (savedSkipped != null) skippedExistingChunks = Math.max(0, Long.parseLong(savedSkipped));
             String savedFinished = in.readLine();
             if (savedFinished != null) finishedQueueEntries = Math.max(0, Long.parseLong(savedFinished));
-            if (ring < 0 || side < 0 || side > 3 || offset < 0 || (ring > 0 && offset >= ring * 2)) {
+            if (ring < 0 || side < 0 || side > 3 || offset < 0 || (ring > 0 && offset >= ring * 2)
+                    || requestAttempts < 0 || acceptedRequests < 0 || rejectedRequests < 0
+                    || skippedExistingChunks < 0 || finishedQueueEntries < 0) {
                 throw new IllegalArgumentException("Invalid saved spiral cursor");
             }
         } catch (Exception e) {
