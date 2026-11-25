@@ -27,6 +27,8 @@ import java.util.Set;
  * that is still locked by a running PowerNukkitX server.
  */
 public final class OfflineChunkCleaner {
+    // Exact per-chunk record suffixes from PowerNukkitX 3.0.6 LevelDBKeyUtil.
+    // '/' (subchunk) and '}' (PNX light) have an extra section-Y byte.
     private static final Set<Integer> CHUNK_RECORD_TYPES = Set.of(
             (int) '-', (int) '+', (int) ',', (int) '.', (int) '/',
             (int) '0', (int) '1', (int) '2', (int) '3', (int) '4',
@@ -145,7 +147,11 @@ public final class OfflineChunkCleaner {
         if (key.length != 9 && key.length != 10) return false;
         int type = key[8] & 0xff;
         if (!CHUNK_RECORD_TYPES.contains(type)) return false;
-        return key.length != 10 || type == '/';
+
+        // Ordinary chunk records are 8 coordinate bytes + 1 type byte.
+        // Both subchunk data ('/') and PNX_LIGHT ('}') add a section-Y byte.
+        boolean sectionRecord = type == '/' || type == '}';
+        return sectionRecord ? key.length == 10 : key.length == 9;
     }
 
     private static boolean isProtected(int x, int z, int centerX, int centerZ) {
