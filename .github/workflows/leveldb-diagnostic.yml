@@ -1,4 +1,5 @@
 name: LevelDB Diagnostic
+# Scanner uses the same HiveMC LevelDB implementation as PNX.
 
 on:
   workflow_dispatch:
