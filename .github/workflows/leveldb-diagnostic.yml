@@ -1,0 +1,35 @@
+name: LevelDB Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Extract database
+        run: |
+          unzip -q leveldb-backup.zip -d extracted
+          find extracted -maxdepth 3 -type f | sort
+
+      - name: Inspect database files
+        run: |
+          echo "=== DATABASE FILES ===" > leveldb-report.txt
+          find extracted -type f -printf '%p %s bytes\n' >> leveldb-report.txt
+          echo "=== DATABASE METADATA ===" >> leveldb-report.txt
+          cat extracted/db/CURRENT >> leveldb-report.txt
+          echo >> leveldb-report.txt
+          echo "=== FILE HASHES ===" >> leveldb-report.txt
+          sha256sum extracted/db/* >> leveldb-report.txt
+
+      - name: Upload diagnostic report
+        uses: actions/upload-artifact@v4
+        with:
+          name: leveldb-report
+          path: leveldb-report.txt
