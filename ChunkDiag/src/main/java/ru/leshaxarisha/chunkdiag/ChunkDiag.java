@@ -145,16 +145,13 @@ public final class ChunkDiag extends PluginBase {
             IChunk chunk = scan.provider.getLoadedChunk(x, z);
             boolean wasLoaded = chunk != null;
             if (chunk == null) {
-                // Do not create terrain: only load coordinates the provider already knows as generated.
-                if (!scan.provider.isChunkGenerated(x, z)) {
-                    scan.report.add("chunk=" + x + "," + z + " storedGenerated=false status=NOT_PRESENT");
-                    scan.notPresent++;
-                    return;
-                }
+                // LevelDBProvider.isChunkGenerated() is an index-level shortcut in this PNX version.
+                // loadChunk(..., false) is the authoritative non-creating read: it returns false
+                // when no stored chunk exists and never creates terrain.
                 boolean requested = scan.provider.loadChunk(x, z, false);
                 chunk = scan.provider.getLoadedChunk(x, z);
                 if (!requested || chunk == null) {
-                    scan.report.add("chunk=" + x + "," + z + " storedGenerated=true status=LOAD_NOT_CONFIRMED");
+                    scan.report.add("chunk=" + x + "," + z + " status=NOT_STORED_OR_LOAD_NOT_CONFIRMED");
                     scan.loadFailed++;
                     return;
                 }
