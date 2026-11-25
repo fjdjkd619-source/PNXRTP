@@ -221,7 +221,7 @@ public class PNXRTP extends PluginBase {
                 {"Не удалось прочитать журнал событий.", "Could not read the event log."}, {"Резервная копия создана. Файлов:", "Backup created. Files:"},
                 {"Не удалось создать резервную копию:", "Could not create backup:"}, {"Сначала выбери загруженный мир: /rtpgen world <имя>.", "Select a loaded world first: /rtpgen world <name>."},
                 {"Индекс мира ещё строится. Повтори /rtpgen map позже.", "World index is still building. Run /rtpgen map again later."},
-                {"Карта чанков экспортирована:", "Chunk map exported:"}, {"Не удалось экспортировать карту чанков.", "Could not export the chunk map."},
+                {"Карта чанков экспортирована:", "Chunk map exported:"}, {"Не удалось экспортировать карту чанков.", "Could not export the chunk map."}, {"Сначала останови генератор перед изменением региона.", "Stop the generator before changing its region."},
                 {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"}
         };
         String translated = message;
@@ -686,6 +686,10 @@ public class PNXRTP extends PluginBase {
     }
 
     private void setRegion(CommandSender sender, String[] args, boolean english) {
+        if (generating) {
+            send(sender, english, "§cСначала останови генератор перед изменением региона.");
+            return;
+        }
         if (args.length < 2) {
             sendRegionPreview(sender, english);
             return;
@@ -717,7 +721,10 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.region.center-x", String.valueOf(regionCenterX));
         config.setProperty("generator.region.center-z", String.valueOf(regionCenterZ));
         savePluginConfig();
+        ring = side = offset = 0;
         saveProgress();
+        journal("INFO", "Generation region changed: shape=" + regionShape + ", customCenter=" + customRegionCenter
+                + ", center=" + regionCenterX + "," + regionCenterZ);
         send(sender, english, "§aРегион генерации обновлён: " + regionShape + ".");
         sendRegionPreview(sender, english);
     }
@@ -750,10 +757,16 @@ public class PNXRTP extends PluginBase {
             return;
         }
         try {
-            List<String> lines = Files.readAllLines(eventFile.toPath(), StandardCharsets.UTF_8);
+            Deque<String> recent = new ArrayDeque<>();
+            try (var reader = Files.newBufferedReader(eventFile.toPath(), StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (recent.size() == 10) recent.removeFirst();
+                    recent.addLast(line);
+                }
+            }
             send(sender, english, "§e----- Последние события -----");
-            int start = Math.max(0, lines.size() - 10);
-            for (int i = start; i < lines.size(); i++) sender.sendMessage("§7" + lines.get(i));
+            for (String line : recent) sender.sendMessage("§7" + line);
         } catch (IOException error) {
             send(sender, english, "§cНе удалось прочитать журнал событий.");
             journal("ERROR", "Could not read event journal: " + error.getMessage());
