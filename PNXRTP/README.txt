@@ -44,15 +44,15 @@ Administration and diagnostics
 - /rtpgen validate checks basic configuration ranges and schedule syntax.
 - /rtpgen biome <ID|here|off> selects an exact numeric biome ID for RTP; here reads the biome at the admin's current position; -1/off allows any biome. Per-world override: world.<folder>.target-biome-id.
 - /rtpgen autostart on|off controls optional generator continuation after a server restart; it is disabled by default.
-- /rtpgen map preview renders a 21x21 text map around the active generation center (# saved, + pending, . not indexed). /rtpgen map still exports CSV.
+- /rtpgen map preview renders a 21x21 text map around the active generation center (# indexed, + pending, . not indexed). /rtpgen map still exports CSV.
 - The generator now reduces its effective request rate when the observed in-flight chunk queue grows (12+ pending: cap speed at 2; 24+: cap at 1), in addition to the existing memory-based slowdown.
 - /rtpgen history displays the last ten event-log entries.
 - /rtpgen backup creates a timestamped backup of config, progress, RTP history, and events.log under the plugin data folder.
-- /rtpgen map exports the saved-chunk index and currently pending chunk observations to a CSV file in the plugin data folder. This is a data export, not an in-game map renderer.
+- /rtpgen map exports the saved-chunk index and currently pending chunk observations to a CSV file in the plugin data folder. This is a CSV data export; the in-game preview is a compact text map, not a graphical map.
 - events.log records plugin lifecycle and generator events.
 - Memory reads cgroup v2/v1 when available; otherwise it falls back to JVM heap usage. The fallback is not total host/container memory.
-- The index is a startup snapshot. Queue completion is not proof of durable disk save; pending entries are not serialized.
-- Biome filtering uses the numeric biome ID returned by Level.getBiomeId(x,y,z); biome names are not resolved by this command.
+- The index is a startup snapshot. Newly completed queue entries are added to the in-memory index, but queue completion is not proof of durable disk save; pending entries are not serialized.
+- Biome filtering uses the numeric biome ID returned by Level.getBiomeId(x,y,z); biome names are not resolved by this command. Use /rtpgen biome here while standing in the desired biome to read and select its numeric ID.
 - Exclusion zones are rectangular block-coordinate regions stored in config.properties. Global keys are rtp.exclusions and generator.exclusions; RTP supports world.<folder>.rtp-exclusions overrides.
 - Named region profiles are stored in generator.regions. The active profile is stored in generator.region.active.
 
