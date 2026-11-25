@@ -1,4 +1,6 @@
-PNXRTP 1.4.1 - PowerNukkitX API 3.0.6
+PNXRTP 1.4.2 - PowerNukkitX API 3.0.6
+
+1.4.2 RTP fix: uses the PNX height-map Y coordinate directly. The previous extra -1 treated the surface block as the player's feet block, rejecting otherwise safe locations.
 
 1.4.1 RTP fix: searches a filtered set of indexed chunks instead of only 40 random samples, inspects multiple candidate positions per chunk, and records useful failure diagnostics. RTP still never generates new chunks.
 
