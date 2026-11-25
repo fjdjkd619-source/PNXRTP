@@ -29,6 +29,12 @@ jobs:
           unzip -q leveldb-backup.zip -d extracted
           mkdir -p work
           cp -a extracted/db work/db
+          # IQ80 LevelDB 0.12 expects the legacy .sst table suffix.
+          # PNX stores identical table files with .ldb; add aliases only in the disposable copy.
+          for file in work/db/*.ldb; do
+            [ -e "$file" ] || continue
+            cp "$file" "${file%.ldb}.sst"
+          done
           echo "=== ORIGINAL ARCHIVE DATABASE FILES ==="
           find extracted/db -maxdepth 1 -type f -printf '%f %s bytes\\n' | sort
           echo "=== WORKING COPY ==="
