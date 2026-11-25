@@ -1580,13 +1580,13 @@ public class PNXRTP extends PluginBase {
 
         int centerX;
         int centerZ;
-        boolean hasSnapshot = config.containsKey("maintenance.protected-center-x")
-                && config.containsKey("maintenance.protected-center-z")
-                && config.getProperty("maintenance.protected-world", "").equals(target.getFolderName());
+        String maintenancePrefix = "maintenance." + worldKey(target) + ".";
+        boolean hasSnapshot = config.containsKey(maintenancePrefix + "protected-center-x")
+                && config.containsKey(maintenancePrefix + "protected-center-z");
         if (hasSnapshot) {
             try {
-                centerX = Integer.parseInt(config.getProperty("maintenance.protected-center-x"));
-                centerZ = Integer.parseInt(config.getProperty("maintenance.protected-center-z"));
+                centerX = Integer.parseInt(config.getProperty(maintenancePrefix + "protected-center-x"));
+                centerZ = Integer.parseInt(config.getProperty(maintenancePrefix + "protected-center-z"));
             } catch (NumberFormatException malformed) {
                 send(sender, english, "§cСохранённый центр защищённой зоны повреждён. Исправь config.properties вручную.");
                 return;
@@ -1595,9 +1595,8 @@ public class PNXRTP extends PluginBase {
             Position spawn = target.getSpawnLocation();
             centerX = spawn.getFloorX() >> 4;
             centerZ = spawn.getFloorZ() >> 4;
-            config.setProperty("maintenance.protected-world", target.getFolderName());
-            config.setProperty("maintenance.protected-center-x", Integer.toString(centerX));
-            config.setProperty("maintenance.protected-center-z", Integer.toString(centerZ));
+            config.setProperty(maintenancePrefix + "protected-center-x", Integer.toString(centerX));
+            config.setProperty(maintenancePrefix + "protected-center-z", Integer.toString(centerZ));
             savePluginConfig();
             journal("INFO", "Protected cleanup center snapshotted for " + target.getFolderName()
                     + ": chunk " + centerX + "," + centerZ);
