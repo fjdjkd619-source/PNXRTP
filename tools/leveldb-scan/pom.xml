@@ -10,11 +10,22 @@
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
+  <repositories>
+    <repository>
+      <id>powernukkitx-releases</id>
+      <url>https://repo.powernukkitx.org/releases</url>
+    </repository>
+  </repositories>
   <dependencies>
     <dependency>
-      <groupId>org.iq80.leveldb</groupId>
+      <groupId>com.hivemc.leveldb</groupId>
       <artifactId>leveldb</artifactId>
-      <version>0.12</version>
+      <version>1.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.hivemc.leveldb</groupId>
+      <artifactId>leveldb-api</artifactId>
+      <version>1.1.0</version>
     </dependency>
     <dependency>
       <groupId>org.xerial.snappy</groupId>
