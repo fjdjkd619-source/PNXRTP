@@ -127,25 +127,25 @@ public class PNXRTP extends PluginBase {
 
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission("pnxrtp.admin")) {
-                sender.sendMessage("§cНедостаточно прав. Требуется pnxrtp.admin.");
+                send(sender, english, "§cНедостаточно прав. Требуется pnxrtp.admin.");
                 return true;
             }
             loadConfig();
             journal("INFO", "Configuration reloaded");
-            sender.sendMessage("§aКонфигурация PNXRTP перезагружена.");
+            send(sender, english, "§aКонфигурация PNXRTP перезагружена.");
             return true;
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("status")) {
             WorldIndex index = sender instanceof Player p ? indexes.get(worldKey(p.getLevel())) : null;
-            sender.sendMessage("§e----- PNXRTP -----");
-            sender.sendMessage("§eИндекс мира: " + (index == null ? "§cне запущен" : index.building ? "§eстроится" : "§aготов"));
-            if (index != null) sender.sendMessage("§eСохранённых чанков в индексе: §f" + index.chunks.size());
-            sender.sendMessage("§eГенератор: " + (generating ? paused ? autoPaused ? "§6автопауза" : "§eпауза" : "§aработает" : autoStopped ? "§6остановлен автоматически" : "§cостановлен"));
-            sender.sendMessage("§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
+            send(sender, english, "§e----- PNXRTP -----");
+            send(sender, english, "§eИндекс мира: " + (index == null ? "§cне запущен" : index.building ? "§eстроится" : "§aготов"));
+            if (index != null) send(sender, english, "§eСохранённых чанков в индексе: §f" + index.chunks.size());
+            send(sender, english, "§eГенератор: " + (generating ? paused ? autoPaused ? "§6автопауза" : "§eпауза" : "§aработает" : autoStopped ? "§6остановлен автоматически" : "§cостановлен"));
+            send(sender, english, "§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
             return true;
         }
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("§cЭту команду может использовать только игрок.");
+            send(sender, english, "§cЭту команду может использовать только игрок.");
             return true;
         }
         performRtp(player, english);
@@ -222,24 +222,24 @@ public class PNXRTP extends PluginBase {
         }
         String world = worldKey(level);
         if (!worldEnabled(world, "rtp-enabled", true)) {
-            player.sendMessage("§cRTP отключён в этом мире.");
+            send(player, english, "§cRTP отключён в этом мире.");
             return;
         }
         long now = System.currentTimeMillis();
         long next = cooldowns.getOrDefault(player.getUniqueId(), 0L);
         if (now < next) {
-            player.sendMessage("§eПодожди ещё " + ((next - now + 999) / 1000) + " сек. перед следующим RTP.");
+            send(player, english, "§eПодожди ещё " + ((next - now + 999) / 1000) + " сек. перед следующим RTP.");
             return;
         }
         WorldIndex index = indexes.get(world);
         if (index == null || index.building) {
             buildIndex(level);
-            player.sendMessage("§eИндекс сохранённых чанков ещё строится. Попробуй /rtp немного позже.");
+            send(player, english, "§eИндекс сохранённых чанков ещё строится. Попробуй /rtp немного позже.");
             return;
         }
         List<Long> chunks = index.chunks;
         if (chunks.isEmpty()) {
-            player.sendMessage("§cВ этом мире пока не найдено сохранённых чанков.");
+            send(player, english, "§cВ этом мире пока не найдено сохранённых чанков.");
             return;
         }
 
@@ -279,13 +279,13 @@ public class PNXRTP extends PluginBase {
                 }
                 cooldowns.put(player.getUniqueId(), now + cooldownSeconds(world) * 1000L);
                 saveHistory();
-                player.sendMessage("§aТы телепортирован в случайное безопасное место!");
+                send(player, english, "§aТы телепортирован в случайное безопасное место!");
             } else {
-                player.sendMessage("§cТелепортация не удалась.");
+                send(player, english, "§cТелепортация не удалась.");
             }
             return;
         }
-        player.sendMessage("§cНе найдено безопасное место на нужном расстоянии. Возможно, территория мира слишком мала.");
+        send(player, english, "§cНе найдено безопасное место на нужном расстоянии. Возможно, территория мира слишком мала.");
     }
 
     private boolean farEnoughFromHistory(int x, int z, Deque<SavedPoint> points) {
@@ -368,24 +368,24 @@ public class PNXRTP extends PluginBase {
         switch (args[0].toLowerCase(Locale.ROOT)) {
             case "start" -> startGenerator(sender, english);
             case "stop" -> {
-                if (!generating) { sender.sendMessage("§eГенератор уже остановлен."); return; }
+                if (!generating) { send(sender, english, "§eГенератор уже остановлен."); return; }
                 stopGenerator(false);
-                sender.sendMessage("§cГенерация остановлена. Прогресс сохранён.");
+                send(sender, english, "§cГенерация остановлена. Прогресс сохранён.");
             }
             case "pause" -> {
-                if (!generating) { sender.sendMessage("§eГенератор не запущен."); return; }
+                if (!generating) { send(sender, english, "§eГенератор не запущен."); return; }
                 paused = true;
                 autoPaused = false;
                 journal("INFO", "Generation manually paused");
                 saveProgress();
-                sender.sendMessage("§eГенерация приостановлена.");
+                send(sender, english, "§eГенерация приостановлена.");
             }
             case "resume" -> {
                 if (!generating) { startGenerator(sender, english); return; }
                 paused = false;
                 autoPaused = false;
                 journal("INFO", "Generation manually resumed");
-                sender.sendMessage("§aГенерация продолжена.");
+                send(sender, english, "§aГенерация продолжена.");
             }
             case "radius" -> setRadius(sender, args, english);
             case "speed" -> setSpeed(sender, args, english);
@@ -396,34 +396,34 @@ public class PNXRTP extends PluginBase {
                 requestAttempts = acceptedRequests = rejectedRequests = finishedQueueEntries = skippedExistingChunks = 0;
                 pendingChunks.clear();
                 saveProgress();
-                sender.sendMessage("§aПрогресс генератора сброшен.");
+                send(sender, english, "§aПрогресс генератора сброшен.");
             }
-            default -> sender.sendMessage("§eКоманды: /rtpgen start|stop|pause|resume|status|radius <число>|speed <1-4>|world|reset");
+            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius <число>|speed <1-4>|world|reset");
         }
     }
 
     private void startGenerator(CommandSender sender, boolean english) {
         if (generating) {
-            if (paused) { paused = false; autoPaused = false; sender.sendMessage("§aГенерация продолжена."); }
-            else sender.sendMessage("§eГенератор уже работает.");
+            if (paused) { paused = false; autoPaused = false; send(sender, english, "§aГенерация продолжена."); }
+            else send(sender, english, "§eГенератор уже работает.");
             return;
         }
         generationLevel = resolveGeneratorWorld();
-        if (generationLevel == null) { sender.sendMessage("§cВыбранный мир не загружен или не найден. Используй /rtpgen world <имя>."); return; }
+        if (generationLevel == null) { send(sender, english, "§cВыбранный мир не загружен или не найден. Используй /rtpgen world <имя>."); return; }
         buildIndex(generationLevel);
         generationRadius = intConfig(worldKey(generationLevel), "generator-radius", generationRadius, 100, MAX_GENERATION_RADIUS);
         speed = intConfig(worldKey(generationLevel), "generator-speed", speed, 1, 4);
         if (!worldEnabled(worldKey(generationLevel), "generator-enabled", true)) {
-            sender.sendMessage("§cГенератор отключён для этого мира в конфигурации.");
+            send(sender, english, "§cГенератор отключён для этого мира в конфигурации.");
             return;
         }
         int memory = memoryPercent();
         if (memory >= 85) {
-            sender.sendMessage("§cПамять уже выше 85%. Сначала снизь нагрузку или перезапусти сервер.");
+            send(sender, english, "§cПамять уже выше 85%. Сначала снизь нагрузку или перезапусти сервер.");
             return;
         }
         if (!generatorTaskRunning.compareAndSet(false, true)) {
-            sender.sendMessage("§cЗадача генератора уже зарегистрирована. Выполни /rtpgen stop и попробуй снова.");
+            send(sender, english, "§cЗадача генератора уже зарегистрирована. Выполни /rtpgen stop и попробуй снова.");
             journal("ERROR", "Start refused: scheduler task flag was already set");
             return;
         }
@@ -440,11 +440,11 @@ public class PNXRTP extends PluginBase {
             generatorTaskRunning.set(false);
             journal("ERROR", "Could not schedule generator task: " + error.getClass().getSimpleName());
             getLogger().error("PNXRTP: could not schedule generator task", error);
-            sender.sendMessage("§cНе удалось запустить задачу генератора. Проверь журнал сервера.");
+            send(sender, english, "§cНе удалось запустить задачу генератора. Проверь журнал сервера.");
             return;
         }
         saveProgress();
-        sender.sendMessage("§aГенерация запущена. Безопасный режим: " + speed + " запрос(а) на интервал.");
+        send(sender, english, "§aГенерация запущена. Безопасный режим: " + speed + " запрос(а) на интервал.");
     }
 
     private void stopGenerator(boolean automatic) {
@@ -596,8 +596,8 @@ public class PNXRTP extends PluginBase {
     private void selectGeneratorWorld(CommandSender sender, String[] args, boolean english) {
         if (args.length < 2) {
             Level selected = generationLevel != null ? generationLevel : resolveGeneratorWorld();
-            sender.sendMessage("§eМир генератора: §f" + (selected == null ? "не найден" : worldKey(selected)));
-            sender.sendMessage("§7Выбор: /rtpgen world <имя мира>");
+            send(sender, english, "§eМир генератора: §f" + (selected == null ? "не найден" : worldKey(selected)));
+            send(sender, english, "§7Выбор: /rtpgen world <имя мира>");
             return;
         }
         String requested = args[1];
@@ -611,7 +611,7 @@ public class PNXRTP extends PluginBase {
         }
         if (found == null) found = getServer().getLevelByName(requested);
         if (found == null) {
-            sender.sendMessage("§cМир не найден среди загруженных. Проверь имя мира.");
+            send(sender, english, "§cМир не найден среди загруженных. Проверь имя мира.");
             return;
         }
         if (generating) stopGenerator(false);
@@ -621,7 +621,7 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.world", found.getFolderName());
         savePluginConfig();
         saveProgress();
-        sender.sendMessage("§aМир генератора выбран: §f" + worldKey(found));
+        send(sender, english, "§aМир генератора выбран: §f" + worldKey(found));
     }
 
     private Level resolveGeneratorWorld() {
@@ -635,7 +635,7 @@ public class PNXRTP extends PluginBase {
     }
 
     private void setRadius(CommandSender sender, String[] args, boolean english) {
-        if (args.length < 2) { sender.sendMessage("§eИспользование: /rtpgen radius <100-10000>"); return; }
+        if (args.length < 2) { send(sender, english, "§eИспользование: /rtpgen radius <100-10000>"); return; }
         try {
             int value = Integer.parseInt(args[1]);
             if (value < 100 || value > MAX_GENERATION_RADIUS) throw new NumberFormatException();
@@ -644,12 +644,12 @@ public class PNXRTP extends PluginBase {
             if (generationLevel != null) config.setProperty("world." + worldKey(generationLevel) + ".generator-radius", String.valueOf(value));
             savePluginConfig();
             saveProgress();
-            sender.sendMessage("§aРадиус генерации: " + value + " блоков.");
-        } catch (NumberFormatException e) { sender.sendMessage("§cУкажи число от 100 до 10000."); }
+            send(sender, english, "§aРадиус генерации: " + value + " блоков.");
+        } catch (NumberFormatException e) { send(sender, english, "§cУкажи число от 100 до 10000."); }
     }
 
     private void setSpeed(CommandSender sender, String[] args, boolean english) {
-        if (args.length < 2) { sender.sendMessage("§eИспользование: /rtpgen speed <1-4>"); return; }
+        if (args.length < 2) { send(sender, english, "§eИспользование: /rtpgen speed <1-4>"); return; }
         try {
             int value = Integer.parseInt(args[1]);
             if (value < 1 || value > 4) throw new NumberFormatException();
@@ -657,25 +657,25 @@ public class PNXRTP extends PluginBase {
             config.setProperty("generator.speed", String.valueOf(value));
             if (generationLevel != null) config.setProperty("world." + worldKey(generationLevel) + ".generator-speed", String.valueOf(value));
             savePluginConfig();
-            sender.sendMessage("§aСкорость генератора установлена: " + value + ". Чем выше число, тем чаще запросы.");
-        } catch (NumberFormatException e) { sender.sendMessage("§cУкажи число от 1 до 4."); }
+            send(sender, english, "§aСкорость генератора установлена: " + value + ". Чем выше число, тем чаще запросы.");
+        } catch (NumberFormatException e) { send(sender, english, "§cУкажи число от 1 до 4."); }
     }
 
     private void sendGeneratorStatus(CommandSender sender, boolean english) {
-        sender.sendMessage("§e----- RTPGen -----");
-        sender.sendMessage("§eСтатус: " + (generating ? paused ? autoPaused ? "§6Автопауза" : "§eПауза" : "§aРаботает" : autoStopped ? "§6Остановлен автоматически" : "§cОстановлен"));
-        sender.sendMessage("§eМир: §f" + (generationLevel == null ? getServer().getDefaultLevel() == null ? "нет" : worldKey(getServer().getDefaultLevel()) : worldKey(generationLevel)));
-        sender.sendMessage("§eРадиус: §f" + generationRadius + " блоков");
-        sender.sendMessage("§eСкорость: §f" + speed + " (1-4)");
-        sender.sendMessage("§eПропущено существующих чанков: §f" + skippedExistingChunks);
-        sender.sendMessage("§eПозиция спирали: §fкольцо " + ring + ", сторона " + side + ", смещение " + offset);
-        sender.sendMessage("§eПопыток запросов: §f" + requestAttempts);
-        sender.sendMessage("§eПринято очередью: §f" + acceptedRequests);
-        sender.sendMessage("§eОтклонено/не подтверждено: §f" + rejectedRequests);
-        sender.sendMessage("§eВ обработке по наблюдению: §f" + pendingChunks.size());
-        sender.sendMessage("§eВышли из очереди (завершение не гарантирует сохранение): §f" + finishedQueueEntries);
-        sender.sendMessage("§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
-        sender.sendMessage("§7Порог автопаузы: " + config.getProperty("generator.memory.pause", "75") + "%, автопродолжения: " + config.getProperty("generator.memory.resume", "60") + "%, остановки: " + config.getProperty("generator.memory.stop", "85") + "%");
+        send(sender, english, "§e----- RTPGen -----");
+        send(sender, english, "§eСтатус: " + (generating ? paused ? autoPaused ? "§6Автопауза" : "§eПауза" : "§aРаботает" : autoStopped ? "§6Остановлен автоматически" : "§cОстановлен"));
+        send(sender, english, "§eМир: §f" + (generationLevel == null ? getServer().getDefaultLevel() == null ? "нет" : worldKey(getServer().getDefaultLevel()) : worldKey(generationLevel)));
+        send(sender, english, "§eРадиус: §f" + generationRadius + " блоков");
+        send(sender, english, "§eСкорость: §f" + speed + " (1-4)");
+        send(sender, english, "§eПропущено существующих чанков: §f" + skippedExistingChunks);
+        send(sender, english, "§eПозиция спирали: §fкольцо " + ring + ", сторона " + side + ", смещение " + offset);
+        send(sender, english, "§eПопыток запросов: §f" + requestAttempts);
+        send(sender, english, "§eПринято очередью: §f" + acceptedRequests);
+        send(sender, english, "§eОтклонено/не подтверждено: §f" + rejectedRequests);
+        send(sender, english, "§eВ обработке по наблюдению: §f" + pendingChunks.size());
+        send(sender, english, "§eВышли из очереди (завершение не гарантирует сохранение): §f" + finishedQueueEntries);
+        send(sender, english, "§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
+        send(sender, english, "§7Порог автопаузы: " + config.getProperty("generator.memory.pause", "75") + "%, автопродолжения: " + config.getProperty("generator.memory.resume", "60") + "%, остановки: " + config.getProperty("generator.memory.stop", "85") + "%");
     }
 
     private int memoryPercent() {
