@@ -176,7 +176,8 @@ public class PNXRTP extends PluginBase {
             return true;
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("status")) {
-            WorldIndex index = sender instanceof Player p ? indexes.get(worldKey(p.getLevel())) : null;
+            Level statusLevel = sender instanceof Player p ? p.getLevel() : getServer().getDefaultLevel();
+            WorldIndex index = statusLevel == null ? null : indexes.get(worldKey(statusLevel));
             send(sender, english, "§e----- PNXRTP -----");
             send(sender, english, "§eИндекс мира: " + (index == null ? "§cне запущен" : index.building ? "§eстроится" : index.failure != null ? "§cошибка" : index.initialized ? "§aготов" : "§eожидание"));
             if (index != null) send(sender, english, "§eСохранённых чанков в индексе: §f" + index.chunks.size());
@@ -315,6 +316,8 @@ public class PNXRTP extends PluginBase {
                 {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."},
                 {"Индекс этого мира уже строится.", "The index for this world is already being built."},
                 {"Перестроение индекса сохранённых чанков запущено:", "Saved-chunk index rebuild started:"},
+                {"ошибка", "error"}, {"ожидание", "pending"},
+                {"Не удалось прочитать базу мира при построении индекса. Администратор может выполнить /rtp reindex.", "Could not read the world database while building the index. An administrator can run /rtp reindex."},
                 {"Ошибка: начало и конец расписания не должны совпадать.", "Error: schedule start and end must not be equal."}
         };
         // Replace longer phrases first so short fragments (for example, "не найден")
@@ -775,6 +778,12 @@ public class PNXRTP extends PluginBase {
 
         WorldIndex index = indexes.get(worldKey(generationLevel));
         if (index == null || index.building) return;
+        if (index.failure != null) {
+            journal("ERROR", "Generation stopped because the saved-chunk index failed for " + worldKey(generationLevel));
+            getLogger().error("PNXRTP: generation stopped; saved-chunk index is unavailable. Run /rtp reindex after resolving the database issue.");
+            stopGenerator(true);
+            return;
+        }
         int maxRing = (generationRadius + 15) / 16;
         Position spawn = generationLevel.getSpawnLocation();
         int centerX = (customRegionCenter ? regionCenterX : spawn.getFloorX()) >> 4;
@@ -1421,12 +1430,13 @@ public class PNXRTP extends PluginBase {
     }
 
     private void sendDiagnostics(CommandSender sender, boolean english) {
-        WorldIndex index = generationLevel == null ? null : indexes.get(worldKey(generationLevel));
+        Level diagnosticLevel = generationLevel == null ? resolveGeneratorWorld() : generationLevel;
+        WorldIndex index = diagnosticLevel == null ? null : indexes.get(worldKey(diagnosticLevel));
         send(sender, english, "§e----- Диагностика PNXRTP -----");
         send(sender, english, "§eИспользование памяти: §f" + memoryPercent() + "%");
         send(sender, english, "§eФлаг задачи генератора: §f" + generatorTaskRunning.get());
         send(sender, english, "§eОжидающие чанки: §f" + pendingCount());
-        send(sender, english, "§eИндекс мира: §f" + (index == null ? "отсутствует" : index.building ? "строится" : "готов"));
+        send(sender, english, "§eИндекс мира: §f" + (index == null ? "отсутствует" : index.building ? "строится" : index.failure != null ? "ошибка" : index.initialized ? "готов" : "ожидание"));
         send(sender, english, "§eЧанков в индексе: §f" + (index == null ? 0 : index.chunks.size()));
         send(sender, english, "§eTPS средний: §f" + String.format(Locale.ROOT, "%.2f", getServer().getTicksPerSecondAverage()));
         send(sender, english, "§eНагрузка тиков: §f" + String.format(Locale.ROOT, "%.1f%%", getServer().getTickUsageAverage()));
