@@ -110,6 +110,9 @@ public class PNXRTP extends PluginBase {
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
+        if (Boolean.parseBoolean(config.getProperty("generator.auto-start", "false"))) {
+            startGenerator(getServer().getConsoleSender(), false);
+        }
     }
 
     @Override
@@ -250,6 +253,8 @@ public class PNXRTP extends PluginBase {
                 {"Укажи время начала и окончания: /rtpgen schedule <HH:mm> <HH:mm>", "Provide start and end time: /rtpgen schedule <HH:mm> <HH:mm>"},
                 {"Время указывается в формате HH:mm; начало и конец не должны совпадать.", "Time must use HH:mm; start and end must differ."},
                 {"Расписание выключено.", "Schedule disabled."}, {"Расписание установлено:", "Schedule set:"},
+                {"Автозапуск генератора:", "Generator auto-start:"}, {"Использование: /rtpgen autostart <on|off>", "Usage: /rtpgen autostart <on|off>"},
+                {"Укажи on или off.", "Enter on or off."}, {"Автозапуск включён. Генератор будет продолжать сохранённый прогресс после перезапуска сервера.", "Auto-start enabled. The generator will continue saved progress after a server restart."}, {"Автозапуск выключен.", "Auto-start disabled."},
                 {"Производительность PNXRTP", "PNXRTP performance"}, {"TPS средний:", "Average TPS:"},
                 {"Нагрузка тиков:", "Tick usage:"}, {"Проверка завершена. Ошибок:", "Validation complete. Errors:"},
                 {"Предупреждение: сервер пока не предоставил корректное значение TPS.", "Warning: server has not provided a valid TPS value yet."},
@@ -521,6 +526,7 @@ public class PNXRTP extends PluginBase {
             }
             case "performance" -> sendPerformance(sender, english);
             case "schedule" -> configureSchedule(sender, args, english);
+            case "autostart" -> configureAutoStart(sender, args, english);
             case "biome" -> configureBiome(sender, args, english);
             case "validate" -> validateConfiguration(sender, english);
             case "exclude" -> configureExclusion(sender, args, english);
@@ -547,7 +553,7 @@ public class PNXRTP extends PluginBase {
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
-            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|exclude|diagnostics|dashboard|history|backup|map|reset");
+            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|autostart|performance|validate|exclude|diagnostics|dashboard|history|backup|map|reset");
         }
     }
 
@@ -1122,6 +1128,24 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§aФильтр биома установлен: " + targetBiomeId);
     }
 
+    private void configureAutoStart(CommandSender sender, String[] args, boolean english) {
+        if (args.length < 2 || args[1].equalsIgnoreCase("status")) {
+            send(sender, english, "§eАвтозапуск генератора: §f" + config.getProperty("generator.auto-start", "false"));
+            send(sender, english, "§7Использование: /rtpgen autostart <on|off>");
+            return;
+        }
+        if (!args[1].equalsIgnoreCase("on") && !args[1].equalsIgnoreCase("off")) {
+            send(sender, english, "§cУкажи on или off.");
+            return;
+        }
+        boolean enabled = args[1].equalsIgnoreCase("on");
+        config.setProperty("generator.auto-start", String.valueOf(enabled));
+        savePluginConfig();
+        send(sender, english, enabled
+                ? "§aАвтозапуск включён. Генератор будет продолжать сохранённый прогресс после перезапуска сервера."
+                : "§aАвтозапуск выключен.");
+    }
+
     private void configureSchedule(CommandSender sender, String[] args, boolean english) {
         if (args.length < 2 || args[1].equalsIgnoreCase("status")) {
             send(sender, english, "§eРасписание: §f" + (isScheduleEnabled() ? config.getProperty("generator.schedule.start") + "-" + config.getProperty("generator.schedule.end") : "выключено"));
@@ -1129,7 +1153,8 @@ public class PNXRTP extends PluginBase {
             return;
         }
         if (args[1].equalsIgnoreCase("off")) {
-            config.setProperty("generator.schedule.enabled", "false");
+            config.setProperty("generator.auto-start", "false");
+        config.setProperty("generator.schedule.enabled", "false");
             savePluginConfig();
             schedulePaused = false;
             send(sender, english, "§aРасписание выключено.");
