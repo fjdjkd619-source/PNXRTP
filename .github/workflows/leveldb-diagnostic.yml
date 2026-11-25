@@ -16,23 +16,37 @@ jobs:
       - name: Checkout diagnostic branch
         uses: actions/checkout@v4
 
-      - name: Extract database
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Extract database and create isolated working copy
         run: |
           unzip -q leveldb-backup.zip -d extracted
-          find extracted -maxdepth 3 -type f | sort
+          mkdir -p work
+          cp -a extracted/db work/db
+          echo "=== ORIGINAL ARCHIVE DATABASE FILES ==="
+          find extracted/db -maxdepth 1 -type f -printf '%f %s bytes\\n' | sort
+          echo "=== WORKING COPY ==="
+          du -sh work/db
 
-      - name: Inspect database files
+      - name: Build LevelDB scanner
         run: |
-          echo "=== DATABASE FILES ===" > leveldb-report.txt
-          find extracted -type f -printf '%p %s bytes\n' >> leveldb-report.txt
-          echo "=== DATABASE METADATA ===" >> leveldb-report.txt
-          cat extracted/db/CURRENT >> leveldb-report.txt
-          echo >> leveldb-report.txt
-          echo "=== FILE HASHES ===" >> leveldb-report.txt
-          sha256sum extracted/db/* >> leveldb-report.txt
+          cd tools/leveldb-scan
+          mvn -B package dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
+
+      - name: Scan actual LevelDB records
+        run: |
+          java -cp "tools/leveldb-scan/target/classes:$(cat tools/leveldb-scan/target/classpath.txt)" \\
+            LevelDbChunkScanner "$PWD/work/db" "$PWD/leveldb-report.txt"
+          echo "=== REPORT SHA256 ==="
+          sha256sum leveldb-report.txt
 
       - name: Upload diagnostic report
         uses: actions/upload-artifact@v4
         with:
-          name: leveldb-report
+          name: leveldb-chunk-report
           path: leveldb-report.txt
