@@ -397,6 +397,16 @@ public class PNXRTP extends PluginBase {
     }
 
     private void generatorTick() {
+        try {
+            generatorTickInternal();
+        } catch (RuntimeException error) {
+            journal("ERROR", "Unhandled generator tick failure: " + error.getClass().getSimpleName());
+            getLogger().error("PNXRTP: unhandled generator tick failure; stopping safely", error);
+            if (generating) stopGenerator(true);
+        }
+    }
+
+    private void generatorTickInternal() {
         if (!generating || generationLevel == null) return;
         int memory = memoryPercent();
         int pauseAt = parseInt(config.getProperty("generator.memory.pause", "75"), 75, 50, 95);
@@ -510,7 +520,7 @@ public class PNXRTP extends PluginBase {
                 finishedQueueEntries++;
                 if (index != null) {
                     List<Long> current = index.chunks;
-                    if (!current.contains(packed)) {
+                    if (!index.chunkSet.contains(packed)) {
                         List<Long> updated = new ArrayList<>(current);
                         updated.add(packed);
                         index.chunks = List.copyOf(updated);
