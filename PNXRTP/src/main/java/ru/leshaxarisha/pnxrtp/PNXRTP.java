@@ -175,6 +175,14 @@ public class PNXRTP extends PluginBase {
             send(sender, english, "§aПерестроение индекса сохранённых чанков запущено: " + key);
             return true;
         }
+        if (args.length > 0 && args[0].equalsIgnoreCase("cleanup")) {
+            if (!sender.hasPermission("pnxrtp.admin")) {
+                send(sender, english, "§cНедостаточно прав. Требуется pnxrtp.admin.");
+                return true;
+            }
+            handleCleanupPreview(sender, english);
+            return true;
+        }
         if (args.length > 0 && args[0].equalsIgnoreCase("status")) {
             Level statusLevel = sender instanceof Player p ? p.getLevel() : getServer().getDefaultLevel();
             WorldIndex index = statusLevel == null ? null : indexes.get(worldKey(statusLevel));
@@ -1551,6 +1559,86 @@ public class PNXRTP extends PluginBase {
             send(sender, english, "§cНе удалось экспортировать карту чанков.");
             journal("ERROR", "Chunk map export failed: " + error.getMessage());
         }
+    }
+
+    /**
+     * Creates a non-destructive cleanup manifest. The spawn chunk is snapshotted once
+     * and the protected square is always 21x21 chunks (center +/- 10 on X and Z).
+     * Actual LevelDB deletion is deliberately not performed by a live server process.
+     */
+    private void handleCleanupPreview(CommandSender sender, boolean english) {
+        Level target = sender instanceof Player player ? player.getLevel() : getServer().getDefaultLevel();
+        if (target == null) {
+            send(sender, english, "§cМир не найден.");
+            return;
+        }
+        WorldIndex index = indexes.get(worldKey(target));
+        if (index == null || index.building || !index.initialized || index.failure != null) {
+            send(sender, english, "§eСначала дождись успешного индекса или выполни /rtp reindex.");
+            return;
+        }
+
+        int centerX;
+        int centerZ;
+        boolean hasSnapshot = config.containsKey("maintenance.protected-center-x")
+                && config.containsKey("maintenance.protected-center-z")
+                && config.getProperty("maintenance.protected-world", "").equals(target.getFolderName());
+        if (hasSnapshot) {
+            try {
+                centerX = Integer.parseInt(config.getProperty("maintenance.protected-center-x"));
+                centerZ = Integer.parseInt(config.getProperty("maintenance.protected-center-z"));
+            } catch (NumberFormatException malformed) {
+                send(sender, english, "§cСохранённый центр защищённой зоны повреждён. Исправь config.properties вручную.");
+                return;
+            }
+        } else {
+            Position spawn = target.getSpawnLocation();
+            centerX = spawn.getFloorX() >> 4;
+            centerZ = spawn.getFloorZ() >> 4;
+            config.setProperty("maintenance.protected-world", target.getFolderName());
+            config.setProperty("maintenance.protected-center-x", Integer.toString(centerX));
+            config.setProperty("maintenance.protected-center-z", Integer.toString(centerZ));
+            savePluginConfig();
+            journal("INFO", "Protected cleanup center snapshotted for " + target.getFolderName()
+                    + ": chunk " + centerX + "," + centerZ);
+        }
+
+        List<Long> deletionCandidates = new ArrayList<>();
+        int protectedCount = 0;
+        for (long packed : index.chunks) {
+            int x = (int) (packed >> 32);
+            int z = (int) packed;
+            if (Math.abs((long) x - centerX) <= 10 && Math.abs((long) z - centerZ) <= 10) {
+                protectedCount++;
+            } else {
+                deletionCandidates.add(packed);
+            }
+        }
+
+        File manifest = new File(dataFolder, "cleanup-manifest-" + worldKey(target) + ".csv");
+        try (var writer = Files.newBufferedWriter(manifest.toPath(), StandardCharsets.UTF_8)) {
+            writer.write("chunk_x,chunk_z,action");
+            writer.newLine();
+            for (long packed : deletionCandidates) {
+                writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",candidate");
+                writer.newLine();
+            }
+        } catch (IOException error) {
+            send(sender, english, "§cНе удалось создать manifest: " + error.getMessage());
+            journal("ERROR", "Cleanup manifest failed: " + error.getMessage());
+            return;
+        }
+
+        send(sender, english, "§eПредварительная очистка (без удаления): §f" + target.getFolderName());
+        send(sender, english, "§eЦентр защиты (чанк): §f" + centerX + "," + centerZ);
+        send(sender, english, "§aЗащищённая зона: §f21x21 = 441 чанк (центр ±10)");
+        send(sender, english, "§eНайдено в защищённой зоне: §f" + protectedCount);
+        send(sender, english, "§eКандидатов на очистку вне зоны: §f" + deletionCandidates.size());
+        send(sender, english, "§aManifest создан: §f" + manifest.getName());
+        send(sender, english, "§cЭто только отчёт. Чанки не удалялись.");
+        send(sender, english, "§cДля удаления нужна отдельная офлайн-процедура при полностью остановленном сервере и полной резервной копии мира.");
+        journal("INFO", "Cleanup preview for " + target.getFolderName() + ": protected=" + protectedCount
+                + ", candidates=" + deletionCandidates.size() + ", center=" + centerX + "," + centerZ);
     }
 
     private void sendGeneratorStatus(CommandSender sender, boolean english) {
