@@ -291,7 +291,7 @@ public class PNXRTP extends PluginBase {
                 {"Ошибка: ID целевого биома вне диапазона.", "Error: target biome ID is out of range."},
                 {"Ошибка: generator.tps.resume-above должен быть выше pause-below.", "Error: generator.tps.resume-above must be higher than pause-below."},
                 {", предупреждений: ", ", warnings: "},
-                {"Биом RTP ID:", "RTP biome ID:"}
+                {"Биом RTP ID:", "RTP biome ID:"},
                 {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."}
         };
         // Replace longer phrases first so short fragments (for example, "не найден")
