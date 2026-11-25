@@ -81,7 +81,7 @@ public class PNXRTP extends PluginBase {
     private long rejectedRequests;
     private long finishedQueueEntries;
     private long tickCounter;
-    private final Set<Long> pendingChunks = ConcurrentHashMap.newKeySet();
+    private final Map<String, Set<Long>> pendingChunksByWorld = new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {
@@ -415,7 +415,7 @@ public class PNXRTP extends PluginBase {
                 if (generating) stopGenerator(false);
                 ring = side = offset = 0;
                 requestAttempts = acceptedRequests = rejectedRequests = finishedQueueEntries = skippedExistingChunks = 0;
-                pendingChunks.clear();
+                pendingChunksByWorld.clear();
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
@@ -572,7 +572,7 @@ public class PNXRTP extends PluginBase {
             generationLevel.generateChunk(centerX + dx, centerZ + dz);
             if (generationLevel.isChunkGenerating(centerX + dx, centerZ + dz)) {
                 acceptedRequests++;
-                pendingChunks.add(packed);
+                pendingChunksByWorld.computeIfAbsent(worldKey(generationLevel), key -> ConcurrentHashMap.newKeySet()).add(packed);
             } else {
                 rejectedRequests++;
                 ring = oldRing;
@@ -593,14 +593,21 @@ public class PNXRTP extends PluginBase {
     }
 
     }
+    private int pendingCount() {
+        return generationLevel == null ? 0 : pendingChunksByWorld.getOrDefault(worldKey(generationLevel), Set.of()).size();
+    }
+
     private void updateFinishedChunks() {
-        if (pendingChunks.isEmpty() || generationLevel == null) return;
-        WorldIndex index = indexes.get(worldKey(generationLevel));
-        for (Long packed : new ArrayList<>(pendingChunks)) {
+        if (generationLevel == null) return;
+        String currentWorld = worldKey(generationLevel);
+        Set<Long> pending = pendingChunksByWorld.get(currentWorld);
+        if (pending == null || pending.isEmpty()) return;
+        WorldIndex index = indexes.get(currentWorld);
+        for (Long packed : new ArrayList<>(pending)) {
             int x = (int) (packed >> 32);
             int z = (int) (long) packed;
             if (!generationLevel.isChunkGenerating(x, z)) {
-                pendingChunks.remove(packed);
+                pending.remove(packed);
                 finishedQueueEntries++;
                 if (index != null) {
                     List<Long> current = index.chunks;
@@ -743,7 +750,7 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§e----- PNXRTP diagnostics -----");
         send(sender, english, "§eMemory: §f" + memoryPercent() + "%");
         send(sender, english, "§eGenerator task flag: §f" + generatorTaskRunning.get());
-        send(sender, english, "§ePending chunks: §f" + pendingChunks.size());
+        send(sender, english, "§ePending chunks: §f" + pendingCount());
         send(sender, english, "§eWorld index: §f" + (index == null ? "missing" : index.building ? "building" : "ready"));
         send(sender, english, "§eIndexed chunks: §f" + (index == null ? 0 : index.chunks.size()));
         send(sender, english, "§eData directory writable: §f" + (dataFolder != null && dataFolder.isDirectory() && dataFolder.canWrite()));
@@ -816,7 +823,7 @@ public class PNXRTP extends PluginBase {
                     writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",saved");
                     writer.newLine();
                 }
-                for (long packed : pendingChunks) {
+                for (long packed : pendingChunksByWorld.getOrDefault(worldKey(generationLevel), Set.of())) {
                     if (index.chunkSet.contains(packed)) continue;
                     writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",pending");
                     writer.newLine();
@@ -841,7 +848,7 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§eПопыток запросов: §f" + requestAttempts);
         send(sender, english, "§eПринято очередью: §f" + acceptedRequests);
         send(sender, english, "§eОтклонено/не подтверждено: §f" + rejectedRequests);
-        send(sender, english, "§eВ обработке по наблюдению: §f" + pendingChunks.size());
+        send(sender, english, "§eВ обработке по наблюдению: §f" + pendingCount());
         send(sender, english, "§eВышли из очереди (завершение не гарантирует сохранение): §f" + finishedQueueEntries);
         send(sender, english, "§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
         send(sender, english, "§eРегион: §f" + regionShape + ", центр " + (customRegionCenter ? regionCenterX + "," + regionCenterZ : "spawn"));
