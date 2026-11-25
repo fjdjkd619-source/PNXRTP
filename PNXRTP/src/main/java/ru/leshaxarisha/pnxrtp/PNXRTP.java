@@ -269,7 +269,10 @@ public class PNXRTP extends PluginBase {
                 {"Память:", "Memory:"}, {"Запросов за час:", "Requests this hour:"}, {"Пауза по нагрузке:", "Load pause:"},
                 {"по расписанию:", "schedule pause:"},
                 {"Сначала выбери мир: /rtpgen world <name>.", "Select a world first: /rtpgen world <name>."},
-                {"Индекс ещё строится.", "Index is still building."}
+                {"Индекс ещё строится.", "Index is still building."},
+                {"Нет сохранённой точки возврата. Сначала используй /rtp.", "No return point is saved. Use /rtp first."},
+                {"Ты вернулся на предыдущую позицию.", "You returned to your previous position."},
+                {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."}
         };
         String translated = message;
         for (String[] phrase : phrases) translated = translated.replace(phrase[0], phrase[1]);
