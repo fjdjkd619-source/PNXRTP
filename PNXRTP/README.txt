@@ -99,3 +99,17 @@ Install and validation
 - Startup log now reports PNXRTP 1.5.0 instead of the stale 1.4.2 label.
 
 - CI packaging checks explicitly require PNXRTP.class, OfflineChunkCleaner.class, and OfflineChunkIntegrityScanner.class inside the final JAR.
+
+1.5.0 development - separate full-world purge and generator restart
+- /rtp purge is a dedicated in-game preview entry point. It requires pnxrtp.admin and prints the existing Overworld preview based on the protected spawn-centered 21x21 snapshot. It does not delete data.
+- Full-world deletion is a separate offline utility: ru.leshaxarisha.pnxrtp.OfflineWorldPurger.
+- Unlike OfflineChunkCleaner, OfflineWorldPurger recognizes both Overworld chunk keys (9/10 bytes) and dimension-qualified chunk keys (13/14 bytes), based on the exact PowerNukkitX 3.0.6 LevelDBKeyUtil layout at commit c57499365737654eca32df008751ef6bca5af142.
+- It preserves the same 21x21 chunk-coordinate square in every recognized dimension. It removes recognized per-chunk records outside that square, including block subchunks and PNX_LIGHT records. Unknown key layouts and global/world/player records are intentionally left untouched.
+- PREVIEW (no changes):
+  java -cp "PNXRTP-1.5.0.jar:powernukkitx.jar" ru.leshaxarisha.pnxrtp.OfflineWorldPurger <world-folder> <protected-center-chunk-x> <protected-center-chunk-z>
+- APPLY (only after stopping PNX and making a complete, separate copy of the entire world folder):
+  java -cp "PNXRTP-1.5.0.jar:powernukkitx.jar" ru.leshaxarisha.pnxrtp.OfflineWorldPurger <world-folder> <protected-center-chunk-x> <protected-center-chunk-z> --apply --backup-confirmed
+- Optional: append --plugin-data <PNXRTP-plugin-data-folder> to the APPLY command. After successful database close, the tool writes world-purge.marker into that plugin data folder. On the next plugin startup, PNXRTP consumes the marker, resets the saved generator spiral cursor and per-run counters, clears completed-region rotation state, selects the purged world, and attempts to start the generator automatically. Generation still obeys memory/TPS/schedule safeguards. If startup cannot resolve the selected world or start the task, use /rtpgen start after checking /rtpgen status.
+- Without --plugin-data, start the server and run /rtpgen world <world-folder-name> if necessary, then /rtpgen reset and /rtpgen start.
+- This is destructive. Do not use --apply unless the server is fully stopped, the LevelDB lock is released, and the entire world folder has been copied to a separate backup location. The --backup-confirmed flag is an operator confirmation only; the utility does not verify the backup.
+- The manifest PNXRTP-world-purge-manifest.csv records dimension_id, chunk_x, chunk_z and KEEP/DELETE classification. It lists recognized chunk coordinates; it is not a complete inventory of all LevelDB keys.
