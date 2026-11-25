@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - pnxrtp-1.4.2
+      - pnxrtp-1.5.0-dev
   workflow_dispatch:
 
 permissions:
@@ -36,13 +37,13 @@ jobs:
         run: |
           cd PNXRTP
           mvn -B -ntp clean package
-          test -s target/PNXRTP-1.4.2.jar
+          test -s target/PNXRTP-1.5.0.jar
           jar tf target/PNXRTP-1.4.2.jar | grep -Fx 'plugin.yml'
           jar tf target/PNXRTP-1.4.2.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/PNXRTP.class'
 
       - name: Upload plugin jar
         uses: actions/upload-artifact@v4
         with:
-          name: PNXRTP-1.4.2
-          path: PNXRTP/target/PNXRTP-1.4.2.jar
+          name: PNXRTP-1.5.0
+          path: PNXRTP/target/PNXRTP-1.5.0.jar
           if-no-files-found: error
