@@ -52,6 +52,7 @@ public class PNXRTP extends PluginBase {
     private final Map<String, WorldIndex> indexes = new ConcurrentHashMap<>();
     private final Map<UUID, Map<String, Deque<SavedPoint>>> history = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<String, SavedLocation>> backLocations = new ConcurrentHashMap<>();
     private final AtomicBoolean generatorTaskRunning = new AtomicBoolean(false);
 
     private File dataFolder;
@@ -371,7 +372,9 @@ public class PNXRTP extends PluginBase {
                 if (isInsideAnyExclusion(rtpExclusions, x, z)) continue;
 
                 Location destination = new Location(x + 0.5, feetY, z + 0.5, level);
+                SavedLocation returnPoint = new SavedLocation(player.getFloorX(), player.getFloorY(), player.getFloorZ());
                 if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+                    backLocations.computeIfAbsent(player.getUniqueId(), k -> new ConcurrentHashMap<>()).put(world, returnPoint);
                     synchronized (previous) {
                         previous.addFirst(new SavedPoint(x + 0.5, z + 0.5));
                         while (previous.size() > HISTORY_LIMIT) previous.removeLast();
@@ -390,6 +393,29 @@ public class PNXRTP extends PluginBase {
                 + ": indexed=" + chunks.size() + ", in-range=" + candidates.size()
                 + ", inspected=" + chunksToInspect + ", min=" + minDistance + ", max=" + maxDistance);
         send(player, english, "§cНе найдено безопасное место на нужном расстоянии. Проверь радиус и доступные сохранённые чанки.");
+    }
+
+    private void performRtpBack(Player player, boolean english) {
+        Level level = player.getLevel();
+        if (level == null) {
+            send(player, english, "§cМир не найден.");
+            return;
+        }
+        String world = worldKey(level);
+        Map<String, SavedLocation> locations = backLocations.get(player.getUniqueId());
+        SavedLocation previous = locations == null ? null : locations.get(world);
+        if (previous == null) {
+            send(player, english, "§eНет сохранённой точки возврата. Сначала используй /rtp.");
+            return;
+        }
+        Location destination = new Location(previous.x + 0.5, previous.y, previous.z + 0.5, level);
+        if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+            locations.remove(world);
+            if (locations.isEmpty()) backLocations.remove(player.getUniqueId(), locations);
+            send(player, english, "§aТы вернулся на предыдущую позицию.");
+        } else {
+            send(player, english, "§cНе удалось вернуться на предыдущую позицию.");
+        }
     }
 
     private boolean farEnoughFromHistory(int x, int z, Deque<SavedPoint> points) {
@@ -1643,6 +1669,13 @@ public class PNXRTP extends PluginBase {
         volatile boolean building;
         volatile List<Long> chunks = List.of();
         volatile Set<Long> chunkSet = Set.of();
+    }
+
+    private static final class SavedLocation {
+        final int x;
+        final int y;
+        final int z;
+        SavedLocation(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
     }
 
     private static final class SavedPoint {
