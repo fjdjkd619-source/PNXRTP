@@ -65,6 +65,11 @@ public class PNXRTP extends PluginBase {
     private volatile boolean paused;
     private volatile boolean autoPaused;
     private volatile boolean autoStopped;
+    private volatile boolean schedulePaused;
+    private volatile boolean loadPaused;
+    private int targetBiomeId = -1;
+    private long quotaWindowStart = System.currentTimeMillis();
+    private long quotaRequests;
     private Level generationLevel;
     private int generationRadius = DEFAULT_GENERATION_RADIUS;
     private int speed = 1;
@@ -486,7 +491,12 @@ public class PNXRTP extends PluginBase {
             case "dashboard" -> {
                 sendGeneratorStatus(sender, english);
                 sendDiagnostics(sender, english);
+                sendPerformance(sender, english);
             }
+            case "performance" -> sendPerformance(sender, english);
+            case "schedule" -> configureSchedule(sender, args, english);
+            case "biome" -> configureBiome(sender, args, english);
+            case "validate" -> validateConfiguration(sender, english);
             case "history" -> sendRecentEvents(sender, english);
             case "backup" -> createBackup(sender, english);
             case "map" -> exportChunkMap(sender, english);
@@ -498,7 +508,7 @@ public class PNXRTP extends PluginBase {
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
-            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|dashboard|history|backup|map|reset");
+            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|diagnostics|dashboard|history|backup|map|reset");
         }
     }
 
