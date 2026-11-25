@@ -216,7 +216,8 @@ public class PNXRTP extends PluginBase {
                 {"Порог автопаузы:", "Auto-pause threshold:"}, {"%, автопродолжения:", "%, auto-resume:"}, {"%, остановки:", "%, stop:"},
                 {"Регион генерации обновлён:", "Generation region updated:"}, {"Использование: /rtpgen region <circle|square> [centerX centerZ]", "Usage: /rtpgen region <circle|square> [centerX centerZ]"},
                 {"Укажи обе координаты центра: /rtpgen region <circle|square> <X> <Z>", "Provide both center coordinates: /rtpgen region <circle|square> <X> <Z>"},
-                {"Координаты центра должны быть целыми числами.", "Center coordinates must be integers."}, {"Регион:", "Region:"}, {"радиус:", "radius:"},
+                {"Координаты центра должны быть целыми числами.", "Center coordinates must be integers."},
+                {"Координаты центра должны быть в диапазоне от -30000000 до 30000000.", "Center coordinates must be between -30000000 and 30000000."}, {"Регион:", "Region:"}, {"радиус:", "radius:"},
                 {"Центр:", "Center:"}, {"Последние события", "Recent events"}, {"Журнал событий пока пуст.", "The event log is empty."},
                 {"Не удалось прочитать журнал событий.", "Could not read the event log."}, {"Резервная копия создана. Файлов:", "Backup created. Files:"},
                 {"Не удалось создать резервную копию:", "Could not create backup:"}, {"Сначала выбери загруженный мир: /rtpgen world <имя>.", "Select a loaded world first: /rtpgen world <name>."},
@@ -720,6 +721,11 @@ public class PNXRTP extends PluginBase {
             try {
                 regionCenterX = Integer.parseInt(args[2]);
                 regionCenterZ = Integer.parseInt(args[3]);
+                if (regionCenterX < -30000000 || regionCenterX > 30000000
+                        || regionCenterZ < -30000000 || regionCenterZ > 30000000) {
+                    send(sender, english, "§cКоординаты центра должны быть в диапазоне от -30000000 до 30000000.");
+                    return;
+                }
                 customRegionCenter = true;
             } catch (NumberFormatException error) {
                 send(sender, english, "§cКоординаты центра должны быть целыми числами.");
