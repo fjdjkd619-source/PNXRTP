@@ -1,0 +1,47 @@
+name: Build PNXRTP
+on:
+  push:
+    branches:
+      - pnxrtp-1.4.2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Download exact PowerNukkitX 3.0.6 server API jar
+        run: |
+          mkdir -p "$HOME/storage/downloads"
+          curl --fail --location --retry 3 --connect-timeout 20 \
+            https://github.com/PowerNukkitX/PowerNukkitX/releases/download/3.0.6/powernukkitx.jar \
+            -o "$HOME/storage/downloads/powernukkitx.jar"
+          test -s "$HOME/storage/downloads/powernukkitx.jar"
+          sha256sum "$HOME/storage/downloads/powernukkitx.jar"
+
+      - name: Build plugin
+        run: |
+          cd PNXRTP
+          mvn -B -ntp clean package
+          test -s target/PNXRTP-1.4.2.jar
+          jar tf target/PNXRTP-1.4.2.jar | grep -E 'plugin.yml|PNXRTP.class'
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: PNXRTP-1.4.2
+          path: PNXRTP/target/PNXRTP-1.4.2.jar
+          if-no-files-found: error
