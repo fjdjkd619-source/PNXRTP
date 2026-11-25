@@ -1,5 +1,6 @@
 name: LevelDB Diagnostic
 # Scanner uses the same HiveMC LevelDB implementation as PNX.
+# Runtime dependencies are pinned to the PNX 3.0.6 dependency set.
 
 on:
   workflow_dispatch:
