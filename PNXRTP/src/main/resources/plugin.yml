@@ -13,7 +13,7 @@ commands:
     permission: pnxrtp.use
   rtpgen:
     description: Manage gradual world generation
-    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|diagnostics|dashboard|history|backup|map|reset>
+    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|region|preview|biome|schedule|performance|validate|exclude|diagnostics|dashboard|history|backup|map|reset>
     permission: pnxrtp.admin
 
 permissions:
