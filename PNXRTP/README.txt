@@ -16,7 +16,10 @@ Chunk generator
 - Uses PNX isChunkGenerating observations to track in-flight requests. This is not a durable completion callback: leaving the generation queue does NOT prove that LevelDB has flushed the chunk to disk.
 - Memory policy defaults: slow down at 65%, auto-pause at 75%, auto-resume at 60%, stop at 85%. Pause, resume, and stop thresholds are configurable in config.properties using generator.memory.pause, generator.memory.resume, and generator.memory.stop.
 - Progress, configuration, and RTP history are written through a temporary file and replace operation to reduce the chance of partially written state.
-- The selected generator world, radius, and speed are persisted with the progress cursor.
+- Progress checkpoints are throttled by generator ticks and request count; scanning already-generated/out-of-radius chunks does not cause a disk write for every coordinate.
+- The selected generator world, radius, speed, skipped-chunk count, and observed queue-completion count are persisted with the progress cursor.
+- Generator scheduling and each tick are guarded: a scheduler/runtime failure is journaled and stops generation instead of leaving a stale "running" state.
+- Individual chunk-request exceptions restore the spiral cursor so the failed coordinate can be retried.
 
 Diagnostics and safety notes
 - /rtp status shows the saved-chunk index state and memory reading.
@@ -24,7 +27,7 @@ Diagnostics and safety notes
 - events.log records plugin lifecycle and generator start/pause/resume/stop events.
 - Memory reads cgroup v2/v1 when available; otherwise it falls back to JVM heap usage. The fallback is not total host/container memory.
 - The index is a startup snapshot. Chunks generated after indexing are added to the in-memory index only when the plugin observes them leave the generation queue; queue completion is not proof of durable disk save.
-- Progress does not serialize pending queue entries. After a server restart, the cursor resumes from the last saved point; a chunk that was in flight during shutdown may be encountered again and safely skipped if already indexed.
+- Progress does not serialize pending queue entries and generation does not automatically restart after a server restart. Use /rtpgen start to resume from the last saved cursor. A chunk that was in flight during shutdown may be encountered again; it will be skipped if it appears in the saved-chunk index.
 
 Install
 - Replace only the PNXRTP plugin jar after building and testing it.
