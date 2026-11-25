@@ -116,6 +116,8 @@ public class PNXRTP extends PluginBase {
         if (purgeResetPending) {
             getLogger().warning("PNXRTP: world purge marker detected; saved generator cursor was reset. Starting generation for the purged world.");
             startGenerator(getServer().getConsoleSender(), false);
+            if (generating) acknowledgeWorldPurgeMarker();
+            else getLogger().warning("PNXRTP: generator did not start; world-purge.marker was retained for retry or manual start.");
         } else if (Boolean.parseBoolean(config.getProperty("generator.auto-start", "false"))) {
             startGenerator(getServer().getConsoleSender(), false);
         }
@@ -1798,13 +1800,22 @@ public class PNXRTP extends PluginBase {
             config.setProperty("generator.regions.completed", "");
             savePluginConfig();
             saveProgress();
-            Files.delete(marker.toPath());
-            journal("WARN", "Offline world purge marker consumed for " + worldFolder
+            journal("WARN", "Offline world purge marker processed for " + worldFolder
                     + "; generator cursor reset; protected center chunk=" + centerX + "," + centerZ);
             return true;
         } catch (Exception error) {
             getLogger().error("PNXRTP: could not process world-purge.marker; marker was retained.", error);
             return false;
+        }
+    }
+
+    private void acknowledgeWorldPurgeMarker() {
+        File marker = new File(dataFolder, "world-purge.marker");
+        try {
+            Files.deleteIfExists(marker.toPath());
+            journal("INFO", "World purge marker acknowledged after generator start");
+        } catch (IOException error) {
+            getLogger().warning("PNXRTP: generator started but purge marker could not be removed: " + error.getMessage());
         }
     }
 
