@@ -97,3 +97,5 @@ Install and validation
 - This is a conservative structural scan, not a complete NBT/palette deserializer. CORRUPT_CANDIDATE is evidence for manual review, not permission for automatic deletion. OK does not guarantee that every NBT/entity/palette payload is semantically valid.
 - OfflineChunkCleaner now includes PNX_LIGHT ('}') section records. Previously these 10-byte records were omitted because the 10-byte filter accepted only '/'; this fix prevents orphaning light data when deleting a chunk.
 - Startup log now reports PNXRTP 1.5.0 instead of the stale 1.4.2 label.
+
+- CI packaging checks explicitly require PNXRTP.class, OfflineChunkCleaner.class, and OfflineChunkIntegrityScanner.class inside the final JAR.
