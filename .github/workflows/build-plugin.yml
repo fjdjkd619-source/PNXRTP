@@ -42,6 +42,7 @@ jobs:
           jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/PNXRTP.class'
           jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineChunkCleaner.class'
           jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineChunkIntegrityScanner.class'
+          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineWorldPurger.class'
 
       - name: Upload plugin jar
         uses: actions/upload-artifact@v4
