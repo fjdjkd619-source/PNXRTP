@@ -113,3 +113,5 @@ Install and validation
 - Without --plugin-data, start the server and run /rtpgen world <world-folder-name> if necessary, then /rtpgen reset and /rtpgen start.
 - This is destructive. Do not use --apply unless the server is fully stopped, the LevelDB lock is released, and the entire world folder has been copied to a separate backup location. The --backup-confirmed flag is an operator confirmation only; the utility does not verify the backup.
 - The manifest PNXRTP-world-purge-manifest.csv records dimension_id, chunk_x, chunk_z and KEEP/DELETE classification. It lists recognized chunk coordinates; it is not a complete inventory of all LevelDB keys.
+
+1.5.1 chunk guard fix: generator skips chunks already in PowerNukkitX FINISHED/sendable state and advances its cursor instead of retrying the same chunk indefinitely.
