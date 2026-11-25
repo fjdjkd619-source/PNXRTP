@@ -337,6 +337,7 @@ public class PNXRTP extends PluginBase {
                 {"Биом RTP ID:", "RTP biome ID:"},
                 {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."},
                 {"Индекс этого мира уже строится.", "The index for this world is already being built."},
+                {"Полный сброс мира выполняется только офлайн через OfflineWorldPurger. Сейчас формируется предварительный список чанков Overworld.", "Full world purge must be run offline with OfflineWorldPurger. A preliminary Overworld chunk list is being prepared."},
                 {"Перестроение индекса сохранённых чанков запущено:", "Saved-chunk index rebuild started:"},
                 {"ошибка", "error"}, {"ожидание", "pending"},
                 {"Не удалось прочитать базу мира при построении индекса. Администратор может выполнить /rtp reindex.", "Could not read the world database while building the index. An administrator can run /rtp reindex."},
