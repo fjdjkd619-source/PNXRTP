@@ -20,7 +20,7 @@ RTP
 - Checks solid ground, two air blocks, and common hazardous block identifiers.
 - Supports per-world enable flags, cooldowns, player-avoidance distance, and minimum/maximum RTP distance through config.properties.
 - Default RTP distance from the player's current position is 512-10000 blocks; configure rtp.min-distance and rtp.max-distance globally or world.<folder>.min-distance / world.<folder>.max-distance per world.
-- /rtp back returns to the previous RTP destination in the current world history. It loads chunks with create=false and repeats safety checks before teleporting.
+- /rtp back returns the player to the position they occupied immediately before their most recent successful /rtp in the current server session. The return point is held in memory and is not restored after a server restart.
 - Maintains a short per-player/per-world destination history with synchronized access.
 
 Chunk generator
