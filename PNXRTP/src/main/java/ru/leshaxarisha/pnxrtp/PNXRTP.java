@@ -213,7 +213,15 @@ public class PNXRTP extends PluginBase {
                 {"Попыток запросов:", "Request attempts:"}, {"Принято очередью:", "Accepted by queue:"},
                 {"Отклонено/не подтверждено:", "Rejected/unconfirmed:"}, {"В обработке по наблюдению:", "Observed in progress:"},
                 {"Вышли из очереди (завершение не гарантирует сохранение):", "Left the queue (completion does not guarantee saving):"},
-                {"Порог автопаузы:", "Auto-pause threshold:"}, {"%, автопродолжения:", "%, auto-resume:"}, {"%, остановки:", "%, stop:"}
+                {"Порог автопаузы:", "Auto-pause threshold:"}, {"%, автопродолжения:", "%, auto-resume:"}, {"%, остановки:", "%, stop:"},
+                {"Регион генерации обновлён:", "Generation region updated:"}, {"Использование: /rtpgen region <circle|square> [centerX centerZ]", "Usage: /rtpgen region <circle|square> [centerX centerZ]"},
+                {"Укажи обе координаты центра: /rtpgen region <circle|square> <X> <Z>", "Provide both center coordinates: /rtpgen region <circle|square> <X> <Z>"},
+                {"Координаты центра должны быть целыми числами.", "Center coordinates must be integers."}, {"Регион:", "Region:"}, {"радиус:", "radius:"},
+                {"Центр:", "Center:"}, {"Последние события", "Recent events"}, {"Журнал событий пока пуст.", "The event log is empty."},
+                {"Не удалось прочитать журнал событий.", "Could not read the event log."}, {"Резервная копия создана. Файлов:", "Backup created. Files:"},
+                {"Не удалось создать резервную копию:", "Could not create backup:"}, {"Сначала выбери загруженный мир: /rtpgen world <имя>.", "Select a loaded world first: /rtpgen world <name>."},
+                {"Индекс мира ещё строится. Повтори /rtpgen map позже.", "World index is still building. Run /rtpgen map again later."},
+                {"Карта чанков экспортирована:", "Chunk map exported:"}, {"Не удалось экспортировать карту чанков.", "Could not export the chunk map."}
         };
         String translated = message;
         for (String[] phrase : phrases) translated = translated.replace(phrase[0], phrase[1]);
@@ -786,12 +794,12 @@ public class PNXRTP extends PluginBase {
                 send(sender, english, "§eИндекс мира ещё строится. Повтори /rtpgen map позже.");
                 return;
             }
-            StringBuilder csv = new StringBuilder("chunk_x,chunk_z,status\\n");
+            StringBuilder csv = new StringBuilder("chunk_x,chunk_z,status\n");
             for (long packed : index.chunks) {
-                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",saved\\n");
+                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",saved\n");
             }
             for (long packed : pendingChunks) {
-                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",pending\\n");
+                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",pending\n");
             }
             File output = new File(dataFolder, "chunks-map-" + worldKey(generationLevel) + ".csv");
             Files.writeString(output.toPath(), csv, StandardCharsets.UTF_8);
