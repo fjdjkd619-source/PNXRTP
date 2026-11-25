@@ -108,7 +108,7 @@ public class PNXRTP extends PluginBase {
         loadConfig();
         loadProgress();
         loadHistory();
-        getLogger().info("PNXRTP 1.4.1 enabled for PowerNukkitX API 3.0.6");
+        getLogger().info("PNXRTP 1.4.2 enabled for PowerNukkitX API 3.0.6");
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
@@ -361,7 +361,8 @@ public class PNXRTP extends PluginBase {
                 }
                 if (avoidPlayers > 0 && tooCloseToPlayer(player, level, x + 0.5, z + 0.5, avoidPlayers)) continue;
 
-                int groundY = level.getHighestBlockAt(x, z) - 1;
+                // PNX 3.0.6 height maps already store the top solid-block Y; do not subtract one.
+                int groundY = level.getHighestBlockAt(x, z);
                 int feetY = groundY + 1;
                 if (feetY < level.getMinHeight() || feetY + 1 >= level.getMaxHeight()) continue;
                 Block ground = level.getBlock(x, groundY, z);
