@@ -431,6 +431,7 @@ public class PNXRTP extends PluginBase {
         updateFinishedChunks();
         if (paused) return;
         tickCounter++;
+        if (tickCounter % 25 == 0) saveProgress();
         int interval = memory >= 65 ? Math.max(2, 4 / speed) : Math.max(1, 2 / speed);
         if (tickCounter % interval != 0) return;
 
@@ -470,17 +471,14 @@ public class PNXRTP extends PluginBase {
         int blockX = dx * 16 + 8;
         int blockZ = dz * 16 + 8;
         if ((long) blockX * blockX + (long) blockZ * blockZ > (long) generationRadius * generationRadius) {
-            saveProgress();
             continue;
         }
         long packed = pack(centerX + dx, centerZ + dz);
         if (index.chunkSet.contains(packed)) {
             skippedExistingChunks++;
-            if (requestAttempts % 25 == 0) saveProgress();
             continue;
         }
         if (generationLevel.isChunkGenerating(centerX + dx, centerZ + dz)) {
-            saveProgress();
             continue;
         }
         requestAttempts++;
