@@ -1,4 +1,6 @@
-PNXRTP 1.4.0 - PowerNukkitX API 3.0.6
+PNXRTP 1.4.1 - PowerNukkitX API 3.0.6
+
+1.4.1 RTP fix: searches a filtered set of indexed chunks instead of only 40 random samples, inspects multiple candidate positions per chunk, and records useful failure diagnostics. RTP still never generates new chunks.
 
 Target platform
 - PowerNukkitX 3.0.6 API (server-local dependency and Java compiler settings remain unchanged).
