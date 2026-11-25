@@ -313,6 +313,8 @@ public class PNXRTP extends PluginBase {
             Block head = level.getBlock(x, feetY + 1, z);
             if (!ground.isSolid() || ground.isAir() || !feet.isAir() || !head.isAir()) continue;
             if (isUnsafe(ground) || isUnsafe(feet) || isUnsafe(head)) continue;
+            if (targetBiomeId >= 0 && level.getBiomeId(x, feetY, z) != targetBiomeId) continue;
+            if (isInsideAnyExclusion(config.getProperty("rtp.exclusions", ""), x, z)) continue;
 
             Location destination = new Location(x + 0.5, feetY, z + 0.5, level);
             if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
@@ -603,10 +605,34 @@ public class PNXRTP extends PluginBase {
             journal("INFO", "Generation auto-resumed: memory=" + memory + "%");
         }
         updateFinishedChunks();
-        if (paused) return;
+        if (isScheduleEnabled() && !isInsideSchedule()) {
+            if (!schedulePaused) {
+                schedulePaused = true;
+                journal("INFO", "Generation paused by daily schedule");
+            }
+            return;
+        }
+        if (schedulePaused) {
+            schedulePaused = false;
+            journal("INFO", "Generation resumed by daily schedule");
+        }
+        float tps = getServer().getTicksPerSecondAverage();
+        float pauseTps = parseFloat(config.getProperty("generator.tps.pause-below", "14.0"), 14.0f, 1.0f, 19.9f);
+        float resumeTps = parseFloat(config.getProperty("generator.tps.resume-above", "18.0"), 18.0f, pauseTps + 0.1f, 20.0f);
+        if (tps > 0 && tps < pauseTps) loadPaused = true;
+        else if (tps >= resumeTps) loadPaused = false;
+        if (paused || loadPaused) return;
+        long now = System.currentTimeMillis();
+        if (now - quotaWindowStart >= 3600000L) {
+            quotaWindowStart = now;
+            quotaRequests = 0;
+        }
+        long hourlyLimit = parseLong(config.getProperty("generator.max-requests-per-hour", "0"), 0L, 0L, 1000000L);
+        if (hourlyLimit > 0 && quotaRequests >= hourlyLimit) return;
         tickCounter++;
         if (tickCounter % 25 == 0) saveProgress();
         int adaptiveSpeed = speed;
+        if (tps > 0 && tps < parseFloat(config.getProperty("generator.tps.throttle-below", "18.0"), 18.0f, 5.0f, 20.0f)) adaptiveSpeed = 1;
         int observedPending = pendingCount();
         if (observedPending >= 24) adaptiveSpeed = 1;
         else if (observedPending >= 12) adaptiveSpeed = Math.min(adaptiveSpeed, 2);
@@ -661,6 +687,7 @@ public class PNXRTP extends PluginBase {
             continue;
         }
         requestAttempts++;
+        quotaRequests++;
         try {
             generationLevel.generateChunk(centerX + dx, centerZ + dz);
             if (generationLevel.isChunkGenerating(centerX + dx, centerZ + dz)) {
@@ -992,6 +1019,16 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.memory.pause", "75");
         config.setProperty("generator.memory.resume", "60");
         config.setProperty("generator.memory.stop", "85");
+        config.setProperty("generator.tps.pause-below", "14.0");
+        config.setProperty("generator.tps.resume-above", "18.0");
+        config.setProperty("generator.tps.throttle-below", "18.0");
+        config.setProperty("generator.schedule.enabled", "false");
+        config.setProperty("generator.schedule.start", "00:00");
+        config.setProperty("generator.schedule.end", "23:59");
+        config.setProperty("generator.max-requests-per-hour", "0");
+        config.setProperty("rtp.target-biome-id", "-1");
+        config.setProperty("rtp.exclusions", "");
+        config.setProperty("generator.exclusions", "");
         if (configFile.exists()) {
             try (var in = Files.newInputStream(configFile.toPath())) { config.load(in); }
             catch (IOException e) { getLogger().warning("Could not load config.properties: " + e.getMessage()); }
@@ -1002,6 +1039,7 @@ public class PNXRTP extends PluginBase {
         customRegionCenter = Boolean.parseBoolean(config.getProperty("generator.region.custom-center", "false"));
         regionCenterX = parseInt(config.getProperty("generator.region.center-x"), 0, -30000000, 30000000);
         regionCenterZ = parseInt(config.getProperty("generator.region.center-z"), 0, -30000000, 30000000);
+        targetBiomeId = parseInt(config.getProperty("rtp.target-biome-id", "-1"), -1, -1, 65535);
         savePluginConfig();
     }
 
