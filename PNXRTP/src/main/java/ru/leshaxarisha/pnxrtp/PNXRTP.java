@@ -222,6 +222,12 @@ public class PNXRTP extends PluginBase {
                 {"Не удалось создать резервную копию:", "Could not create backup:"}, {"Сначала выбери загруженный мир: /rtpgen world <имя>.", "Select a loaded world first: /rtpgen world <name>."},
                 {"Индекс мира ещё строится. Повтори /rtpgen map позже.", "World index is still building. Run /rtpgen map again later."},
                 {"Карта чанков экспортирована:", "Chunk map exported:"}, {"Не удалось экспортировать карту чанков.", "Could not export the chunk map."}, {"Сначала останови генератор перед изменением региона.", "Stop the generator before changing its region."},
+                {"Диагностика PNXRTP", "PNXRTP diagnostics"}, {"Использование памяти:", "Memory usage:"},
+                {"Флаг задачи генератора:", "Generator task flag:"}, {"Ожидающие чанки:", "Pending chunks:"},
+                {"Индекс мира:", "World index:"}, {"отсутствует", "missing"}, {"строится", "building"},
+                {"готов", "ready"}, {"Чанков в индексе:", "Indexed chunks:"},
+                {"Папка данных доступна для записи:", "Data directory writable:"},
+                {"Файл прогресса существует:", "Progress file exists:"}, {"Журнал событий существует:", "Event log exists:"},
                 {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"}
         };
         String translated = message;
@@ -747,15 +753,15 @@ public class PNXRTP extends PluginBase {
 
     private void sendDiagnostics(CommandSender sender, boolean english) {
         WorldIndex index = generationLevel == null ? null : indexes.get(worldKey(generationLevel));
-        send(sender, english, "§e----- PNXRTP diagnostics -----");
-        send(sender, english, "§eMemory: §f" + memoryPercent() + "%");
-        send(sender, english, "§eGenerator task flag: §f" + generatorTaskRunning.get());
-        send(sender, english, "§ePending chunks: §f" + pendingCount());
-        send(sender, english, "§eWorld index: §f" + (index == null ? "missing" : index.building ? "building" : "ready"));
-        send(sender, english, "§eIndexed chunks: §f" + (index == null ? 0 : index.chunks.size()));
-        send(sender, english, "§eData directory writable: §f" + (dataFolder != null && dataFolder.isDirectory() && dataFolder.canWrite()));
-        send(sender, english, "§eProgress file: §f" + (progressFile != null && progressFile.exists()));
-        send(sender, english, "§eEvent log: §f" + (eventFile != null && eventFile.exists()));
+        send(sender, english, "§e----- Диагностика PNXRTP -----");
+        send(sender, english, "§eИспользование памяти: §f" + memoryPercent() + "%");
+        send(sender, english, "§eФлаг задачи генератора: §f" + generatorTaskRunning.get());
+        send(sender, english, "§eОжидающие чанки: §f" + pendingCount());
+        send(sender, english, "§eИндекс мира: §f" + (index == null ? "отсутствует" : index.building ? "строится" : "готов"));
+        send(sender, english, "§eЧанков в индексе: §f" + (index == null ? 0 : index.chunks.size()));
+        send(sender, english, "§eПапка данных доступна для записи: §f" + (dataFolder != null && dataFolder.isDirectory() && dataFolder.canWrite()));
+        send(sender, english, "§eФайл прогресса существует: §f" + (progressFile != null && progressFile.exists()));
+        send(sender, english, "§eЖурнал событий существует: §f" + (eventFile != null && eventFile.exists()));
     }
 
     private void sendRecentEvents(CommandSender sender, boolean english) {
