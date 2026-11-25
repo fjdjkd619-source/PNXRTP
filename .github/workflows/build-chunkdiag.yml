@@ -2,7 +2,7 @@ name: Build ChunkDiag
 on:
   push:
     branches:
-      - chunkdiag-1.0.0
+      - chunkdiag-1.1.0-full-area-scan
   workflow_dispatch:
 
 permissions:
@@ -35,13 +35,13 @@ jobs:
         run: |
           cd ChunkDiag
           mvn -B -ntp clean package
-          test -s target/ChunkDiag-1.0.0.jar
-          jar tf target/ChunkDiag-1.0.0.jar | grep -Fx 'plugin.yml'
-          jar tf target/ChunkDiag-1.0.0.jar | grep -Fx 'ru/leshaxarisha/chunkdiag/ChunkDiag.class'
+          test -s target/ChunkDiag-1.1.0.jar
+          jar tf target/ChunkDiag-1.1.0.jar | grep -Fx 'plugin.yml'
+          jar tf target/ChunkDiag-1.1.0.jar | grep -Fx 'ru/leshaxarisha/chunkdiag/ChunkDiag.class'
 
       - name: Upload plugin jar
         uses: actions/upload-artifact@v4
         with:
-          name: ChunkDiag-1.0.0
-          path: ChunkDiag/target/ChunkDiag-1.0.0.jar
+          name: ChunkDiag-1.1.0
+          path: ChunkDiag/target/ChunkDiag-1.1.0.jar
           if-no-files-found: error
