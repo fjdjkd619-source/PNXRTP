@@ -53,6 +53,7 @@ public class PNXRTP extends PluginBase {
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, Map<String, SavedLocation>> backLocations = new ConcurrentHashMap<>();
     private final AtomicBoolean generatorTaskRunning = new AtomicBoolean(false);
+    private boolean purgeResetPending;
 
     private File dataFolder;
     private File configFile;
@@ -106,12 +107,16 @@ public class PNXRTP extends PluginBase {
         eventFile = new File(dataFolder, "events.log");
         loadConfig();
         loadProgress();
+        purgeResetPending = consumeWorldPurgeMarker();
         loadHistory();
         getLogger().info("PNXRTP 1.5.0 enabled for PowerNukkitX API 3.0.6");
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
-        if (Boolean.parseBoolean(config.getProperty("generator.auto-start", "false"))) {
+        if (purgeResetPending) {
+            getLogger().warning("PNXRTP: world purge marker detected; saved generator cursor was reset. Starting generation for the purged world.");
+            startGenerator(getServer().getConsoleSender(), false);
+        } else if (Boolean.parseBoolean(config.getProperty("generator.auto-start", "false"))) {
             startGenerator(getServer().getConsoleSender(), false);
         }
     }
@@ -1770,6 +1775,36 @@ public class PNXRTP extends PluginBase {
     private static int parseInt(String value, int fallback, int min, int max) {
         try { return Math.max(min, Math.min(max, Integer.parseInt(value))); }
         catch (Exception ignored) { return fallback; }
+    }
+
+    private boolean consumeWorldPurgeMarker() {
+        File marker = new File(dataFolder, "world-purge.marker");
+        if (!marker.isFile()) return false;
+        try {
+            List<String> lines = Files.readAllLines(marker.toPath(), StandardCharsets.UTF_8);
+            if (lines.size() < 3 || lines.get(0).isBlank()) {
+                getLogger().error("PNXRTP: invalid world-purge.marker; generator was not reset.");
+                return false;
+            }
+            String worldFolder = lines.get(0).trim();
+            int centerX = Integer.parseInt(lines.get(1).trim());
+            int centerZ = Integer.parseInt(lines.get(2).trim());
+            config.setProperty("generator.world", worldFolder);
+            ring = side = offset = 0;
+            requestAttempts = acceptedRequests = rejectedRequests = finishedQueueEntries = skippedExistingChunks = 0;
+            pendingChunksByWorld.clear();
+            completedRegionNames.clear();
+            config.setProperty("generator.regions.completed", "");
+            savePluginConfig();
+            saveProgress();
+            Files.delete(marker.toPath());
+            journal("WARN", "Offline world purge marker consumed for " + worldFolder
+                    + "; generator cursor reset; protected center chunk=" + centerX + "," + centerZ);
+            return true;
+        } catch (Exception error) {
+            getLogger().error("PNXRTP: could not process world-purge.marker; marker was retained.", error);
+            return false;
+        }
     }
 
     private void loadProgress() {
