@@ -183,6 +183,15 @@ public class PNXRTP extends PluginBase {
             handleCleanupPreview(sender, english);
             return true;
         }
+        if (args.length > 0 && args[0].equalsIgnoreCase("purge")) {
+            if (!sender.hasPermission("pnxrtp.admin")) {
+                send(sender, english, "§cНедостаточно прав. Требуется pnxrtp.admin.");
+                return true;
+            }
+            send(sender, english, "§6Полный сброс мира выполняется только офлайн через OfflineWorldPurger. Сейчас формируется предварительный список чанков Overworld.");
+            handleCleanupPreview(sender, english);
+            return true;
+        }
         if (args.length > 0 && args[0].equalsIgnoreCase("status")) {
             Level statusLevel = sender instanceof Player p ? p.getLevel() : getServer().getDefaultLevel();
             WorldIndex index = statusLevel == null ? null : indexes.get(worldKey(statusLevel));
