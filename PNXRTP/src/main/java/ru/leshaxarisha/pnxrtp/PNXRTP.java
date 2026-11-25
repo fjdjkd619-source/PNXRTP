@@ -243,8 +243,8 @@ public class PNXRTP extends PluginBase {
                 {"Папка данных доступна для записи:", "Data directory writable:"},
                 {"Файл прогресса существует:", "Progress file exists:"}, {"Журнал событий существует:", "Event log exists:"},
                 {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"},
-                {"Целевой биом ID:", "Target biome ID:"}, {"Использование: /rtpgen biome <ID|off>", "Usage: /rtpgen biome <ID|off>"},
-                {"ID биома должен быть числом от 0 до 65535 или off.", "Biome ID must be between 0 and 65535, or off."},
+                {"Целевой биом ID:", "Target biome ID:"}, {"Использование: /rtpgen biome <ID|here|off>", "Usage: /rtpgen biome <ID|off>"},
+                {"ID биома должен быть числом от 0 до 65535, here или off.", "Biome ID must be between 0 and 65535, or off."},
                 {"Фильтр биома установлен:", "Biome filter set:"}, {"Расписание:", "Schedule:"}, {"выключено", "disabled"},
                 {"Использование: /rtpgen schedule <off|HH:mm HH:mm>", "Usage: /rtpgen schedule <off|HH:mm HH:mm>"},
                 {"Укажи время начала и окончания: /rtpgen schedule <HH:mm> <HH:mm>", "Provide start and end time: /rtpgen schedule <HH:mm> <HH:mm>"},
@@ -537,6 +537,12 @@ public class PNXRTP extends PluginBase {
                 pendingChunksByWorld.clear();
                 completedRegionNames.clear();
                 config.setProperty("generator.regions.completed", "");
+                List<String> profiles = regionProfiles();
+                if (!profiles.isEmpty()) activateRegionProfile(profiles.get(0).split(",", 5));
+                else {
+                    activeRegionName = "";
+                    config.setProperty("generator.region.active", "");
+                }
                 savePluginConfig();
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
@@ -1098,7 +1104,9 @@ public class PNXRTP extends PluginBase {
             send(sender, english, "§7Использование: /rtpgen biome <ID|off>");
             return;
         }
-        if (args[1].equalsIgnoreCase("off")) {
+        if (args[1].equalsIgnoreCase("here") && sender instanceof Player player) {
+            targetBiomeId = player.getLevel().getBiomeId(player.getFloorX(), player.getFloorY(), player.getFloorZ());
+        } else if (args[1].equalsIgnoreCase("off")) {
             targetBiomeId = -1;
         } else {
             try {
