@@ -97,7 +97,7 @@ public class PNXRTP extends PluginBase {
         loadConfig();
         loadProgress();
         loadHistory();
-        getLogger().info("PNXRTP 1.3.0 enabled for PowerNukkitX API 3.0.6");
+        getLogger().info("PNXRTP 1.4.0 enabled for PowerNukkitX API 3.0.6");
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
@@ -152,6 +152,10 @@ public class PNXRTP extends PluginBase {
         }
         if (!(sender instanceof Player player)) {
             send(sender, english, "§cЭту команду может использовать только игрок.");
+            return true;
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("back")) {
+            performRtpBack(player, english);
             return true;
         }
         performRtp(player, english);
@@ -269,6 +273,12 @@ public class PNXRTP extends PluginBase {
                 .computeIfAbsent(player.getUniqueId(), k -> new ConcurrentHashMap<>())
                 .computeIfAbsent(world, k -> new ArrayDeque<>());
         int avoidPlayers = intConfig(world, "avoid-player-distance", DEFAULT_AVOID_PLAYERS, 0, 512);
+        int minDistance = intConfig(world, "min-distance", 512, 0, 30000);
+        int maxDistance = intConfig(world, "max-distance", 10000, Math.max(1, minDistance), 30000);
+        double originX = player.getX();
+        double originZ = player.getZ();
+        long minDistanceSquared = (long) minDistance * minDistance;
+        long maxDistanceSquared = (long) maxDistance * maxDistance;
         ThreadLocalRandom random = ThreadLocalRandom.current();
 
         for (int attempt = 0; attempt < RTP_ATTEMPTS; attempt++) {
@@ -277,6 +287,10 @@ public class PNXRTP extends PluginBase {
             int chunkZ = (int) packed;
             int x = (chunkX << 4) + random.nextInt(16);
             int z = (chunkZ << 4) + random.nextInt(16);
+            long dxFromPlayer = (long) x - (long) originX;
+            long dzFromPlayer = (long) z - (long) originZ;
+            long distanceSquared = dxFromPlayer * dxFromPlayer + dzFromPlayer * dzFromPlayer;
+            if (distanceSquared < minDistanceSquared || distanceSquared > maxDistanceSquared) continue;
             synchronized (previous) {
                 if (!farEnoughFromHistory(x, z, previous)) continue;
             }
@@ -308,6 +322,58 @@ public class PNXRTP extends PluginBase {
             return;
         }
         send(player, english, "§cНе найдено безопасное место на нужном расстоянии. Возможно, территория мира слишком мала.");
+    }
+
+    private void performRtpBack(Player player, boolean english) {
+        String world = worldKey(player.getLevel());
+        Deque<SavedPoint> points = history.getOrDefault(player.getUniqueId(), Map.of()).get(world);
+        if (points == null) {
+            send(player, english, "§eИстория телепортаций пуста.");
+            return;
+        }
+        SavedPoint destination;
+        synchronized (points) {
+            if (points.size() < 2) {
+                send(player, english, "§eНет предыдущей точки для возврата.");
+                return;
+            }
+            var iterator = points.iterator();
+            iterator.next();
+            destination = iterator.next();
+        }
+        int x = (int) Math.floor(destination.x);
+        int z = (int) Math.floor(destination.z);
+        int chunkX = x >> 4;
+        int chunkZ = z >> 4;
+        Level level = player.getLevel();
+        if (!level.loadChunk(chunkX, chunkZ, false)) {
+            send(player, english, "§cПредыдущий чанк сейчас недоступен.");
+            return;
+        }
+        int groundY = level.getHighestBlockAt(x, z) - 1;
+        int feetY = groundY + 1;
+        if (feetY < level.getMinHeight() || feetY + 1 >= level.getMaxHeight()) {
+            send(player, english, "§cПредыдущая точка больше небезопасна.");
+            return;
+        }
+        Block ground = level.getBlock(x, groundY, z);
+        Block feet = level.getBlock(x, feetY, z);
+        Block head = level.getBlock(x, feetY + 1, z);
+        if (!ground.isSolid() || ground.isAir() || !feet.isAir() || !head.isAir()
+                || isUnsafe(ground) || isUnsafe(feet) || isUnsafe(head)) {
+            send(player, english, "§cПредыдущая точка больше небезопасна.");
+            return;
+        }
+        Location target = new Location(destination.x, feetY, destination.z, level);
+        if (player.teleport(target, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+            synchronized (points) {
+                if (!points.isEmpty()) points.removeFirst();
+            }
+            saveHistory();
+            send(player, english, "§aВозврат к предыдущей точке выполнен.");
+        } else {
+            send(player, english, "§cНе удалось вернуться к предыдущей точке.");
+        }
     }
 
     private boolean farEnoughFromHistory(int x, int z, Deque<SavedPoint> points) {
@@ -415,6 +481,10 @@ public class PNXRTP extends PluginBase {
             case "region" -> setRegion(sender, args, english);
             case "preview" -> sendRegionPreview(sender, english);
             case "diagnostics" -> sendDiagnostics(sender, english);
+            case "dashboard" -> {
+                sendGeneratorStatus(sender, english);
+                sendDiagnostics(sender, english);
+            }
             case "history" -> sendRecentEvents(sender, english);
             case "backup" -> createBackup(sender, english);
             case "map" -> exportChunkMap(sender, english);
@@ -426,7 +496,7 @@ public class PNXRTP extends PluginBase {
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
-            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|history|backup|map|reset");
+            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|dashboard|history|backup|map|reset");
         }
     }
 
@@ -524,7 +594,11 @@ public class PNXRTP extends PluginBase {
         if (paused) return;
         tickCounter++;
         if (tickCounter % 25 == 0) saveProgress();
-        int interval = memory >= 65 ? Math.max(2, 4 / speed) : Math.max(1, 2 / speed);
+        int adaptiveSpeed = speed;
+        int observedPending = pendingCount();
+        if (observedPending >= 24) adaptiveSpeed = 1;
+        else if (observedPending >= 12) adaptiveSpeed = Math.min(adaptiveSpeed, 2);
+        int interval = memory >= 65 ? Math.max(2, 4 / adaptiveSpeed) : Math.max(1, 2 / adaptiveSpeed);
         if (tickCounter % interval != 0) return;
 
         WorldIndex index = indexes.get(worldKey(generationLevel));
@@ -901,6 +975,8 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.region.center-z", "0");
         config.setProperty("rtp.cooldown-seconds", String.valueOf(DEFAULT_COOLDOWN_SECONDS));
         config.setProperty("rtp.avoid-player-distance", String.valueOf(DEFAULT_AVOID_PLAYERS));
+        config.setProperty("rtp.min-distance", "512");
+        config.setProperty("rtp.max-distance", "10000");
         config.setProperty("generator.memory.pause", "75");
         config.setProperty("generator.memory.resume", "60");
         config.setProperty("generator.memory.stop", "85");
