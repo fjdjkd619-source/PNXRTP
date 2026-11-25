@@ -1,4 +1,4 @@
-PNXRTP 1.4.2 - PowerNukkitX API 3.0.6
+PNXRTP 1.5.0-dev - PowerNukkitX API 3.0.6
 
 1.4.2 RTP fix: uses the PNX height-map Y coordinate directly. The previous extra -1 treated the surface block as the player's feet block, rejecting otherwise safe locations.
 
@@ -66,3 +66,12 @@ Install and validation
 - New config keys are created with defaults on first launch; existing config.properties files are retained and receive missing defaults.
 - Do not replace the PowerNukkitX server jar.
 - Keep a backup of the existing plugin jar and config before testing. Validate on a copy/staging server before production use.
+
+
+1.5.0 development - protected chunk cleanup preparation
+- /rtp cleanup creates a non-destructive cleanup manifest for the current world (or default world from console).
+- The protected area is exactly 21x21 chunks: the snapshotted world-spawn chunk plus 10 chunks outward in each cardinal direction (441 chunks total). The center chunk itself is included.
+- The protected center is saved separately for each world in config.properties on the first preview. Later spawn changes do not move the protected area automatically.
+- cleanup-manifest-<world>.csv lists indexed saved chunks outside the protected square as deletion candidates. The command does not delete any world data.
+- The preview requires a completed, successful saved-chunk index. Run /rtp reindex if needed.
+- IMPORTANT: actual LevelDB deletion is intentionally not performed by a running server process. The PNX provider keeps the database open and chunk records consist of multiple related keys; deleting them live could race with chunk loads/saves or leave inconsistent data. A separate offline deletion/recovery stage is required, with the server fully stopped and a complete world backup.
