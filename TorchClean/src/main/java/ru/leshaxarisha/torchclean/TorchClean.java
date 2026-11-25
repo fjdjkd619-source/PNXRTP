@@ -271,7 +271,11 @@ public final class TorchClean extends PluginBase {
                     error.getClass().getSimpleName() + " message=" + safeMessage(error));
             getLogger().error("TorchClean could not save chunk " + x + "," + z, error);
         } finally {
-            releaseChunk(current.level, x, z, current.activeWasLoaded);
+            // Keep modified chunks resident so queued block-light updates can finish.
+            // The server's normal unload queue will unload them when safe.
+            if (current.activeRemoved == 0) {
+                releaseChunk(current.level, x, z, current.activeWasLoaded);
+            }
             current.activeChunk = null;
             current.activeTorches = null;
             current.activeTorchIndex = 0;
@@ -330,7 +334,8 @@ public final class TorchClean extends PluginBase {
         }
 
         if (saved) completed.sender.sendMessage("§aОтчёт: plugins/TorchClean/torchclean-report.txt");
-        stopSession(false, false);
+        cancelTask();
+        session = null;
     }
 
     private void sendStatus(CommandSender sender) {
