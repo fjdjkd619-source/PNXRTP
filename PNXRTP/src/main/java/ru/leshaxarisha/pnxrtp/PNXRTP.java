@@ -870,19 +870,30 @@ public class PNXRTP extends PluginBase {
                 acceptedRequests++;
                 pendingChunksByWorld.computeIfAbsent(worldKey(generationLevel), key -> ConcurrentHashMap.newKeySet()).add(packed);
             } else {
+                // A request that is no longer in the queue may already be finished/sendable.
+                // Record it as existing instead of rewinding the cursor and retrying forever.
                 rejectedRequests++;
-                ring = oldRing;
-                side = oldSide;
-                offset = oldOffset;
-                journal("WARN", "Chunk request was not observed in generation queue at " + (centerX + dx) + "," + (centerZ + dz));
+                skippedExistingChunks++;
+                markChunkAsExisting(index, packed);
+                journal("WARN", "Skipped chunk already available or not queued at " + (centerX + dx) + "," + (centerZ + dz));
             }
         } catch (RuntimeException error) {
             rejectedRequests++;
-            ring = oldRing;
-            side = oldSide;
-            offset = oldOffset;
-            journal("ERROR", "Chunk request failed at " + (centerX + dx) + "," + (centerZ + dz) + ": " + error.getClass().getSimpleName());
-            getLogger().error("PNXRTP: generateChunk request failed", error);
+            if (isAlreadySendableChunkGuard(error)) {
+                // PowerNukkitX throws this guard when the chunk has already reached FINISHED.
+                // Treat that chunk as existing; never roll the spiral cursor back to it.
+                skippedExistingChunks++;
+                markChunkAsExisting(index, packed);
+                journal("WARN", "Skipped already-sendable chunk " + (centerX + dx) + "," + (centerZ + dz)
+                        + " after PowerNukkitX generation guard");
+                saveProgress();
+            } else {
+                ring = oldRing;
+                side = oldSide;
+                offset = oldOffset;
+                journal("ERROR", "Chunk request failed at " + (centerX + dx) + "," + (centerZ + dz) + ": " + error.getClass().getSimpleName());
+                getLogger().error("PNXRTP: generateChunk request failed", error);
+            }
         }
         if (requestAttempts % 25 == 0) saveProgress();
         return;
@@ -891,6 +902,31 @@ public class PNXRTP extends PluginBase {
     }
     private int pendingCount() {
         return generationLevel == null ? 0 : pendingChunksByWorld.getOrDefault(worldKey(generationLevel), Set.of()).size();
+    }
+
+    private boolean isAlreadySendableChunkGuard(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            String message = current.getMessage();
+            if (message != null && (message.contains("generateChunk guard triggered")
+                    || message.contains("already-sendable chunk"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void markChunkAsExisting(WorldIndex index, long packed) {
+        if (index == null || index.chunkSet.contains(packed)) return;
+        synchronized (index) {
+            if (index.chunkSet.contains(packed)) return;
+            List<Long> updatedChunks = new ArrayList<>(index.chunks);
+            updatedChunks.add(packed);
+            updatedChunks.sort(Long::compare);
+            index.chunks = List.copyOf(updatedChunks);
+            Set<Long> updatedSet = new java.util.HashSet<>(index.chunkSet);
+            updatedSet.add(packed);
+            index.chunkSet = Set.copyOf(updatedSet);
+        }
     }
 
     private void updateFinishedChunks() {
