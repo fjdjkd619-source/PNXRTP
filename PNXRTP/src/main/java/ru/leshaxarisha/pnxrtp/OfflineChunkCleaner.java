@@ -115,7 +115,8 @@ public final class OfflineChunkCleaner {
     private static long deleteChunkRecords(DB db, Set<Long> candidates) throws IOException {
         long deleted = 0;
         int inBatch = 0;
-        try (WriteBatch batch = db.createWriteBatch(); DBIterator iterator = db.iterator()) {
+        WriteBatch batch = db.createWriteBatch();
+        try (DBIterator iterator = db.iterator()) {
             iterator.seekToFirst();
             while (iterator.hasNext()) {
                 byte[] key = iterator.next().getKey();
@@ -128,11 +129,14 @@ public final class OfflineChunkCleaner {
                 inBatch++;
                 if (inBatch >= BATCH_LIMIT) {
                     db.write(batch, new WriteOptions().sync(true));
-                    batch.clear();
+                    batch.close();
+                    batch = db.createWriteBatch();
                     inBatch = 0;
                 }
             }
             if (inBatch > 0) db.write(batch, new WriteOptions().sync(true));
+        } finally {
+            batch.close();
         }
         return deleted;
     }
