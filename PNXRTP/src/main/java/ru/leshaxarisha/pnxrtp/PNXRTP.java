@@ -221,7 +221,8 @@ public class PNXRTP extends PluginBase {
                 {"Не удалось прочитать журнал событий.", "Could not read the event log."}, {"Резервная копия создана. Файлов:", "Backup created. Files:"},
                 {"Не удалось создать резервную копию:", "Could not create backup:"}, {"Сначала выбери загруженный мир: /rtpgen world <имя>.", "Select a loaded world first: /rtpgen world <name>."},
                 {"Индекс мира ещё строится. Повтори /rtpgen map позже.", "World index is still building. Run /rtpgen map again later."},
-                {"Карта чанков экспортирована:", "Chunk map exported:"}, {"Не удалось экспортировать карту чанков.", "Could not export the chunk map."}
+                {"Карта чанков экспортирована:", "Chunk map exported:"}, {"Не удалось экспортировать карту чанков.", "Could not export the chunk map."},
+                {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"}
         };
         String translated = message;
         for (String[] phrase : phrases) translated = translated.replace(phrase[0], phrase[1]);
@@ -794,15 +795,20 @@ public class PNXRTP extends PluginBase {
                 send(sender, english, "§eИндекс мира ещё строится. Повтори /rtpgen map позже.");
                 return;
             }
-            StringBuilder csv = new StringBuilder("chunk_x,chunk_z,status\n");
-            for (long packed : index.chunks) {
-                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",saved\n");
-            }
-            for (long packed : pendingChunks) {
-                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",pending\n");
-            }
             File output = new File(dataFolder, "chunks-map-" + worldKey(generationLevel) + ".csv");
-            Files.writeString(output.toPath(), csv, StandardCharsets.UTF_8);
+            try (var writer = Files.newBufferedWriter(output.toPath(), StandardCharsets.UTF_8)) {
+                writer.write("chunk_x,chunk_z,status");
+                writer.newLine();
+                for (long packed : index.chunks) {
+                    writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",saved");
+                    writer.newLine();
+                }
+                for (long packed : pendingChunks) {
+                    if (index.chunkSet.contains(packed)) continue;
+                    writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",pending");
+                    writer.newLine();
+                }
+            }
             send(sender, english, "§aКарта чанков экспортирована: " + output.getName() + " (" + index.chunks.size() + " saved).");
             journal("INFO", "Chunk map exported for " + worldKey(generationLevel));
         } catch (IOException error) {
