@@ -248,7 +248,7 @@ public class PNXRTP extends PluginBase {
                 {"Папка данных доступна для записи:", "Data directory writable:"},
                 {"Файл прогресса существует:", "Progress file exists:"}, {"Журнал событий существует:", "Event log exists:"},
                 {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"},
-                {"Целевой биом ID:", "Target biome ID:"}, {"Использование: /rtpgen biome <ID|here|off>", "Usage: /rtpgen biome <ID|off>"},
+                {"Целевой биом ID:", "Target biome ID:"}, {"Использование: /rtpgen biome <ID|here|off>", "Usage: /rtpgen biome <ID|here|off>"},
                 {"ID биома должен быть числом от 0 до 65535, here или off.", "Biome ID must be between 0 and 65535, or off."},
                 {"Фильтр биома установлен:", "Biome filter set:"}, {"Расписание:", "Schedule:"}, {"выключено", "disabled"},
                 {"Использование: /rtpgen schedule <off|HH:mm HH:mm>", "Usage: /rtpgen schedule <off|HH:mm HH:mm>"},
@@ -272,6 +272,26 @@ public class PNXRTP extends PluginBase {
                 {"Индекс ещё строится.", "Index is still building."},
                 {"Нет сохранённой точки возврата. Сначала используй /rtp.", "No return point is saved. Use /rtp first."},
                 {"Ты вернулся на предыдущую позицию.", "You returned to your previous position."},
+                {"Не найдено безопасное место на нужном расстоянии. Проверь радиус и доступные сохранённые чанки.", "No safe location was found at the required distance. Check the radius and available saved chunks."},
+                {"Координаты или радиус имеют неверное значение.", "The coordinates or radius are invalid."},
+                {"Использование: /rtpgen region use <name>", "Usage: /rtpgen region use <name>"},
+                {"После завершения генератор перейдёт к следующему сохранённому региону.", "After completion, the generator will move to the next saved region."},
+                {"Использование: /rtpgen region remove <name>", "Usage: /rtpgen region remove <name>"},
+                {"Команда: /rtpgen region <circle|square> [centerX centerZ]", "Command: /rtpgen region <circle|square> [centerX centerZ]"},
+                {" | центр ", " | center "}, {" | радиус ", " | radius "},
+                {"Использование: /rtpgen exclude <rtp|generator> <add x1 z1 x2 z2|clear>", "Usage: /rtpgen exclude <rtp|generator> <add x1 z1 x2 z2|clear>"},
+                {"Зоны исключения очищены:", "Exclusion zones cleared:"},
+                {"Использование: /rtpgen exclude <rtp|generator> add <x1> <z1> <x2> <z2>", "Usage: /rtpgen exclude <rtp|generator> add <x1> <z1> <x2> <z2>"},
+                {"Зона исключения добавлена для ", "Exclusion zone added for "},
+                {"Координаты должны быть целыми числами в диапазоне ±30000000.", "Coordinates must be integers in the range ±30000000."},
+                {" (-1 = любой)", " (-1 = any)"},
+                {"Ошибка: memory.resume должен быть меньше memory.pause, а pause меньше memory.stop.", "Error: memory.resume must be lower than memory.pause, and pause must be lower than memory.stop."},
+                {"Ошибка: радиус генерации вне допустимого диапазона.", "Error: generation radius is outside the allowed range."},
+                {"Ошибка: неверный формат расписания.", "Error: invalid schedule format."},
+                {"Ошибка: ID целевого биома вне диапазона.", "Error: target biome ID is out of range."},
+                {"Ошибка: generator.tps.resume-above должен быть выше pause-below.", "Error: generator.tps.resume-above must be higher than pause-below."},
+                {", предупреждений: ", ", warnings: "},
+                {"Биом RTP ID:", "RTP biome ID:"}
                 {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."}
         };
         String translated = message;
@@ -1162,8 +1182,7 @@ public class PNXRTP extends PluginBase {
             return;
         }
         if (args[1].equalsIgnoreCase("off")) {
-            config.setProperty("generator.auto-start", "false");
-        config.setProperty("generator.schedule.enabled", "false");
+            config.setProperty("generator.schedule.enabled", "false");
             savePluginConfig();
             schedulePaused = false;
             invalidScheduleLogged = false;
@@ -1508,7 +1527,7 @@ public class PNXRTP extends PluginBase {
         config.setProperty("rtp.exclusions", "");
         config.setProperty("generator.exclusions", "");
         if (configFile.exists()) {
-            try (var in = Files.newInputStream(configFile.toPath())) { config.load(in); }
+            try (var in = Files.newBufferedReader(configFile.toPath(), StandardCharsets.UTF_8)) { config.load(in); }
             catch (IOException e) { getLogger().warning("Could not load config.properties: " + e.getMessage()); }
         }
         generationRadius = parseInt(config.getProperty("generator.radius"), DEFAULT_GENERATION_RADIUS, 100, MAX_GENERATION_RADIUS);
