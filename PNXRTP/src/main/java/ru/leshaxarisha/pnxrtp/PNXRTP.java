@@ -66,6 +66,7 @@ public class PNXRTP extends PluginBase {
     private volatile boolean autoPaused;
     private volatile boolean autoStopped;
     private volatile boolean schedulePaused;
+    private boolean invalidScheduleLogged;
     private volatile boolean loadPaused;
     private int targetBiomeId = -1;
     private String activeRegionName = "";
@@ -631,8 +632,8 @@ public class PNXRTP extends PluginBase {
         if (!generating || generationLevel == null) return;
         int memory = memoryPercent();
         int pauseAt = parseInt(config.getProperty("generator.memory.pause", "75"), 75, 50, 95);
-        int stopAt = parseInt(config.getProperty("generator.memory.stop", "85"), 85, pauseAt + 1, 99);
-        int resumeAt = parseInt(config.getProperty("generator.memory.resume", "60"), 60, 30, pauseAt - 1);
+        int stopAt = parseInt(config.getProperty("generator.memory.stop", "85"), Math.max(85, pauseAt + 1), pauseAt + 1, 99);
+        int resumeAt = parseInt(config.getProperty("generator.memory.resume", "60"), Math.min(60, pauseAt - 1), 30, pauseAt - 1);
         if (memory >= stopAt) {
             journal("WARN", "Generation stopped automatically: memory=" + memory + "%");
             getLogger().warning("RTPGen stopped: memory reached " + memory + "%");
@@ -1158,6 +1159,7 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.schedule.enabled", "false");
             savePluginConfig();
             schedulePaused = false;
+            invalidScheduleLogged = false;
             send(sender, english, "§aРасписание выключено.");
             return;
         }
@@ -1172,6 +1174,7 @@ public class PNXRTP extends PluginBase {
             config.setProperty("generator.schedule.start", args[1]);
             config.setProperty("generator.schedule.end", args[2]);
             config.setProperty("generator.schedule.enabled", "true");
+            invalidScheduleLogged = false;
             savePluginConfig();
             send(sender, english, "§aРасписание установлено: " + args[1] + "-" + args[2]);
         } catch (DateTimeParseException ex) {
@@ -1191,7 +1194,10 @@ public class PNXRTP extends PluginBase {
             if (start.isBefore(end)) return !now.isBefore(start) && now.isBefore(end);
             return !now.isBefore(start) || now.isBefore(end);
         } catch (DateTimeParseException ex) {
-            journal("ERROR", "Invalid daily generation schedule; generation remains paused");
+            if (!invalidScheduleLogged) {
+                journal("ERROR", "Invalid daily generation schedule; generation remains paused");
+                invalidScheduleLogged = true;
+            }
             return false;
         }
     }
