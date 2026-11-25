@@ -68,6 +68,7 @@ public class PNXRTP extends PluginBase {
     private volatile boolean schedulePaused;
     private volatile boolean loadPaused;
     private int targetBiomeId = -1;
+    private String activeRegionName = "";
     private long quotaWindowStart = System.currentTimeMillis();
     private long quotaRequests;
     private Level generationLevel;
@@ -487,7 +488,7 @@ public class PNXRTP extends PluginBase {
             case "radius" -> setRadius(sender, args, english);
             case "speed" -> setSpeed(sender, args, english);
             case "world" -> selectGeneratorWorld(sender, args, english);
-            case "region" -> setRegion(sender, args, english);
+            case "region" -> handleRegionCommand(sender, args, english);
             case "preview" -> sendRegionPreview(sender, english);
             case "diagnostics" -> sendDiagnostics(sender, english);
             case "dashboard" -> {
@@ -668,6 +669,10 @@ public class PNXRTP extends PluginBase {
             }
         }
         if (ring > maxRing + 1) {
+            if (advanceRegionProfile()) {
+                getLogger().info("RTPGen completed a region and advanced to the next saved region.");
+                return;
+            }
             getLogger().info("RTPGen reached configured radius.");
             stopGenerator(false);
             return;
@@ -813,6 +818,141 @@ public class PNXRTP extends PluginBase {
         } catch (NumberFormatException e) { send(sender, english, "§cУкажи число от 1 до 4."); }
     }
 
+    private void handleRegionCommand(CommandSender sender, String[] args, boolean english) {
+        if (args.length < 2) {
+            setRegion(sender, args, english);
+            return;
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (action.equals("list")) {
+            List<String> profiles = regionProfiles();
+            send(sender, english, "§eСохранённые регионы (" + profiles.size() + "):");
+            for (String profile : profiles) {
+                String[] p = profile.split(",", 5);
+                if (p.length == 5) send(sender, english, "§7- " + p[0] + " | " + p[1] + " | центр " + p[2] + "," + p[3] + " | радиус " + p[4]);
+            }
+            return;
+        }
+        if (generating) {
+            send(sender, english, "§cОстанови генератор перед изменением профилей регионов.");
+            return;
+        }
+        if (action.equals("add")) {
+            if (args.length != 7 || !args[3].matches("(?i)circle|square") || !args[2].matches("[A-Za-z0-9_-]{1,24}")) {
+                send(sender, english, "§eИспользование: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>");
+                return;
+            }
+            try {
+                int x = Integer.parseInt(args[4]);
+                int z = Integer.parseInt(args[5]);
+                int radius = Integer.parseInt(args[6]);
+                if (Math.abs((long)x) > 30000000L || Math.abs((long)z) > 30000000L || radius < 100 || radius > MAX_GENERATION_RADIUS) throw new NumberFormatException();
+                List<String> profiles = regionProfiles();
+                for (String profile : profiles) if (profile.split(",", 5)[0].equalsIgnoreCase(args[2])) {
+                    send(sender, english, "§cРегион с таким именем уже существует.");
+                    return;
+                }
+                profiles.add(args[2] + "," + args[3].toLowerCase(Locale.ROOT) + "," + x + "," + z + "," + radius);
+                config.setProperty("generator.regions", String.join(";", profiles));
+                savePluginConfig();
+                send(sender, english, "§aРегион сохранён: " + args[2]);
+            } catch (NumberFormatException ex) {
+                send(sender, english, "§cКоординаты или радиус имеют неверное значение.");
+            }
+            return;
+        }
+        if (action.equals("use")) {
+            if (args.length != 3) {
+                send(sender, english, "§eИспользование: /rtpgen region use <name>");
+                return;
+            }
+            for (String profile : regionProfiles()) {
+                String[] p = profile.split(",", 5);
+                if (p.length == 5 && p[0].equalsIgnoreCase(args[2])) {
+                    activateRegionProfile(p);
+                    send(sender, english, "§aАктивирован регион " + p[0] + ". После завершения генератор перейдёт к следующему сохранённому региону.");
+                    return;
+                }
+            }
+            send(sender, english, "§cРегион не найден.");
+            return;
+        }
+        if (action.equals("remove")) {
+            if (args.length != 3) {
+                send(sender, english, "§eИспользование: /rtpgen region remove <name>");
+                return;
+            }
+            List<String> profiles = regionProfiles();
+            boolean removed = profiles.removeIf(p -> p.split(",", 5)[0].equalsIgnoreCase(args[2]));
+            if (!removed) {
+                send(sender, english, "§cРегион не найден.");
+                return;
+            }
+            config.setProperty("generator.regions", String.join(";", profiles));
+            if (activeRegionName.equalsIgnoreCase(args[2])) {
+                activeRegionName = "";
+                config.setProperty("generator.region.active", "");
+            }
+            savePluginConfig();
+            send(sender, english, "§aРегион удалён.");
+            return;
+        }
+        setRegion(sender, args, english);
+    }
+
+    private List<String> regionProfiles() {
+        String encoded = config.getProperty("generator.regions", "");
+        List<String> result = new ArrayList<>();
+        if (encoded.isBlank()) return result;
+        for (String profile : encoded.split(";")) {
+            String[] p = profile.split(",", 5);
+            if (p.length != 5 || !p[0].matches("[A-Za-z0-9_-]{1,24}")) continue;
+            try {
+                if (!p[1].equalsIgnoreCase("circle") && !p[1].equalsIgnoreCase("square")) continue;
+                Integer.parseInt(p[2]);
+                Integer.parseInt(p[3]);
+                int radius = Integer.parseInt(p[4]);
+                if (radius < 100 || radius > MAX_GENERATION_RADIUS) continue;
+                result.add(profile);
+            } catch (NumberFormatException ignored) { }
+        }
+        return result;
+    }
+
+    private void activateRegionProfile(String[] p) {
+        activeRegionName = p[0];
+        regionShape = p[1].toLowerCase(Locale.ROOT);
+        regionCenterX = Integer.parseInt(p[2]);
+        regionCenterZ = Integer.parseInt(p[3]);
+        generationRadius = Integer.parseInt(p[4]);
+        customRegionCenter = true;
+        config.setProperty("generator.region.active", activeRegionName);
+        config.setProperty("generator.region.shape", regionShape);
+        config.setProperty("generator.region.custom-center", "true");
+        config.setProperty("generator.region.center-x", String.valueOf(regionCenterX));
+        config.setProperty("generator.region.center-z", String.valueOf(regionCenterZ));
+        config.setProperty("generator.radius", String.valueOf(generationRadius));
+        ring = side = offset = 0;
+        savePluginConfig();
+        saveProgress();
+    }
+
+    private boolean advanceRegionProfile() {
+        List<String> profiles = regionProfiles();
+        if (profiles.size() < 2 || activeRegionName.isBlank()) return false;
+        for (int i = 0; i < profiles.size(); i++) {
+            String[] current = profiles.get(i).split(",", 5);
+            if (current[0].equalsIgnoreCase(activeRegionName)) {
+                String[] next = profiles.get((i + 1) % profiles.size()).split(",", 5);
+                if (next[0].equalsIgnoreCase(activeRegionName)) return false;
+                activateRegionProfile(next);
+                journal("INFO", "Advanced to next saved region: " + activeRegionName);
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void setRegion(CommandSender sender, String[] args, boolean english) {
         if (generating) {
             send(sender, english, "§cСначала останови генератор перед изменением региона.");
@@ -850,6 +990,8 @@ public class PNXRTP extends PluginBase {
         }
         regionShape = shape;
         config.setProperty("generator.region.shape", regionShape);
+        activeRegionName = "";
+        config.setProperty("generator.region.active", "");
         config.setProperty("generator.region.custom-center", String.valueOf(customRegionCenter));
         config.setProperty("generator.region.center-x", String.valueOf(regionCenterX));
         config.setProperty("generator.region.center-z", String.valueOf(regionCenterZ));
@@ -1185,6 +1327,7 @@ public class PNXRTP extends PluginBase {
         generationRadius = parseInt(config.getProperty("generator.radius"), DEFAULT_GENERATION_RADIUS, 100, MAX_GENERATION_RADIUS);
         speed = parseInt(config.getProperty("generator.speed"), 1, 1, 4);
         regionShape = config.getProperty("generator.region.shape", "circle").equalsIgnoreCase("square") ? "square" : "circle";
+        activeRegionName = config.getProperty("generator.region.active", "");
         customRegionCenter = Boolean.parseBoolean(config.getProperty("generator.region.custom-center", "false"));
         regionCenterX = parseInt(config.getProperty("generator.region.center-x"), 0, -30000000, 30000000);
         regionCenterZ = parseInt(config.getProperty("generator.region.center-z"), 0, -30000000, 30000000);
