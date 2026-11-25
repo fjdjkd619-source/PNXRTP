@@ -107,7 +107,7 @@ public class PNXRTP extends PluginBase {
         loadConfig();
         loadProgress();
         loadHistory();
-        getLogger().info("PNXRTP 1.4.0 enabled for PowerNukkitX API 3.0.6");
+        getLogger().info("PNXRTP 1.4.1 enabled for PowerNukkitX API 3.0.6");
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
@@ -316,103 +316,80 @@ public class PNXRTP extends PluginBase {
         long maxDistanceSquared = (long) maxDistance * maxDistance;
         ThreadLocalRandom random = ThreadLocalRandom.current();
 
-        for (int attempt = 0; attempt < RTP_ATTEMPTS; attempt++) {
-            long packed = chunks.get(random.nextInt(chunks.size()));
+        // Pre-filter indexed chunks by their centers. The old implementation sampled
+        // only 40 arbitrary chunks, so sparse worlds often failed despite valid chunks.
+        List<Long> candidates = new ArrayList<>();
+        for (long packed : chunks) {
             int chunkX = (int) (packed >> 32);
             int chunkZ = (int) packed;
-            int x = (chunkX << 4) + random.nextInt(16);
-            int z = (chunkZ << 4) + random.nextInt(16);
-            long dxFromPlayer = (long) x - (long) originX;
-            long dzFromPlayer = (long) z - (long) originZ;
-            long distanceSquared = dxFromPlayer * dxFromPlayer + dzFromPlayer * dzFromPlayer;
-            if (distanceSquared < minDistanceSquared || distanceSquared > maxDistanceSquared) continue;
-            synchronized (previous) {
-                if (!farEnoughFromHistory(x, z, previous)) continue;
+            double centerX = (chunkX << 4) + 8.0;
+            double centerZ = (chunkZ << 4) + 8.0;
+            double dx = centerX - originX;
+            double dz = centerZ - originZ;
+            double distanceSquared = dx * dx + dz * dz;
+            // A chunk is 16x16; allow a small margin, then validate exact block distance.
+            double margin = 12.0;
+            double minCenter = Math.max(0.0, minDistance - margin);
+            double maxCenter = maxDistance + margin;
+            if (distanceSquared >= minCenter * minCenter && distanceSquared <= maxCenter * maxCenter) {
+                candidates.add(packed);
             }
-            if (avoidPlayers > 0 && tooCloseToPlayer(player, level, x + 0.5, z + 0.5, avoidPlayers)) continue;
+        }
+        java.util.Collections.shuffle(candidates);
+        int chunksToInspect = Math.min(candidates.size(), 512);
 
-            // create=false is essential: RTP must never generate a new chunk.
+        for (int candidate = 0; candidate < chunksToInspect; candidate++) {
+            long packed = candidates.get(candidate);
+            int chunkX = (int) (packed >> 32);
+            int chunkZ = (int) packed;
+            // Never generate a new chunk as part of RTP.
             if (!level.loadChunk(chunkX, chunkZ, false)) continue;
-            int groundY = level.getHighestBlockAt(x, z) - 1;
-            int feetY = groundY + 1;
-            if (feetY < level.getMinHeight() || feetY + 1 >= level.getMaxHeight()) continue;
-            Block ground = level.getBlock(x, groundY, z);
-            Block feet = level.getBlock(x, feetY, z);
-            Block head = level.getBlock(x, feetY + 1, z);
-            if (!ground.isSolid() || ground.isAir() || !feet.isAir() || !head.isAir()) continue;
-            if (isUnsafe(ground) || isUnsafe(feet) || isUnsafe(head)) continue;
-            int requiredBiome = intConfig(world, "target-biome-id", targetBiomeId, -1, 65535);
-            if (requiredBiome >= 0 && level.getBiomeId(x, feetY, z) != requiredBiome) continue;
-            String rtpExclusions = config.getProperty("world." + world + ".rtp-exclusions", config.getProperty("rtp.exclusions", ""));
-            if (isInsideAnyExclusion(rtpExclusions, x, z)) continue;
 
-            Location destination = new Location(x + 0.5, feetY, z + 0.5, level);
-            if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+            for (int sample = 0; sample < 4; sample++) {
+                int x = (chunkX << 4) + random.nextInt(16);
+                int z = (chunkZ << 4) + random.nextInt(16);
+                long dxFromPlayer = (long) x - (long) originX;
+                long dzFromPlayer = (long) z - (long) originZ;
+                long distanceSquared = dxFromPlayer * dxFromPlayer + dzFromPlayer * dzFromPlayer;
+                if (distanceSquared < minDistanceSquared || distanceSquared > maxDistanceSquared) continue;
                 synchronized (previous) {
-                    previous.addFirst(new SavedPoint(x + 0.5, z + 0.5));
-                    while (previous.size() > HISTORY_LIMIT) previous.removeLast();
+                    if (!farEnoughFromHistory(x, z, previous)) continue;
                 }
-                cooldowns.put(player.getUniqueId(), now + cooldownSeconds(world) * 1000L);
-                saveHistory();
-                send(player, english, "§aТы телепортирован в случайное безопасное место!");
-            } else {
-                send(player, english, "§cТелепортация не удалась.");
-            }
-            return;
-        }
-        send(player, english, "§cНе найдено безопасное место на нужном расстоянии. Возможно, территория мира слишком мала.");
-    }
+                if (avoidPlayers > 0 && tooCloseToPlayer(player, level, x + 0.5, z + 0.5, avoidPlayers)) continue;
 
-    private void performRtpBack(Player player, boolean english) {
-        String world = worldKey(player.getLevel());
-        Deque<SavedPoint> points = history.getOrDefault(player.getUniqueId(), Map.of()).get(world);
-        if (points == null) {
-            send(player, english, "§eИстория телепортаций пуста.");
-            return;
-        }
-        SavedPoint destination;
-        synchronized (points) {
-            if (points.size() < 2) {
-                send(player, english, "§eНет предыдущей точки для возврата.");
+                int groundY = level.getHighestBlockAt(x, z) - 1;
+                int feetY = groundY + 1;
+                if (feetY < level.getMinHeight() || feetY + 1 >= level.getMaxHeight()) continue;
+                Block ground = level.getBlock(x, groundY, z);
+                Block feet = level.getBlock(x, feetY, z);
+                Block head = level.getBlock(x, feetY + 1, z);
+                if (!ground.isSolid() || ground.isAir() || !feet.isAir() || !head.isAir()) continue;
+                if (isUnsafe(ground) || isUnsafe(feet) || isUnsafe(head)) continue;
+                int requiredBiome = intConfig(world, "target-biome-id", targetBiomeId, -1, 65535);
+                if (requiredBiome >= 0 && level.getBiomeId(x, feetY, z) != requiredBiome) continue;
+                String rtpExclusions = config.getProperty("world." + world + ".rtp-exclusions", config.getProperty("rtp.exclusions", ""));
+                if (isInsideAnyExclusion(rtpExclusions, x, z)) continue;
+
+                Location destination = new Location(x + 0.5, feetY, z + 0.5, level);
+                if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+                    synchronized (previous) {
+                        previous.addFirst(new SavedPoint(x + 0.5, z + 0.5));
+                        while (previous.size() > HISTORY_LIMIT) previous.removeLast();
+                    }
+                    cooldowns.put(player.getUniqueId(), now + cooldownSeconds(world) * 1000L);
+                    saveHistory();
+                    send(player, english, "§aТы телепортирован в случайное безопасное место!");
+                } else {
+                    send(player, english, "§cТелепортация не удалась.");
+                }
                 return;
             }
-            var iterator = points.iterator();
-            iterator.next();
-            destination = iterator.next();
         }
-        int x = (int) Math.floor(destination.x);
-        int z = (int) Math.floor(destination.z);
-        int chunkX = x >> 4;
-        int chunkZ = z >> 4;
-        Level level = player.getLevel();
-        if (!level.loadChunk(chunkX, chunkZ, false)) {
-            send(player, english, "§cПредыдущий чанк сейчас недоступен.");
-            return;
-        }
-        int groundY = level.getHighestBlockAt(x, z) - 1;
-        int feetY = groundY + 1;
-        if (feetY < level.getMinHeight() || feetY + 1 >= level.getMaxHeight()) {
-            send(player, english, "§cПредыдущая точка больше небезопасна.");
-            return;
-        }
-        Block ground = level.getBlock(x, groundY, z);
-        Block feet = level.getBlock(x, feetY, z);
-        Block head = level.getBlock(x, feetY + 1, z);
-        if (!ground.isSolid() || ground.isAir() || !feet.isAir() || !head.isAir()
-                || isUnsafe(ground) || isUnsafe(feet) || isUnsafe(head)) {
-            send(player, english, "§cПредыдущая точка больше небезопасна.");
-            return;
-        }
-        Location target = new Location(destination.x, feetY, destination.z, level);
-        if (player.teleport(target, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
-            synchronized (points) {
-                if (!points.isEmpty()) points.removeFirst();
-            }
-            saveHistory();
-            send(player, english, "§aВозврат к предыдущей точке выполнен.");
-        } else {
-            send(player, english, "§cНе удалось вернуться к предыдущей точке.");
-        }
+
+        journal("WARN", "RTP failed for " + player.getName() + " in " + world
+                + ": indexed=" + chunks.size() + ", in-range=" + candidates.size()
+                + ", inspected=" + chunksToInspect + ", min=" + minDistance + ", max=" + maxDistance);
+        send(player, english, "§cНе найдено безопасное место на нужном расстоянии. Проверь радиус и доступные сохранённые чанки.");
     }
 
     private boolean farEnoughFromHistory(int x, int z, Deque<SavedPoint> points) {
