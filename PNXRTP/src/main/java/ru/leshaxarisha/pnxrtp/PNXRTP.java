@@ -188,7 +188,7 @@ public class PNXRTP extends PluginBase {
                 {"Не удалось запустить задачу генератора. Проверь журнал сервера.", "Could not start the generator task. Check the server log."},
                 {"Генерация запущена. Безопасный режим: ", "Generation started. Safe mode: "},
                 {" запрос(а) на интервал.", " request(s) per interval."},
-                {"Мир генератора:", "Generator world:"}, {"не найден", "not found"},
+                {"Мир генератора:", "Generator world:"}, {"не найден", "not found"}, {"нет", "none"},
                 {"Выбор: /rtpgen world <имя мира>", "Usage: /rtpgen world <world name>"},
                 {"Мир не найден среди загруженных. Проверь имя мира.", "World not found among loaded worlds. Check the world name."},
                 {"Мир генератора выбран:", "Generator world selected:"},
