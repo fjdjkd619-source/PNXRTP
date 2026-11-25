@@ -4,6 +4,12 @@ Target platform
 - PowerNukkitX 3.0.6 API (the server-local dependency and Java compiler settings are unchanged).
 - Build with the existing Maven project and local PowerNukkitX jar at ${user.home}/storage/downloads/powernukkitx.jar.
 
+Language output
+- Russian is the default for all player and command responses.
+- Append ENG to a command to receive its output in English, suitable for consoles that do not display Cyrillic correctly.
+- Examples: /rtp status ENG, /rtp reload ENG, /rtpgen status ENG, /rtpgen start ENG, /rtpgen radius 2000 ENG.
+- Without ENG, the same commands continue to respond in Russian.
+
 RTP
 - Builds a per-world index from LevelDB VERSION records asynchronously.
 - Selects only indexed saved chunks and calls loadChunk(x,z,false); it does not intentionally generate chunks for teleportation.
