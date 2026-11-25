@@ -64,6 +64,7 @@ public class PNXRTP extends PluginBase {
     private volatile boolean generating;
     private volatile boolean paused;
     private volatile boolean autoPaused;
+    private volatile boolean autoStopped;
     private Level generationLevel;
     private int generationRadius = DEFAULT_GENERATION_RADIUS;
     private int speed = 1;
@@ -102,8 +103,10 @@ public class PNXRTP extends PluginBase {
     public void onDisable() {
         if (generating) {
             generating = false;
+            paused = false;
             getServer().getScheduler().cancelTask(this);
         }
+        generatorTaskRunning.set(false);
         saveProgress();
         saveHistory();
         savePluginConfig();
@@ -137,7 +140,7 @@ public class PNXRTP extends PluginBase {
             sender.sendMessage("§e----- PNXRTP -----");
             sender.sendMessage("§eИндекс мира: " + (index == null ? "§cне запущен" : index.building ? "§eстроится" : "§aготов"));
             if (index != null) sender.sendMessage("§eСохранённых чанков в индексе: §f" + index.chunks.size());
-            sender.sendMessage("§eГенератор: " + (generating ? paused ? "§eпауза" : "§aработает" : "§cостановлен"));
+            sender.sendMessage("§eГенератор: " + (generating ? paused ? autoPaused ? "§6автопауза" : "§eпауза" : "§aработает" : autoStopped ? "§6остановлен автоматически" : "§cостановлен"));
             sender.sendMessage("§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
             return true;
         }
@@ -281,7 +284,10 @@ public class PNXRTP extends PluginBase {
                 getLogger().error("PNXRTP: failed to scan saved chunk index for " + key, error);
             } finally {
                 if (iterator != null) {
-                    iterator.close();
+                    try { iterator.close(); }
+                    catch (Exception closeError) {
+                        getLogger().warning("PNXRTP: could not close chunk index iterator for " + key + ": " + closeError.getMessage());
+                    }
                 }
             }
             found.sort(Long::compare);
@@ -354,13 +360,26 @@ public class PNXRTP extends PluginBase {
             sender.sendMessage("§cПамять уже выше 85%. Сначала снизь нагрузку или перезапусти сервер.");
             return;
         }
+        if (!generatorTaskRunning.compareAndSet(false, true)) {
+            sender.sendMessage("§cЗадача генератора уже зарегистрирована. Выполни /rtpgen stop и попробуй снова.");
+            journal("ERROR", "Start refused: scheduler task flag was already set");
+            return;
+        }
         generating = true;
         paused = false;
         autoPaused = false;
+        autoStopped = false;
         tickCounter = 0;
         journal("INFO", "Generation started: world=" + worldKey(generationLevel) + ", radius=" + generationRadius + ", speed=" + speed);
-        if (generatorTaskRunning.compareAndSet(false, true)) {
+        try {
             getServer().getScheduler().scheduleRepeatingTask(this, this::generatorTick, 20);
+        } catch (RuntimeException error) {
+            generating = false;
+            generatorTaskRunning.set(false);
+            journal("ERROR", "Could not schedule generator task: " + error.getClass().getSimpleName());
+            getLogger().error("PNXRTP: could not schedule generator task", error);
+            sender.sendMessage("§cНе удалось запустить задачу генератора. Проверь журнал сервера.");
+            return;
         }
         saveProgress();
         sender.sendMessage("§aГенерация запущена. Безопасный режим: " + speed + " запрос(а) на интервал.");
@@ -369,7 +388,8 @@ public class PNXRTP extends PluginBase {
     private void stopGenerator(boolean automatic) {
         generating = false;
         paused = false;
-        autoPaused = automatic;
+        autoPaused = false;
+        autoStopped = automatic;
         journal(automatic ? "WARN" : "INFO", automatic ? "Generation stopped automatically" : "Generation stopped");
         generatorTaskRunning.set(false);
         getServer().getScheduler().cancelTask(this);
@@ -454,16 +474,25 @@ public class PNXRTP extends PluginBase {
             continue;
         }
         requestAttempts++;
-        generationLevel.generateChunk(centerX + dx, centerZ + dz);
-        if (generationLevel.isChunkGenerating(centerX + dx, centerZ + dz)) {
-            acceptedRequests++;
-            pendingChunks.add(packed);
-        } else {
+        try {
+            generationLevel.generateChunk(centerX + dx, centerZ + dz);
+            if (generationLevel.isChunkGenerating(centerX + dx, centerZ + dz)) {
+                acceptedRequests++;
+                pendingChunks.add(packed);
+            } else {
+                rejectedRequests++;
+                ring = oldRing;
+                side = oldSide;
+                offset = oldOffset;
+                journal("WARN", "Chunk request was not observed in generation queue at " + (centerX + dx) + "," + (centerZ + dz));
+            }
+        } catch (RuntimeException error) {
             rejectedRequests++;
-            // Restore the exact cursor so a queue-full request is retried, not skipped.
             ring = oldRing;
             side = oldSide;
             offset = oldOffset;
+            journal("ERROR", "Chunk request failed at " + (centerX + dx) + "," + (centerZ + dz) + ": " + error.getClass().getSimpleName());
+            getLogger().error("PNXRTP: generateChunk request failed", error);
         }
         if (requestAttempts % 25 == 0) saveProgress();
         return;
@@ -564,7 +593,7 @@ public class PNXRTP extends PluginBase {
 
     private void sendGeneratorStatus(CommandSender sender) {
         sender.sendMessage("§e----- RTPGen -----");
-        sender.sendMessage("§eСтатус: " + (generating ? paused ? autoPaused ? "§6Автопауза" : "§eПауза" : "§aРаботает" : "§cОстановлен"));
+        sender.sendMessage("§eСтатус: " + (generating ? paused ? autoPaused ? "§6Автопауза" : "§eПауза" : "§aРаботает" : autoStopped ? "§6Остановлен автоматически" : "§cОстановлен"));
         sender.sendMessage("§eМир: §f" + (generationLevel == null ? getServer().getDefaultLevel() == null ? "нет" : worldKey(getServer().getDefaultLevel()) : worldKey(generationLevel)));
         sender.sendMessage("§eРадиус: §f" + generationRadius + " блоков");
         sender.sendMessage("§eСкорость: §f" + speed + " (1-4)");
@@ -661,6 +690,13 @@ public class PNXRTP extends PluginBase {
             if (savedRadius != null) generationRadius = parseInt(savedRadius, generationRadius, 100, MAX_GENERATION_RADIUS);
             String savedSpeed = in.readLine();
             if (savedSpeed != null) speed = parseInt(savedSpeed, speed, 1, 4);
+            String savedSkipped = in.readLine();
+            if (savedSkipped != null) skippedExistingChunks = Math.max(0, Long.parseLong(savedSkipped));
+            String savedFinished = in.readLine();
+            if (savedFinished != null) finishedQueueEntries = Math.max(0, Long.parseLong(savedFinished));
+            if (ring < 0 || side < 0 || side > 3 || offset < 0 || (ring > 0 && offset >= ring * 2)) {
+                throw new IllegalArgumentException("Invalid saved spiral cursor");
+            }
         } catch (Exception e) {
             ring = side = offset = 0;
             requestAttempts = acceptedRequests = rejectedRequests = 0;
@@ -672,7 +708,7 @@ public class PNXRTP extends PluginBase {
         if (progressFile == null) return;
         try {
             String savedWorld = generationLevel == null ? config.getProperty("generator.world", "default") : generationLevel.getFolderName();
-            String content = ring + "\n" + side + "\n" + offset + "\n" + requestAttempts + "\n" + acceptedRequests + "\n" + rejectedRequests + "\n" + savedWorld + "\n" + generationRadius + "\n" + speed + "\n";
+            String content = ring + "\n" + side + "\n" + offset + "\n" + requestAttempts + "\n" + acceptedRequests + "\n" + rejectedRequests + "\n" + savedWorld + "\n" + generationRadius + "\n" + speed + "\n" + skippedExistingChunks + "\n" + finishedQueueEntries + "\n";
             atomicWrite(progressFile, content);
         } catch (IOException e) { getLogger().error("Could not save generator progress", e); }
     }
