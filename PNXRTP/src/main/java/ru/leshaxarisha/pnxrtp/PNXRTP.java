@@ -679,6 +679,7 @@ public class PNXRTP extends PluginBase {
             continue;
         }
         long packed = pack(centerX + dx, centerZ + dz);
+        if (isInsideAnyExclusion(config.getProperty("generator.exclusions", ""), (centerX + dx) * 16 + 8, (centerZ + dz) * 16 + 8)) continue;
         if (index.chunkSet.contains(packed)) {
             skippedExistingChunks++;
             continue;
@@ -870,6 +871,150 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§7Команда: /rtpgen region <circle|square> [centerX centerZ]");
     }
 
+    private void configureBiome(CommandSender sender, String[] args, boolean english) {
+        if (args.length < 2) {
+            send(sender, english, "§eЦелевой биом ID: §f" + targetBiomeId + " (-1 = любой)");
+            send(sender, english, "§7Использование: /rtpgen biome <ID|off>");
+            return;
+        }
+        if (args[1].equalsIgnoreCase("off")) {
+            targetBiomeId = -1;
+        } else {
+            try {
+                targetBiomeId = Integer.parseInt(args[1]);
+                if (targetBiomeId < 0 || targetBiomeId > 65535) throw new NumberFormatException();
+            } catch (NumberFormatException ex) {
+                send(sender, english, "§cID биома должен быть числом от 0 до 65535 или off.");
+                return;
+            }
+        }
+        config.setProperty("rtp.target-biome-id", String.valueOf(targetBiomeId));
+        savePluginConfig();
+        send(sender, english, "§aФильтр биома установлен: " + targetBiomeId);
+    }
+
+    private void configureSchedule(CommandSender sender, String[] args, boolean english) {
+        if (args.length < 2 || args[1].equalsIgnoreCase("status")) {
+            send(sender, english, "§eРасписание: §f" + (isScheduleEnabled() ? config.getProperty("generator.schedule.start") + "-" + config.getProperty("generator.schedule.end") : "выключено"));
+            send(sender, english, "§7Использование: /rtpgen schedule <off|HH:mm HH:mm>");
+            return;
+        }
+        if (args[1].equalsIgnoreCase("off")) {
+            config.setProperty("generator.schedule.enabled", "false");
+            savePluginConfig();
+            schedulePaused = false;
+            send(sender, english, "§aРасписание выключено.");
+            return;
+        }
+        if (args.length < 3) {
+            send(sender, english, "§cУкажи время начала и окончания: /rtpgen schedule <HH:mm> <HH:mm>");
+            return;
+        }
+        try {
+            LocalTime.parse(args[1]);
+            LocalTime.parse(args[2]);
+            if (args[1].equals(args[2])) throw new DateTimeParseException("equal schedule endpoints", args[1], 0);
+            config.setProperty("generator.schedule.start", args[1]);
+            config.setProperty("generator.schedule.end", args[2]);
+            config.setProperty("generator.schedule.enabled", "true");
+            savePluginConfig();
+            send(sender, english, "§aРасписание установлено: " + args[1] + "-" + args[2]);
+        } catch (DateTimeParseException ex) {
+            send(sender, english, "§cВремя указывается в формате HH:mm; начало и конец не должны совпадать.");
+        }
+    }
+
+    private boolean isScheduleEnabled() {
+        return Boolean.parseBoolean(config.getProperty("generator.schedule.enabled", "false"));
+    }
+
+    private boolean isInsideSchedule() {
+        try {
+            LocalTime start = LocalTime.parse(config.getProperty("generator.schedule.start", "00:00"));
+            LocalTime end = LocalTime.parse(config.getProperty("generator.schedule.end", "23:59"));
+            LocalTime now = LocalTime.now();
+            if (start.isBefore(end)) return !now.isBefore(start) && now.isBefore(end);
+            return !now.isBefore(start) || now.isBefore(end);
+        } catch (DateTimeParseException ex) {
+            journal("ERROR", "Invalid daily generation schedule; generation remains paused");
+            return false;
+        }
+    }
+
+    private void sendPerformance(CommandSender sender, boolean english) {
+        float tps = getServer().getTicksPerSecondAverage();
+        float usage = getServer().getTickUsageAverage();
+        send(sender, english, "§e----- Производительность PNXRTP -----");
+        send(sender, english, "§eTPS average: §f" + String.format(Locale.ROOT, "%.2f", tps));
+        send(sender, english, "§eTick usage: §f" + String.format(Locale.ROOT, "%.1f%%", usage));
+        send(sender, english, "§eMemory: §f" + memoryPercent() + "%");
+        send(sender, english, "§ePending chunks: §f" + pendingCount());
+        send(sender, english, "§eRequests this hour: §f" + quotaRequests + "/" + config.getProperty("generator.max-requests-per-hour", "0"));
+        send(sender, english, "§eLoad pause: §f" + loadPaused + ", schedule pause: " + schedulePaused);
+    }
+
+    private void validateConfiguration(CommandSender sender, boolean english) {
+        int errors = 0;
+        int warnings = 0;
+        int pause = parseInt(config.getProperty("generator.memory.pause", "75"), 75, 50, 95);
+        int resume = parseInt(config.getProperty("generator.memory.resume", "60"), 60, 30, 94);
+        int stop = parseInt(config.getProperty("generator.memory.stop", "85"), 85, 51, 99);
+        if (resume >= pause || pause >= stop) {
+            errors++;
+            send(sender, english, "§cОшибка: memory.resume должен быть меньше memory.pause, а pause меньше memory.stop.");
+        }
+        if (generationRadius < 100 || generationRadius > MAX_GENERATION_RADIUS) {
+            errors++;
+            send(sender, english, "§cОшибка: радиус генерации вне допустимого диапазона.");
+        }
+        try {
+            if (isScheduleEnabled()) {
+                LocalTime.parse(config.getProperty("generator.schedule.start", "00:00"));
+                LocalTime.parse(config.getProperty("generator.schedule.end", "23:59"));
+            }
+        } catch (DateTimeParseException ex) {
+            errors++;
+            send(sender, english, "§cОшибка: неверный формат расписания.");
+        }
+        if (targetBiomeId > 65535 || targetBiomeId < -1) {
+            errors++;
+            send(sender, english, "§cОшибка: ID целевого биома вне диапазона.");
+        }
+        if (getServer().getTicksPerSecondAverage() <= 0) {
+            warnings++;
+            send(sender, english, "§eПредупреждение: сервер пока не предоставил корректное значение TPS.");
+        }
+        send(sender, english, "§eПроверка завершена. Ошибок: " + errors + ", предупреждений: " + warnings + ".");
+        if (errors == 0) send(sender, english, "§aБазовые параметры конфигурации корректны.");
+    }
+
+    private boolean isInsideAnyExclusion(String encoded, int x, int z) {
+        if (encoded == null || encoded.isBlank()) return false;
+        for (String zone : encoded.split(";")) {
+            String[] p = zone.trim().split(",");
+            if (p.length != 4) continue;
+            try {
+                int x1 = Integer.parseInt(p[0].trim());
+                int z1 = Integer.parseInt(p[1].trim());
+                int x2 = Integer.parseInt(p[2].trim());
+                int z2 = Integer.parseInt(p[3].trim());
+                if (x >= Math.min(x1, x2) && x <= Math.max(x1, x2)
+                        && z >= Math.min(z1, z2) && z <= Math.max(z1, z2)) return true;
+            } catch (NumberFormatException ignored) { }
+        }
+        return false;
+    }
+
+    private static float parseFloat(String value, float fallback, float min, float max) {
+        try { return Math.max(min, Math.min(max, Float.parseFloat(value))); }
+        catch (Exception ignored) { return fallback; }
+    }
+
+    private static long parseLong(String value, long fallback, long min, long max) {
+        try { return Math.max(min, Math.min(max, Long.parseLong(value))); }
+        catch (Exception ignored) { return fallback; }
+    }
+
     private void sendDiagnostics(CommandSender sender, boolean english) {
         WorldIndex index = generationLevel == null ? null : indexes.get(worldKey(generationLevel));
         send(sender, english, "§e----- Диагностика PNXRTP -----");
@@ -878,6 +1023,10 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§eОжидающие чанки: §f" + pendingCount());
         send(sender, english, "§eИндекс мира: §f" + (index == null ? "отсутствует" : index.building ? "строится" : "готов"));
         send(sender, english, "§eЧанков в индексе: §f" + (index == null ? 0 : index.chunks.size()));
+        send(sender, english, "§eTPS средний: §f" + String.format(Locale.ROOT, "%.2f", getServer().getTicksPerSecondAverage()));
+        send(sender, english, "§eНагрузка тиков: §f" + String.format(Locale.ROOT, "%.1f%%", getServer().getTickUsageAverage()));
+        send(sender, english, "§eРасписание: §f" + (isScheduleEnabled() ? config.getProperty("generator.schedule.start") + "-" + config.getProperty("generator.schedule.end") : "off"));
+        send(sender, english, "§eБиом RTP ID: §f" + targetBiomeId);
         send(sender, english, "§eПапка данных доступна для записи: §f" + (dataFolder != null && dataFolder.isDirectory() && dataFolder.canWrite()));
         send(sender, english, "§eФайл прогресса существует: §f" + (progressFile != null && progressFile.exists()));
         send(sender, english, "§eЖурнал событий существует: §f" + (eventFile != null && eventFile.exists()));
