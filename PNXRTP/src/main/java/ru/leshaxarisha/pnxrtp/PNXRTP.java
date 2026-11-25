@@ -241,7 +241,25 @@ public class PNXRTP extends PluginBase {
                 {"готов", "ready"}, {"Чанков в индексе:", "Indexed chunks:"},
                 {"Папка данных доступна для записи:", "Data directory writable:"},
                 {"Файл прогресса существует:", "Progress file exists:"}, {"Журнал событий существует:", "Event log exists:"},
-                {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"}
+                {"Завершений за сессию:", "Session completions:"}, {"скорость:", "rate:"}, {"чанков/мин", "chunks/min"},
+                {"Целевой биом ID:", "Target biome ID:"}, {"Использование: /rtpgen biome <ID|off>", "Usage: /rtpgen biome <ID|off>"},
+                {"ID биома должен быть числом от 0 до 65535 или off.", "Biome ID must be between 0 and 65535, or off."},
+                {"Фильтр биома установлен:", "Biome filter set:"}, {"Расписание:", "Schedule:"}, {"выключено", "disabled"},
+                {"Использование: /rtpgen schedule <off|HH:mm HH:mm>", "Usage: /rtpgen schedule <off|HH:mm HH:mm>"},
+                {"Укажи время начала и окончания: /rtpgen schedule <HH:mm> <HH:mm>", "Provide start and end time: /rtpgen schedule <HH:mm> <HH:mm>"},
+                {"Время указывается в формате HH:mm; начало и конец не должны совпадать.", "Time must use HH:mm; start and end must differ."},
+                {"Расписание выключено.", "Schedule disabled."}, {"Расписание установлено:", "Schedule set:"},
+                {"Производительность PNXRTP", "PNXRTP performance"}, {"TPS средний:", "Average TPS:"},
+                {"Нагрузка тиков:", "Tick usage:"}, {"Проверка завершена. Ошибок:", "Validation complete. Errors:"},
+                {"Предупреждение: сервер пока не предоставил корректное значение TPS.", "Warning: server has not provided a valid TPS value yet."},
+                {"Базовые параметры конфигурации корректны.", "Base configuration is valid."},
+                {"Сохранённые регионы (", "Saved regions ("}, {"Останови генератор перед изменением профилей регионов.", "Stop the generator before changing region profiles."},
+                {"Использование: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>", "Usage: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>"},
+                {"Регион с таким именем уже существует.", "A region with this name already exists."}, {"Регион сохранён:", "Region saved:"},
+                {"Активирован регион ", "Activated region "}, {"Регион не найден.", "Region not found."},
+                {"Регион удалён.", "Region removed."}, {"Карта 21x21 чанков:", "21x21 chunk map:"},
+                {"Сначала выбери мир: /rtpgen world <name>.", "Select a world first: /rtpgen world <name>."},
+                {"Индекс ещё строится.", "Index is still building."}
         };
         String translated = message;
         for (String[] phrase : phrases) translated = translated.replace(phrase[0], phrase[1]);
