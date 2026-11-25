@@ -190,7 +190,9 @@ public class PNXRTP extends PluginBase {
             int chunkZ = (int) packed;
             int x = (chunkX << 4) + random.nextInt(16);
             int z = (chunkZ << 4) + random.nextInt(16);
-            if (!farEnoughFromHistory(x, z, previous)) continue;
+            synchronized (previous) {
+                if (!farEnoughFromHistory(x, z, previous)) continue;
+            }
             if (avoidPlayers > 0 && tooCloseToPlayer(player, level, x + 0.5, z + 0.5, avoidPlayers)) continue;
 
             // create=false is essential: RTP must never generate a new chunk.
@@ -206,8 +208,10 @@ public class PNXRTP extends PluginBase {
 
             Location destination = new Location(x + 0.5, feetY, z + 0.5, level);
             if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
-                previous.addFirst(new SavedPoint(x + 0.5, z + 0.5));
-                while (previous.size() > HISTORY_LIMIT) previous.removeLast();
+                synchronized (previous) {
+                    previous.addFirst(new SavedPoint(x + 0.5, z + 0.5));
+                    while (previous.size() > HISTORY_LIMIT) previous.removeLast();
+                }
                 cooldowns.put(player.getUniqueId(), now + cooldownSeconds(world) * 1000L);
                 saveHistory();
                 player.sendMessage("§aТы телепортирован в случайное безопасное место!");
@@ -304,6 +308,7 @@ public class PNXRTP extends PluginBase {
                 if (!generating) { sender.sendMessage("§eГенератор не запущен."); return; }
                 paused = true;
                 autoPaused = false;
+                journal("INFO", "Generation manually paused");
                 saveProgress();
                 sender.sendMessage("§eГенерация приостановлена.");
             }
@@ -311,6 +316,7 @@ public class PNXRTP extends PluginBase {
                 if (!generating) { startGenerator(sender); return; }
                 paused = false;
                 autoPaused = false;
+                journal("INFO", "Generation manually resumed");
                 sender.sendMessage("§aГенерация продолжена.");
             }
             case "radius" -> setRadius(sender, args);
@@ -364,6 +370,7 @@ public class PNXRTP extends PluginBase {
         generating = false;
         paused = false;
         autoPaused = automatic;
+        journal(automatic ? "WARN" : "INFO", automatic ? "Generation stopped automatically" : "Generation stopped manually");
         generatorTaskRunning.set(false);
         getServer().getScheduler().cancelTask(this);
         saveProgress();
@@ -648,6 +655,12 @@ public class PNXRTP extends PluginBase {
             requestAttempts = Long.parseLong(in.readLine());
             acceptedRequests = Long.parseLong(in.readLine());
             rejectedRequests = Long.parseLong(in.readLine());
+            String savedWorld = in.readLine();
+            if (savedWorld != null && !savedWorld.isBlank()) config.setProperty("generator.world", savedWorld);
+            String savedRadius = in.readLine();
+            if (savedRadius != null) generationRadius = parseInt(savedRadius, generationRadius, 100, MAX_GENERATION_RADIUS);
+            String savedSpeed = in.readLine();
+            if (savedSpeed != null) speed = parseInt(savedSpeed, speed, 1, 4);
         } catch (Exception e) {
             ring = side = offset = 0;
             requestAttempts = acceptedRequests = rejectedRequests = 0;
@@ -658,7 +671,8 @@ public class PNXRTP extends PluginBase {
     private void saveProgress() {
         if (progressFile == null) return;
         try {
-            String content = ring + "\n" + side + "\n" + offset + "\n" + requestAttempts + "\n" + acceptedRequests + "\n" + rejectedRequests + "\n";
+            String savedWorld = generationLevel == null ? config.getProperty("generator.world", "default") : generationLevel.getFolderName();
+            String content = ring + "\n" + side + "\n" + offset + "\n" + requestAttempts + "\n" + acceptedRequests + "\n" + rejectedRequests + "\n" + savedWorld + "\n" + generationRadius + "\n" + speed + "\n";
             atomicWrite(progressFile, content);
         } catch (IOException e) { getLogger().error("Could not save generator progress", e); }
     }
