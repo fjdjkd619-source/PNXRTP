@@ -370,7 +370,7 @@ public class PNXRTP extends PluginBase {
         generating = false;
         paused = false;
         autoPaused = automatic;
-        journal(automatic ? "WARN" : "INFO", automatic ? "Generation stopped automatically" : "Generation stopped manually");
+        journal(automatic ? "WARN" : "INFO", automatic ? "Generation stopped automatically" : "Generation stopped");
         generatorTaskRunning.set(false);
         getServer().getScheduler().cancelTask(this);
         saveProgress();
