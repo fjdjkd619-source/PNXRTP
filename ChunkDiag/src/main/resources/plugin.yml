@@ -1,18 +1,18 @@
 name: ChunkDiag
 main: ru.leshaxarisha.chunkdiag.ChunkDiag
-version: 1.0.0
+version: 1.1.0
 api: "3.0.6"
 load: POSTWORLD
 author: Lesha x Arisha
-description: Read-only diagnostics for loaded PowerNukkitX chunks
+description: Bounded read-only chunk diagnostics for PowerNukkitX
 
 commands:
   chunkdiag:
-    description: Read-only chunk generation and lighting diagnostics
-    usage: /chunkdiag <area|here>
+    description: Read-only chunk diagnostics (full scan loads existing chunks only)
+    usage: /chunkdiag <area|full|here|stop>
     permission: chunkdiag.use
 
 permissions:
   chunkdiag.use:
-    description: Allows running read-only chunk diagnostics
+    description: Allows running chunk diagnostics
     default: op
