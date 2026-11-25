@@ -1,6 +1,6 @@
 name: PNXRTP
 main: ru.leshaxarisha.pnxrtp.PNXRTP
-version: 1.3.0
+version: 1.4.0
 api: "3.0.6"
 load: POSTWORLD
 author: Lesha x Arisha
@@ -13,7 +13,7 @@ commands:
     permission: pnxrtp.use
   rtpgen:
     description: Manage gradual world generation
-    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|history|backup|map|reset>
+    usage: /rtpgen <start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|dashboard|history|backup|map|reset>
     permission: pnxrtp.admin
 
 permissions:
