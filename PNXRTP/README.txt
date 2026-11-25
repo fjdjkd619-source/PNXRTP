@@ -81,3 +81,19 @@ Install and validation
 - Only after making a complete copy of the entire world folder, run the same command with --apply --backup-confirmed. It deletes all recognized Overworld chunk-record keys outside the protected square in bounded synchronous LevelDB batches. Other dimensions and global world records are not targeted.
 - Stop the server before running either utility mode. If LevelDB reports that it is locked, do not try to bypass the lock; ensure the server is fully stopped.
 - The later integrity scan and selective regeneration of malformed chunks are not included in this first cleanup stage yet.
+
+
+1.5.0 development - offline integrity diagnostics
+- The LevelDB key layout was checked against the PowerNukkitX 3.0.6 LevelDBKeyUtil at commit c57499365737654eca32df008751ef6bca5af142.
+- The cleaner recognizes ordinary Overworld chunk records as 9-byte keys and section records as 10-byte keys. Both CHUNK_SECTION_PREFIX ('/') and PNX_LIGHT ('}') carry a section-Y byte. PNX_LIGHT records are included in both the chunk inventory and deletion set.
+- Read-only integrity scanner: ru.leshaxarisha.pnxrtp.OfflineChunkIntegrityScanner.
+- Run only after fully stopping PowerNukkitX:
+  java -cp "PNXRTP-1.5.0.jar:powernukkitx.jar" ru.leshaxarisha.pnxrtp.OfflineChunkIntegrityScanner <world-folder>
+- Optional report path:
+  java -cp "PNXRTP-1.5.0.jar:powernukkitx.jar" ru.leshaxarisha.pnxrtp.OfflineChunkIntegrityScanner <world-folder> <report.csv>
+- The scanner opens the existing database with createIfMissing=false and paranoid checks enabled. It never writes or deletes LevelDB records.
+- Report classes: OK (no detected structural anomaly), REVIEW (orphaned or unsupported/ambiguous records requiring manual review), CORRUPT_CANDIDATE (a definite malformed key/header/value or an invalid cross-reference detected by the checks).
+- The scanner checks key lengths/types, current VERSION value (IChunk.VERSION=40), finalized-state encoding/range, subchunk headers, DATA_2D/DATA_3D minimum lengths, PNX_LIGHT payload framing and corresponding subchunk presence.
+- This is a conservative structural scan, not a complete NBT/palette deserializer. CORRUPT_CANDIDATE is evidence for manual review, not permission for automatic deletion. OK does not guarantee that every NBT/entity/palette payload is semantically valid.
+- OfflineChunkCleaner now includes PNX_LIGHT ('}') section records. Previously these 10-byte records were omitted because the 10-byte filter accepted only '/'; this fix prevents orphaning light data when deleting a chunk.
+- Startup log now reports PNXRTP 1.5.0 instead of the stale 1.4.2 label.
