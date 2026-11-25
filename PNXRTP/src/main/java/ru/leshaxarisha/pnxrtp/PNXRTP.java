@@ -294,6 +294,9 @@ public class PNXRTP extends PluginBase {
                 {"Биом RTP ID:", "RTP biome ID:"}
                 {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."}
         };
+        // Replace longer phrases first so short fragments (for example, "не найден")
+        // cannot corrupt a complete translation that appears later in the table.
+        java.util.Arrays.sort(phrases, (left, right) -> Integer.compare(right[0].length(), left[0].length()));
         String translated = message;
         for (String[] phrase : phrases) translated = translated.replace(phrase[0], phrase[1]);
         return translated;
