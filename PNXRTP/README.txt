@@ -24,7 +24,7 @@ Chunk generator
 - Supports circle and square regions. Circle is the default; square fills the configured radius-aligned square.
 - Region center defaults to the selected world's spawn. A custom block-coordinate center can be configured with /rtpgen region <circle|square> <X> <Z>.
 - /rtpgen preview displays the active region shape, radius, and center.
-- Named regions: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>, /rtpgen region list, /rtpgen region use <name>, /rtpgen region remove <name>. Once a named region is selected, the generator advances to the next saved region after completing the current region. Rotation order follows the saved profile list.
+- Named regions: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>, /rtpgen region list, /rtpgen region use <name>, /rtpgen region remove <name>. Once a named region is selected, the generator advances to the next saved region after completing the current region. Rotation order follows the saved profile list; after one complete pass it stops. Use /rtpgen reset to clear completed-region state and start the saved sequence again.
 - /rtpgen exclude <rtp|generator> add <x1> <z1> <x2> <z2> adds a rectangular exclusion zone in block coordinates; use /rtpgen exclude <rtp|generator> clear to clear global exclusions.
 - /rtpgen status reports counters, current session completion rate, memory use, and queue observations.
 - Uses PNX isChunkGenerating observations to track in-flight requests separately for each world. Leaving the generation queue does NOT prove that LevelDB has flushed a chunk to disk.
@@ -35,14 +35,15 @@ Chunk generator
 - Progress, configuration, and RTP history are written through temporary files and replace operations.
 - Progress checkpoints are throttled by generator ticks and request count.
 - Scheduler/runtime failures are journaled and stop generation safely. Individual chunk-request exceptions restore the spiral cursor for retry.
-- Generation does not automatically start after a server restart. Run /rtpgen start to continue from the last saved cursor.
+- Automatic continuation after restart is optional: /rtpgen autostart on|off. It is disabled by default. When enabled, the plugin attempts to start the selected world's generator using the saved progress during plugin enable. Run /rtpgen start manually if the selected world is unavailable during startup.
 
 Administration and diagnostics
 - /rtpgen diagnostics shows memory, task flag, pending count, index state, and data-file availability.
 - /rtpgen dashboard combines generator status, diagnostics, and performance metrics in one admin view.
 - /rtpgen performance shows average TPS, tick usage, memory, pending queue size, and hourly quota.
 - /rtpgen validate checks basic configuration ranges and schedule syntax.
-- /rtpgen biome <ID|off> selects an exact numeric biome ID for RTP; -1/off allows any biome. Per-world override: world.<folder>.target-biome-id.
+- /rtpgen biome <ID|here|off> selects an exact numeric biome ID for RTP; here reads the biome at the admin's current position; -1/off allows any biome. Per-world override: world.<folder>.target-biome-id.
+- /rtpgen autostart on|off controls optional generator continuation after a server restart; it is disabled by default.
 - /rtpgen map preview renders a 21x21 text map around the active generation center (# saved, + pending, . not indexed). /rtpgen map still exports CSV.
 - The generator now reduces its effective request rate when the observed in-flight chunk queue grows (12+ pending: cap speed at 2; 24+: cap at 1), in addition to the existing memory-based slowdown.
 - /rtpgen history displays the last ten event-log entries.
