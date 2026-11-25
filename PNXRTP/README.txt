@@ -16,6 +16,7 @@ Language output
 
 RTP
 - Builds a per-world index from LevelDB VERSION records asynchronously.
+- `/rtp reindex` (admin only) rebuilds the saved-chunk index for the player's current world, or the default world when run from console. Completed empty indexes are cached; failed scans are reported instead of being treated as empty worlds.
 - Selects only indexed saved chunks and calls loadChunk(x,z,false); it does not intentionally generate chunks for teleportation.
 - Checks solid ground, two air blocks, and common hazardous block identifiers.
 - Supports per-world enable flags, cooldowns, player-avoidance distance, and minimum/maximum RTP distance through config.properties.

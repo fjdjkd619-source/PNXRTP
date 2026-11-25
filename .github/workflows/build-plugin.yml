@@ -37,7 +37,8 @@ jobs:
           cd PNXRTP
           mvn -B -ntp clean package
           test -s target/PNXRTP-1.4.2.jar
-          jar tf target/PNXRTP-1.4.2.jar | grep -E 'plugin.yml|PNXRTP.class'
+          jar tf target/PNXRTP-1.4.2.jar | grep -Fx 'plugin.yml'
+          jar tf target/PNXRTP-1.4.2.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/PNXRTP.class'
 
       - name: Upload plugin jar
         uses: actions/upload-artifact@v4

@@ -43,7 +43,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class PNXRTP extends PluginBase {
     private static final int HISTORY_LIMIT = 5;
     private static final int MIN_RTP_DISTANCE = 512;
-    private static final int RTP_ATTEMPTS = 40;
     private static final int DEFAULT_AVOID_PLAYERS = 50;
     private static final int DEFAULT_COOLDOWN_SECONDS = 60;
     private static final int DEFAULT_GENERATION_RADIUS = 1000;
@@ -155,10 +154,31 @@ public class PNXRTP extends PluginBase {
             send(sender, english, "§aКонфигурация PNXRTP перезагружена.");
             return true;
         }
+        if (args.length > 0 && args[0].equalsIgnoreCase("reindex")) {
+            if (!sender.hasPermission("pnxrtp.admin")) {
+                send(sender, english, "§cНедостаточно прав. Требуется pnxrtp.admin.");
+                return true;
+            }
+            Level target = sender instanceof Player p ? p.getLevel() : getServer().getDefaultLevel();
+            if (target == null) {
+                send(sender, english, "§cМир не найден.");
+                return true;
+            }
+            String key = worldKey(target);
+            WorldIndex current = indexes.get(key);
+            if (current != null && current.building) {
+                send(sender, english, "§eИндекс этого мира уже строится.");
+                return true;
+            }
+            indexes.remove(key);
+            buildIndex(target);
+            send(sender, english, "§aПерестроение индекса сохранённых чанков запущено: " + key);
+            return true;
+        }
         if (args.length > 0 && args[0].equalsIgnoreCase("status")) {
             WorldIndex index = sender instanceof Player p ? indexes.get(worldKey(p.getLevel())) : null;
             send(sender, english, "§e----- PNXRTP -----");
-            send(sender, english, "§eИндекс мира: " + (index == null ? "§cне запущен" : index.building ? "§eстроится" : "§aготов"));
+            send(sender, english, "§eИндекс мира: " + (index == null ? "§cне запущен" : index.building ? "§eстроится" : index.failure != null ? "§cошибка" : index.initialized ? "§aготов" : "§eожидание"));
             if (index != null) send(sender, english, "§eСохранённых чанков в индексе: §f" + index.chunks.size());
             send(sender, english, "§eГенератор: " + (generating ? paused ? autoPaused ? "§6автопауза" : "§eпауза" : "§aработает" : autoStopped ? "§6остановлен автоматически" : "§cостановлен"));
             send(sender, english, "§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
@@ -292,7 +312,10 @@ public class PNXRTP extends PluginBase {
                 {"Ошибка: generator.tps.resume-above должен быть выше pause-below.", "Error: generator.tps.resume-above must be higher than pause-below."},
                 {", предупреждений: ", ", warnings: "},
                 {"Биом RTP ID:", "RTP biome ID:"},
-                {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."}
+                {"Не удалось вернуться на предыдущую позицию.", "Could not return to your previous position."},
+                {"Индекс этого мира уже строится.", "The index for this world is already being built."},
+                {"Перестроение индекса сохранённых чанков запущено:", "Saved-chunk index rebuild started:"},
+                {"Ошибка: начало и конец расписания не должны совпадать.", "Error: schedule start and end must not be equal."}
         };
         // Replace longer phrases first so short fragments (for example, "не найден")
         // cannot corrupt a complete translation that appears later in the table.
@@ -323,6 +346,10 @@ public class PNXRTP extends PluginBase {
         if (index == null || index.building) {
             buildIndex(level);
             send(player, english, "§eИндекс сохранённых чанков ещё строится. Попробуй /rtp немного позже.");
+            return;
+        }
+        if (index.failure != null) {
+            send(player, english, "§cНе удалось прочитать базу мира при построении индекса. Администратор может выполнить /rtp reindex.");
             return;
         }
         List<Long> chunks = index.chunks;
@@ -467,15 +494,19 @@ public class PNXRTP extends PluginBase {
     }
 
     private void buildIndex(Level level) {
+        if (level == null) return;
         String key = worldKey(level);
         WorldIndex existing = indexes.get(key);
-        if (existing != null && (existing.building || !existing.chunks.isEmpty())) return;
+        // An empty index is still a completed scan. Do not rescan LevelDB on every /rtp request.
+        if (existing != null && (existing.building || existing.initialized)) return;
+
         WorldIndex index = new WorldIndex();
         index.building = true;
         indexes.put(key, index);
-        CompletableFuture.runAsync(() -> {
+        Runnable scan = () -> {
             List<Long> found = new ArrayList<>();
             DBIterator iterator = null;
+            String failure = null;
             try {
                 if (!(level.getProvider() instanceof LevelDBProvider provider)) {
                     throw new IllegalStateException("World provider is not LevelDBProvider");
@@ -500,6 +531,7 @@ public class PNXRTP extends PluginBase {
                     found.add(pack(x, z));
                 }
             } catch (Throwable error) {
+                failure = error.getClass().getSimpleName();
                 getLogger().error("PNXRTP: failed to scan saved chunk index for " + key, error);
             } finally {
                 if (iterator != null) {
@@ -509,12 +541,30 @@ public class PNXRTP extends PluginBase {
                     }
                 }
             }
+
+            // Never expose a partial index as valid after a failed database scan.
+            if (failure != null) found.clear();
             found.sort(Long::compare);
             index.chunks = List.copyOf(found);
             index.chunkSet = Set.copyOf(found);
+            index.failure = failure;
+            index.initialized = true;
             index.building = false;
-            getLogger().info("PNXRTP: indexed " + found.size() + " saved chunk records in world " + key);
-        });
+            if (failure == null) {
+                getLogger().info("PNXRTP: indexed " + found.size() + " saved chunk records in world " + key);
+            } else {
+                getLogger().warning("PNXRTP: saved chunk index failed for " + key + "; use /rtp reindex after resolving the cause");
+            }
+        };
+
+        try {
+            CompletableFuture.runAsync(scan);
+        } catch (RuntimeException error) {
+            index.failure = error.getClass().getSimpleName();
+            index.initialized = true;
+            index.building = false;
+            getLogger().error("PNXRTP: could not schedule saved chunk index scan for " + key, error);
+        }
     }
 
     private void handleGeneratorCommand(CommandSender sender, String[] args, boolean english) {
@@ -578,7 +628,15 @@ public class PNXRTP extends PluginBase {
                 if (!profiles.isEmpty()) activateRegionProfile(profiles.get(0).split(",", 5));
                 else {
                     activeRegionName = "";
+                    customRegionCenter = false;
+                    regionCenterX = 0;
+                    regionCenterZ = 0;
+                    regionShape = "circle";
                     config.setProperty("generator.region.active", "");
+                    config.setProperty("generator.region.custom-center", "false");
+                    config.setProperty("generator.region.center-x", "0");
+                    config.setProperty("generator.region.center-z", "0");
+                    config.setProperty("generator.region.shape", "circle");
                 }
                 savePluginConfig();
                 saveProgress();
@@ -966,13 +1024,35 @@ public class PNXRTP extends PluginBase {
                 return;
             }
             config.setProperty("generator.regions", String.join(";", profiles));
-            if (activeRegionName.equalsIgnoreCase(args[2])) {
-                activeRegionName = "";
-                config.setProperty("generator.region.active", "");
-            }
             completedRegionNames.removeIf(name -> name.equalsIgnoreCase(args[2]));
             config.setProperty("generator.regions.completed", String.join(",", completedRegionNames));
+            if (activeRegionName.equalsIgnoreCase(args[2])) {
+                String[] nextProfile = null;
+                for (String profile : profiles) {
+                    String[] candidate = profile.split(",", 5);
+                    if (candidate.length == 5 && !completedRegionNames.contains(candidate[0])) {
+                        nextProfile = candidate;
+                        break;
+                    }
+                }
+                if (nextProfile != null) {
+                    activateRegionProfile(nextProfile);
+                } else {
+                    activeRegionName = "";
+                    customRegionCenter = false;
+                    regionCenterX = 0;
+                    regionCenterZ = 0;
+                    regionShape = "circle";
+                    ring = side = offset = 0;
+                    config.setProperty("generator.region.active", "");
+                    config.setProperty("generator.region.custom-center", "false");
+                    config.setProperty("generator.region.center-x", "0");
+                    config.setProperty("generator.region.center-z", "0");
+                    config.setProperty("generator.region.shape", "circle");
+                }
+            }
             savePluginConfig();
+            saveProgress();
             send(sender, english, "§aРегион удалён.");
             return;
         }
@@ -1259,8 +1339,12 @@ public class PNXRTP extends PluginBase {
         }
         try {
             if (isScheduleEnabled()) {
-                LocalTime.parse(config.getProperty("generator.schedule.start", "00:00"));
-                LocalTime.parse(config.getProperty("generator.schedule.end", "23:59"));
+                LocalTime start = LocalTime.parse(config.getProperty("generator.schedule.start", "00:00"));
+                LocalTime end = LocalTime.parse(config.getProperty("generator.schedule.end", "23:59"));
+                if (start.equals(end)) {
+                    errors++;
+                    send(sender, english, "§cОшибка: начало и конец расписания не должны совпадать.");
+                }
             }
         } catch (DateTimeParseException ex) {
             errors++;
@@ -1624,20 +1708,29 @@ public class PNXRTP extends PluginBase {
 
     private void loadHistory() {
         if (!historyFile.exists()) return;
+        int skippedRows = 0;
         try (BufferedReader in = Files.newBufferedReader(historyFile.toPath(), StandardCharsets.UTF_8)) {
             String line;
             while ((line = in.readLine()) != null) {
-                String[] p = line.split("\\|", 5);
-                if (p.length != 5) continue;
-                UUID uuid = UUID.fromString(p[0]);
-                double x = Double.parseDouble(p[3]);
-                double z = Double.parseDouble(p[4]);
-                Deque<SavedPoint> points = history.computeIfAbsent(uuid, k -> new ConcurrentHashMap<>())
-                        .computeIfAbsent(p[1], k -> new ArrayDeque<>());
-                points.addLast(new SavedPoint(x, z));
-                while (points.size() > HISTORY_LIMIT) points.removeFirst();
+                try {
+                    String[] p = line.split("\\|", 5);
+                    if (p.length != 5) { skippedRows++; continue; }
+                    UUID uuid = UUID.fromString(p[0]);
+                    double x = Double.parseDouble(p[3]);
+                    double z = Double.parseDouble(p[4]);
+                    if (!Double.isFinite(x) || !Double.isFinite(z)) { skippedRows++; continue; }
+                    Deque<SavedPoint> points = history.computeIfAbsent(uuid, k -> new ConcurrentHashMap<>())
+                            .computeIfAbsent(p[1], k -> new ArrayDeque<>());
+                    points.addLast(new SavedPoint(x, z));
+                    while (points.size() > HISTORY_LIMIT) points.removeFirst();
+                } catch (RuntimeException malformedRow) {
+                    skippedRows++;
+                }
             }
-        } catch (Exception e) { getLogger().warning("Could not load RTP history: " + e.getMessage()); }
+            if (skippedRows > 0) getLogger().warning("PNXRTP: skipped " + skippedRows + " malformed RTP history rows");
+        } catch (IOException e) {
+            getLogger().warning("Could not load RTP history: " + e.getMessage());
+        }
     }
 
     private synchronized void saveHistory() {
@@ -1693,6 +1786,8 @@ public class PNXRTP extends PluginBase {
 
     private static final class WorldIndex {
         volatile boolean building;
+        volatile boolean initialized;
+        volatile String failure;
         volatile List<Long> chunks = List.of();
         volatile Set<Long> chunkSet = Set.of();
     }
