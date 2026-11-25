@@ -261,7 +261,7 @@ public class PNXRTP extends PluginBase {
         }
         long now = System.currentTimeMillis();
         long next = cooldowns.getOrDefault(player.getUniqueId(), 0L);
-        if (now < next) {
+        if (now < next && !player.hasPermission("pnxrtp.cooldown.bypass")) {
             send(player, english, "§eПодожди ещё " + ((next - now + 999) / 1000) + " сек. перед следующим RTP.");
             return;
         }
@@ -314,8 +314,10 @@ public class PNXRTP extends PluginBase {
             Block head = level.getBlock(x, feetY + 1, z);
             if (!ground.isSolid() || ground.isAir() || !feet.isAir() || !head.isAir()) continue;
             if (isUnsafe(ground) || isUnsafe(feet) || isUnsafe(head)) continue;
-            if (targetBiomeId >= 0 && level.getBiomeId(x, feetY, z) != targetBiomeId) continue;
-            if (isInsideAnyExclusion(config.getProperty("rtp.exclusions", ""), x, z)) continue;
+            int requiredBiome = intConfig(world, "target-biome-id", targetBiomeId, -1, 65535);
+            if (requiredBiome >= 0 && level.getBiomeId(x, feetY, z) != requiredBiome) continue;
+            String rtpExclusions = config.getProperty("world." + world + ".rtp-exclusions", config.getProperty("rtp.exclusions", ""));
+            if (isInsideAnyExclusion(rtpExclusions, x, z)) continue;
 
             Location destination = new Location(x + 0.5, feetY, z + 0.5, level);
             if (player.teleport(destination, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
@@ -502,7 +504,10 @@ public class PNXRTP extends PluginBase {
             case "validate" -> validateConfiguration(sender, english);
             case "history" -> sendRecentEvents(sender, english);
             case "backup" -> createBackup(sender, english);
-            case "map" -> exportChunkMap(sender, english);
+            case "map" -> {
+                if (args.length > 1 && args[1].equalsIgnoreCase("preview")) renderChunkMap(sender, english);
+                else exportChunkMap(sender, english);
+            }
             case "reset" -> {
                 if (generating) stopGenerator(false);
                 ring = side = offset = 0;
@@ -524,7 +529,7 @@ public class PNXRTP extends PluginBase {
         generationLevel = resolveGeneratorWorld();
         if (generationLevel == null) { send(sender, english, "§cВыбранный мир не загружен или не найден. Используй /rtpgen world <имя>."); return; }
         buildIndex(generationLevel);
-        generationRadius = intConfig(worldKey(generationLevel), "generator-radius", generationRadius, 100, MAX_GENERATION_RADIUS);
+        if (activeRegionName.isBlank()) generationRadius = intConfig(worldKey(generationLevel), "generator-radius", generationRadius, 100, MAX_GENERATION_RADIUS);
         speed = intConfig(worldKey(generationLevel), "generator-speed", speed, 1, 4);
         if (!worldEnabled(worldKey(generationLevel), "generator-enabled", true)) {
             send(sender, english, "§cГенератор отключён для этого мира в конфигурации.");
@@ -1218,6 +1223,33 @@ public class PNXRTP extends PluginBase {
         }
     }
 
+    private void renderChunkMap(CommandSender sender, boolean english) {
+        if (generationLevel == null) {
+            send(sender, english, "§cСначала выбери мир: /rtpgen world <name>.");
+            return;
+        }
+        WorldIndex index = indexes.get(worldKey(generationLevel));
+        if (index == null || index.building) {
+            send(sender, english, "§eИндекс ещё строится.");
+            return;
+        }
+        Position spawn = generationLevel.getSpawnLocation();
+        int centerX = (customRegionCenter ? regionCenterX : spawn.getFloorX()) >> 4;
+        int centerZ = (customRegionCenter ? regionCenterZ : spawn.getFloorZ()) >> 4;
+        Set<Long> pending = pendingChunksByWorld.getOrDefault(worldKey(generationLevel), Set.of());
+        send(sender, english, "§eКарта 21x21 чанков: §a# §7сохранён, §6+ §7в очереди, §8. §7не обработан");
+        for (int z = centerZ - 10; z <= centerZ + 10; z++) {
+            StringBuilder row = new StringBuilder("§7");
+            for (int x = centerX - 10; x <= centerX + 10; x++) {
+                long packed = pack(x, z);
+                if (pending.contains(packed)) row.append("§6+");
+                else if (index.chunkSet.contains(packed)) row.append("§a#");
+                else row.append("§8.");
+            }
+            sender.sendMessage(row.toString());
+        }
+    }
+
     private void exportChunkMap(CommandSender sender, boolean english) {
         try {
             if (generationLevel == null) generationLevel = resolveGeneratorWorld();
@@ -1303,6 +1335,7 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.region.custom-center", "false");
         config.setProperty("generator.region.center-x", "0");
         config.setProperty("generator.region.center-z", "0");
+        config.setProperty("generator.regions", "");
         config.setProperty("rtp.cooldown-seconds", String.valueOf(DEFAULT_COOLDOWN_SECONDS));
         config.setProperty("rtp.avoid-player-distance", String.valueOf(DEFAULT_AVOID_PLAYERS));
         config.setProperty("rtp.min-distance", "512");
