@@ -720,6 +720,10 @@ public class PNXRTP extends PluginBase {
             return;
         }
         saveProgress();
+        if (purgeResetPending) {
+            acknowledgeWorldPurgeMarker();
+            purgeResetPending = false;
+        }
         send(sender, english, "§aГенерация запущена. Безопасный режим: " + speed + " запрос(а) на интервал.");
     }
 
