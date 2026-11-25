@@ -39,15 +39,15 @@ jobs:
           cd PNXRTP
           mvn -B -ntp clean package
           test -s target/PNXRTP-1.5.1.jar
-          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'plugin.yml'
-          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/PNXRTP.class'
-          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineChunkCleaner.class'
-          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineChunkIntegrityScanner.class'
-          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineWorldPurger.class'
+          jar tf target/PNXRTP-1.5.1.jar | grep -Fx 'plugin.yml'
+          jar tf target/PNXRTP-1.5.1.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/PNXRTP.class'
+          jar tf target/PNXRTP-1.5.1.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineChunkCleaner.class'
+          jar tf target/PNXRTP-1.5.1.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineChunkIntegrityScanner.class'
+          jar tf target/PNXRTP-1.5.1.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/OfflineWorldPurger.class'
 
       - name: Upload plugin jar
         uses: actions/upload-artifact@v4
         with:
           name: PNXRTP-1.5.1
-          path: PNXRTP/target/PNXRTP-1.5.0.jar
+          path: PNXRTP/target/PNXRTP-1.5.1.jar
           if-no-files-found: error
