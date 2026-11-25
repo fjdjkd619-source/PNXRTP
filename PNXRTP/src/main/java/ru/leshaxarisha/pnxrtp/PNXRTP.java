@@ -275,8 +275,8 @@ public class PNXRTP extends PluginBase {
         int avoidPlayers = intConfig(world, "avoid-player-distance", DEFAULT_AVOID_PLAYERS, 0, 512);
         int minDistance = intConfig(world, "min-distance", 512, 0, 30000);
         int maxDistance = intConfig(world, "max-distance", 10000, Math.max(1, minDistance), 30000);
-        double originX = player.getX();
-        double originZ = player.getZ();
+        double originX = player.getFloorX();
+        double originZ = player.getFloorZ();
         long minDistanceSquared = (long) minDistance * minDistance;
         long maxDistanceSquared = (long) maxDistance * maxDistance;
         ThreadLocalRandom random = ThreadLocalRandom.current();
