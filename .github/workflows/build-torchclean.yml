@@ -1,0 +1,47 @@
+name: Build TorchClean
+on:
+  push:
+    branches:
+      - torchclean-0.1.0-bounded-area
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Download PowerNukkitX 3.0.6 API jar
+        run: |
+          mkdir -p "$HOME/storage/downloads"
+          curl --fail --location --retry 3 --connect-timeout 20 \
+            https://github.com/PowerNukkitX/PowerNukkitX/releases/download/3.0.6/powernukkitx.jar \
+            -o "$HOME/storage/downloads/powernukkitx.jar"
+          test -s "$HOME/storage/downloads/powernukkitx.jar"
+
+      - name: Build TorchClean
+        run: |
+          cd TorchClean
+          mvn -B -ntp clean package
+          test -s target/TorchClean-0.1.0.jar
+          jar tf target/TorchClean-0.1.0.jar | grep -Fx 'plugin.yml'
+          jar tf target/TorchClean-0.1.0.jar | grep -Fx 'ru/leshaxarisha/torchclean/TorchClean.class'
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: TorchClean-0.1.0
+          path: TorchClean/target/TorchClean-0.1.0.jar
+          if-no-files-found: error
