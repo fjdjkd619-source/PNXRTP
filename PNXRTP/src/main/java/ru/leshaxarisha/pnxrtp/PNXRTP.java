@@ -386,7 +386,7 @@ public class PNXRTP extends PluginBase {
             }
         }
 
-        journal("WARN", "RTP failed for " + player.getName() + " in " + world
+        journal("WARN", "RTP failed for player " + player.getUniqueId() + " in " + world
                 + ": indexed=" + chunks.size() + ", in-range=" + candidates.size()
                 + ", inspected=" + chunksToInspect + ", min=" + minDistance + ", max=" + maxDistance);
         send(player, english, "§cНе найдено безопасное место на нужном расстоянии. Проверь радиус и доступные сохранённые чанки.");
