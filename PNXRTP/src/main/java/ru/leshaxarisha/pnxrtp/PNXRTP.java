@@ -69,6 +69,12 @@ public class PNXRTP extends PluginBase {
     private int ring;
     private int side;
     private int offset;
+    private String regionShape = "circle";
+    private boolean customRegionCenter;
+    private int regionCenterX;
+    private int regionCenterZ;
+    private long generationStartedAt;
+    private long sessionFinishedBaseline;
     private long skippedExistingChunks;
     private long requestAttempts;
     private long acceptedRequests;
@@ -91,7 +97,7 @@ public class PNXRTP extends PluginBase {
         loadConfig();
         loadProgress();
         loadHistory();
-        getLogger().info("PNXRTP 1.2.0 enabled for PowerNukkitX API 3.0.6");
+        getLogger().info("PNXRTP 1.3.0 enabled for PowerNukkitX API 3.0.6");
         journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
@@ -390,6 +396,12 @@ public class PNXRTP extends PluginBase {
             case "radius" -> setRadius(sender, args, english);
             case "speed" -> setSpeed(sender, args, english);
             case "world" -> selectGeneratorWorld(sender, args, english);
+            case "region" -> setRegion(sender, args, english);
+            case "preview" -> sendRegionPreview(sender, english);
+            case "diagnostics" -> sendDiagnostics(sender, english);
+            case "history" -> sendRecentEvents(sender, english);
+            case "backup" -> createBackup(sender, english);
+            case "map" -> exportChunkMap(sender, english);
             case "reset" -> {
                 if (generating) stopGenerator(false);
                 ring = side = offset = 0;
@@ -398,7 +410,7 @@ public class PNXRTP extends PluginBase {
                 saveProgress();
                 send(sender, english, "§aПрогресс генератора сброшен.");
             }
-            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius <число>|speed <1-4>|world|reset");
+            default -> send(sender, english, "§eКоманды: /rtpgen start|stop|pause|resume|status|radius|speed|world|region|preview|diagnostics|history|backup|map|reset");
         }
     }
 
@@ -432,6 +444,8 @@ public class PNXRTP extends PluginBase {
         autoPaused = false;
         autoStopped = false;
         tickCounter = 0;
+        generationStartedAt = System.currentTimeMillis();
+        sessionFinishedBaseline = finishedQueueEntries;
         journal("INFO", "Generation started: world=" + worldKey(generationLevel) + ", radius=" + generationRadius + ", speed=" + speed);
         try {
             getServer().getScheduler().scheduleRepeatingTask(this, this::generatorTick, 20);
@@ -501,8 +515,8 @@ public class PNXRTP extends PluginBase {
         if (index == null || index.building) return;
         int maxRing = (generationRadius + 15) / 16;
         Position spawn = generationLevel.getSpawnLocation();
-        int centerX = spawn.getFloorX() >> 4;
-        int centerZ = spawn.getFloorZ() >> 4;
+        int centerX = (customRegionCenter ? regionCenterX : spawn.getFloorX()) >> 4;
+        int centerZ = (customRegionCenter ? regionCenterZ : spawn.getFloorZ()) >> 4;
         for (int checked = 0; checked < 64; checked++) {
         int oldRing = ring;
         int oldSide = side;
@@ -532,7 +546,8 @@ public class PNXRTP extends PluginBase {
         }
         int blockX = dx * 16 + 8;
         int blockZ = dz * 16 + 8;
-        if ((long) blockX * blockX + (long) blockZ * blockZ > (long) generationRadius * generationRadius) {
+        if (regionShape.equals("circle")
+                && (long) blockX * blockX + (long) blockZ * blockZ > (long) generationRadius * generationRadius) {
             continue;
         }
         long packed = pack(centerX + dx, centerZ + dz);
@@ -661,6 +676,133 @@ public class PNXRTP extends PluginBase {
         } catch (NumberFormatException e) { send(sender, english, "§cУкажи число от 1 до 4."); }
     }
 
+    private void setRegion(CommandSender sender, String[] args, boolean english) {
+        if (args.length < 2) {
+            sendRegionPreview(sender, english);
+            return;
+        }
+        String shape = args[1].toLowerCase(Locale.ROOT);
+        if (!shape.equals("circle") && !shape.equals("square")) {
+            send(sender, english, "§eИспользование: /rtpgen region <circle|square> [centerX centerZ]");
+            return;
+        }
+        if (args.length == 3 || args.length > 4) {
+            send(sender, english, "§eУкажи обе координаты центра: /rtpgen region <circle|square> <X> <Z>");
+            return;
+        }
+        if (args.length == 4) {
+            try {
+                regionCenterX = Integer.parseInt(args[2]);
+                regionCenterZ = Integer.parseInt(args[3]);
+                customRegionCenter = true;
+            } catch (NumberFormatException error) {
+                send(sender, english, "§cКоординаты центра должны быть целыми числами.");
+                return;
+            }
+        } else {
+            customRegionCenter = false;
+        }
+        regionShape = shape;
+        config.setProperty("generator.region.shape", regionShape);
+        config.setProperty("generator.region.custom-center", String.valueOf(customRegionCenter));
+        config.setProperty("generator.region.center-x", String.valueOf(regionCenterX));
+        config.setProperty("generator.region.center-z", String.valueOf(regionCenterZ));
+        savePluginConfig();
+        saveProgress();
+        send(sender, english, "§aРегион генерации обновлён: " + regionShape + ".");
+        sendRegionPreview(sender, english);
+    }
+
+    private void sendRegionPreview(CommandSender sender, boolean english) {
+        Position spawn = generationLevel == null ? getServer().getDefaultLevel() == null ? null : getServer().getDefaultLevel().getSpawnLocation() : generationLevel.getSpawnLocation();
+        int centerX = customRegionCenter ? regionCenterX : spawn == null ? 0 : spawn.getFloorX();
+        int centerZ = customRegionCenter ? regionCenterZ : spawn == null ? 0 : spawn.getFloorZ();
+        send(sender, english, "§eРегион: §f" + regionShape + ", радиус: " + generationRadius + " блоков.");
+        send(sender, english, "§eЦентр: §f" + centerX + ", " + centerZ + (customRegionCenter ? " (custom)" : " (spawn)"));
+        send(sender, english, "§7Команда: /rtpgen region <circle|square> [centerX centerZ]");
+    }
+
+    private void sendDiagnostics(CommandSender sender, boolean english) {
+        WorldIndex index = generationLevel == null ? null : indexes.get(worldKey(generationLevel));
+        send(sender, english, "§e----- PNXRTP diagnostics -----");
+        send(sender, english, "§eMemory: §f" + memoryPercent() + "%");
+        send(sender, english, "§eGenerator task flag: §f" + generatorTaskRunning.get());
+        send(sender, english, "§ePending chunks: §f" + pendingChunks.size());
+        send(sender, english, "§eWorld index: §f" + (index == null ? "missing" : index.building ? "building" : "ready"));
+        send(sender, english, "§eIndexed chunks: §f" + (index == null ? 0 : index.chunks.size()));
+        send(sender, english, "§eData directory writable: §f" + (dataFolder != null && dataFolder.isDirectory() && dataFolder.canWrite()));
+        send(sender, english, "§eProgress file: §f" + (progressFile != null && progressFile.exists()));
+        send(sender, english, "§eEvent log: §f" + (eventFile != null && eventFile.exists()));
+    }
+
+    private void sendRecentEvents(CommandSender sender, boolean english) {
+        if (eventFile == null || !eventFile.exists()) {
+            send(sender, english, "§eЖурнал событий пока пуст.");
+            return;
+        }
+        try {
+            List<String> lines = Files.readAllLines(eventFile.toPath(), StandardCharsets.UTF_8);
+            send(sender, english, "§e----- Последние события -----");
+            int start = Math.max(0, lines.size() - 10);
+            for (int i = start; i < lines.size(); i++) sender.sendMessage("§7" + lines.get(i));
+        } catch (IOException error) {
+            send(sender, english, "§cНе удалось прочитать журнал событий.");
+            journal("ERROR", "Could not read event journal: " + error.getMessage());
+        }
+    }
+
+    private void createBackup(CommandSender sender, boolean english) {
+        try {
+            File backups = new File(dataFolder, "backups");
+            if (!backups.exists() && !backups.mkdirs()) throw new IOException("Cannot create backup directory");
+            File target = new File(backups, "backup-" + System.currentTimeMillis());
+            if (!target.mkdirs()) throw new IOException("Cannot create backup snapshot");
+            File[] sources = {configFile, progressFile, historyFile, eventFile};
+            int copied = 0;
+            for (File source : sources) {
+                if (source != null && source.isFile()) {
+                    Files.copy(source.toPath(), new File(target, source.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copied++;
+                }
+            }
+            send(sender, english, "§aРезервная копия создана. Файлов: " + copied + ".");
+            journal("INFO", "Backup created: " + target.getName() + ", files=" + copied);
+        } catch (IOException error) {
+            send(sender, english, "§cНе удалось создать резервную копию: " + error.getMessage());
+            journal("ERROR", "Backup failed: " + error.getMessage());
+        }
+    }
+
+    private void exportChunkMap(CommandSender sender, boolean english) {
+        try {
+            if (generationLevel == null) generationLevel = resolveGeneratorWorld();
+            if (generationLevel == null) {
+                send(sender, english, "§cСначала выбери загруженный мир: /rtpgen world <имя>.");
+                return;
+            }
+            WorldIndex index = indexes.get(worldKey(generationLevel));
+            if (index == null || index.building) {
+                buildIndex(generationLevel);
+                send(sender, english, "§eИндекс мира ещё строится. Повтори /rtpgen map позже.");
+                return;
+            }
+            StringBuilder csv = new StringBuilder("chunk_x,chunk_z,status\\n");
+            for (long packed : index.chunks) {
+                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",saved\\n");
+            }
+            for (long packed : pendingChunks) {
+                csv.append((int) (packed >> 32)).append(',').append((int) packed).append(",pending\\n");
+            }
+            File output = new File(dataFolder, "chunks-map-" + worldKey(generationLevel) + ".csv");
+            Files.writeString(output.toPath(), csv, StandardCharsets.UTF_8);
+            send(sender, english, "§aКарта чанков экспортирована: " + output.getName() + " (" + index.chunks.size() + " saved).");
+            journal("INFO", "Chunk map exported for " + worldKey(generationLevel));
+        } catch (IOException error) {
+            send(sender, english, "§cНе удалось экспортировать карту чанков.");
+            journal("ERROR", "Chunk map export failed: " + error.getMessage());
+        }
+    }
+
     private void sendGeneratorStatus(CommandSender sender, boolean english) {
         send(sender, english, "§e----- RTPGen -----");
         send(sender, english, "§eСтатус: " + (generating ? paused ? autoPaused ? "§6Автопауза" : "§eПауза" : "§aРаботает" : autoStopped ? "§6Остановлен автоматически" : "§cОстановлен"));
@@ -675,6 +817,11 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§eВ обработке по наблюдению: §f" + pendingChunks.size());
         send(sender, english, "§eВышли из очереди (завершение не гарантирует сохранение): §f" + finishedQueueEntries);
         send(sender, english, "§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
+        send(sender, english, "§eРегион: §f" + regionShape + ", центр " + (customRegionCenter ? regionCenterX + "," + regionCenterZ : "spawn"));
+        long elapsed = generationStartedAt > 0 ? Math.max(1L, System.currentTimeMillis() - generationStartedAt) : 0L;
+        long sessionDone = Math.max(0L, finishedQueueEntries - sessionFinishedBaseline);
+        long perMinute = elapsed > 0 ? Math.round(sessionDone * 60000.0 / elapsed) : 0L;
+        send(sender, english, "§eЗавершений за сессию: §f" + sessionDone + ", скорость: " + perMinute + " чанков/мин");
         send(sender, english, "§7Порог автопаузы: " + config.getProperty("generator.memory.pause", "75") + "%, автопродолжения: " + config.getProperty("generator.memory.resume", "60") + "%, остановки: " + config.getProperty("generator.memory.stop", "85") + "%");
     }
 
@@ -702,6 +849,10 @@ public class PNXRTP extends PluginBase {
         config.clear();
         config.setProperty("generator.radius", String.valueOf(DEFAULT_GENERATION_RADIUS));
         config.setProperty("generator.speed", "1");
+        config.setProperty("generator.region.shape", "circle");
+        config.setProperty("generator.region.custom-center", "false");
+        config.setProperty("generator.region.center-x", "0");
+        config.setProperty("generator.region.center-z", "0");
         config.setProperty("rtp.cooldown-seconds", String.valueOf(DEFAULT_COOLDOWN_SECONDS));
         config.setProperty("rtp.avoid-player-distance", String.valueOf(DEFAULT_AVOID_PLAYERS));
         config.setProperty("generator.memory.pause", "75");
@@ -713,6 +864,10 @@ public class PNXRTP extends PluginBase {
         }
         generationRadius = parseInt(config.getProperty("generator.radius"), DEFAULT_GENERATION_RADIUS, 100, MAX_GENERATION_RADIUS);
         speed = parseInt(config.getProperty("generator.speed"), 1, 1, 4);
+        regionShape = config.getProperty("generator.region.shape", "circle").equalsIgnoreCase("square") ? "square" : "circle";
+        customRegionCenter = Boolean.parseBoolean(config.getProperty("generator.region.custom-center", "false"));
+        regionCenterX = parseInt(config.getProperty("generator.region.center-x"), 0, -30000000, 30000000);
+        regionCenterZ = parseInt(config.getProperty("generator.region.center-z"), 0, -30000000, 30000000);
         savePluginConfig();
     }
 
