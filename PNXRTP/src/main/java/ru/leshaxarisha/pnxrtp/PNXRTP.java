@@ -116,8 +116,7 @@ public class PNXRTP extends PluginBase {
         if (purgeResetPending) {
             getLogger().warning("PNXRTP: world purge marker detected; saved generator cursor was reset. Starting generation for the purged world.");
             startGenerator(getServer().getConsoleSender(), false);
-            if (generating) acknowledgeWorldPurgeMarker();
-            else getLogger().warning("PNXRTP: generator did not start; world-purge.marker was retained for retry or manual start.");
+            if (!generating) getLogger().warning("PNXRTP: generator did not start; world-purge.marker was retained for retry or manual start.");
         } else if (Boolean.parseBoolean(config.getProperty("generator.auto-start", "false"))) {
             startGenerator(getServer().getConsoleSender(), false);
         }
