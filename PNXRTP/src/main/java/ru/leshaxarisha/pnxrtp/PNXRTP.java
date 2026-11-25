@@ -22,6 +22,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -56,6 +58,7 @@ public class PNXRTP extends PluginBase {
     private File configFile;
     private File progressFile;
     private File historyFile;
+    private File eventFile;
     private final Properties config = new Properties();
 
     private volatile boolean generating;
@@ -85,10 +88,12 @@ public class PNXRTP extends PluginBase {
         configFile = new File(dataFolder, "config.properties");
         progressFile = new File(dataFolder, "rtpgen-progress.txt");
         historyFile = new File(dataFolder, "rtp-history.txt");
+        eventFile = new File(dataFolder, "events.log");
         loadConfig();
         loadProgress();
         loadHistory();
-        getLogger().info("PNXRTP 1.1.0 enabled for PowerNukkitX API 3.0.6");
+        getLogger().info("PNXRTP 1.2.0 enabled for PowerNukkitX API 3.0.6");
+        journal("INFO", "Plugin enabled");
         Level defaultLevel = getServer().getDefaultLevel();
         if (defaultLevel != null) buildIndex(defaultLevel);
     }
@@ -102,6 +107,7 @@ public class PNXRTP extends PluginBase {
         saveProgress();
         saveHistory();
         savePluginConfig();
+        journal("INFO", "Plugin disabled; state saved");
     }
 
     @Override
@@ -122,6 +128,7 @@ public class PNXRTP extends PluginBase {
                 return true;
             }
             loadConfig();
+            journal("INFO", "Configuration reloaded");
             sender.sendMessage("§aКонфигурация PNXRTP перезагружена.");
             return true;
         }
@@ -329,6 +336,7 @@ public class PNXRTP extends PluginBase {
         }
         generationLevel = resolveGeneratorWorld();
         if (generationLevel == null) { sender.sendMessage("§cВыбранный мир не загружен или не найден. Используй /rtpgen world <имя>."); return; }
+        buildIndex(generationLevel);
         generationRadius = intConfig(worldKey(generationLevel), "generator-radius", generationRadius, 100, MAX_GENERATION_RADIUS);
         speed = intConfig(worldKey(generationLevel), "generator-speed", speed, 1, 4);
         if (!worldEnabled(worldKey(generationLevel), "generator-enabled", true)) {
@@ -344,6 +352,7 @@ public class PNXRTP extends PluginBase {
         paused = false;
         autoPaused = false;
         tickCounter = 0;
+        journal("INFO", "Generation started: world=" + worldKey(generationLevel) + ", radius=" + generationRadius + ", speed=" + speed);
         if (generatorTaskRunning.compareAndSet(false, true)) {
             getServer().getScheduler().scheduleRepeatingTask(this, this::generatorTick, 20);
         }
@@ -361,25 +370,33 @@ public class PNXRTP extends PluginBase {
     }
 
     private void generatorTick() {
-        if (!generating || paused || generationLevel == null) return;
+        if (!generating || generationLevel == null) return;
         int memory = memoryPercent();
-        if (memory >= 85) {
+        int pauseAt = parseInt(config.getProperty("generator.memory.pause", "75"), 75, 50, 95);
+        int stopAt = parseInt(config.getProperty("generator.memory.stop", "85"), 85, pauseAt + 1, 99);
+        int resumeAt = parseInt(config.getProperty("generator.memory.resume", "60"), 60, 30, pauseAt - 1);
+        if (memory >= stopAt) {
+            journal("WARN", "Generation stopped automatically: memory=" + memory + "%");
             getLogger().warning("RTPGen stopped: memory reached " + memory + "%");
             stopGenerator(true);
             return;
         }
-        if (memory >= 75) {
+        if (memory >= pauseAt && !paused) {
             paused = true;
             autoPaused = true;
             saveProgress();
-            getLogger().warning("RTPGen paused: memory reached " + memory + "%");
-            return;
+            journal("WARN", "Generation auto-paused: memory=" + memory + "%");
+        } else if (paused && autoPaused && memory <= resumeAt) {
+            paused = false;
+            autoPaused = false;
+            journal("INFO", "Generation auto-resumed: memory=" + memory + "%");
         }
+        updateFinishedChunks();
+        if (paused) return;
         tickCounter++;
         int interval = memory >= 65 ? Math.max(2, 4 / speed) : Math.max(1, 2 / speed);
         if (tickCounter % interval != 0) return;
 
-        updateFinishedChunks();
         WorldIndex index = indexes.get(worldKey(generationLevel));
         if (index == null || index.building) return;
         int maxRing = (generationRadius + 15) / 16;
@@ -552,6 +569,7 @@ public class PNXRTP extends PluginBase {
         sender.sendMessage("§eВ обработке по наблюдению: §f" + pendingChunks.size());
         sender.sendMessage("§eВышли из очереди (завершение не гарантирует сохранение): §f" + finishedQueueEntries);
         sender.sendMessage("§eПамять контейнера/JVM: §f" + memoryPercent() + "%");
+        sender.sendMessage("§7Порог автопаузы: " + config.getProperty("generator.memory.pause", "75") + "%, автопродолжения: " + config.getProperty("generator.memory.resume", "60") + "%, остановки: " + config.getProperty("generator.memory.stop", "85") + "%");
     }
 
     private int memoryPercent() {
@@ -580,6 +598,9 @@ public class PNXRTP extends PluginBase {
         config.setProperty("generator.speed", "1");
         config.setProperty("rtp.cooldown-seconds", String.valueOf(DEFAULT_COOLDOWN_SECONDS));
         config.setProperty("rtp.avoid-player-distance", String.valueOf(DEFAULT_AVOID_PLAYERS));
+        config.setProperty("generator.memory.pause", "75");
+        config.setProperty("generator.memory.resume", "60");
+        config.setProperty("generator.memory.stop", "85");
         if (configFile.exists()) {
             try (var in = Files.newInputStream(configFile.toPath())) { config.load(in); }
             catch (IOException e) { getLogger().warning("Could not load config.properties: " + e.getMessage()); }
@@ -591,8 +612,12 @@ public class PNXRTP extends PluginBase {
 
     private void savePluginConfig() {
         if (configFile == null) return;
-        try (BufferedWriter out = Files.newBufferedWriter(configFile.toPath(), StandardCharsets.UTF_8)) {
-            config.store(out, "PNXRTP configuration. Per-world keys: world.<folder>.<setting>");
+        try {
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            try (var out = new java.io.OutputStreamWriter(bytes, StandardCharsets.UTF_8)) {
+                config.store(out, "PNXRTP configuration. Per-world keys: world.<folder>.<setting>");
+            }
+            atomicWrite(configFile, bytes.toString(StandardCharsets.UTF_8));
         } catch (IOException e) { getLogger().error("Could not save PNXRTP config", e); }
     }
 
@@ -632,8 +657,9 @@ public class PNXRTP extends PluginBase {
 
     private void saveProgress() {
         if (progressFile == null) return;
-        try (BufferedWriter out = Files.newBufferedWriter(progressFile.toPath(), StandardCharsets.UTF_8)) {
-            out.write(ring + "\n" + side + "\n" + offset + "\n" + requestAttempts + "\n" + acceptedRequests + "\n" + rejectedRequests + "\n");
+        try {
+            String content = ring + "\n" + side + "\n" + offset + "\n" + requestAttempts + "\n" + acceptedRequests + "\n" + rejectedRequests + "\n";
+            atomicWrite(progressFile, content);
         } catch (IOException e) { getLogger().error("Could not save generator progress", e); }
     }
 
@@ -657,15 +683,37 @@ public class PNXRTP extends PluginBase {
 
     private synchronized void saveHistory() {
         if (historyFile == null) return;
-        try (BufferedWriter out = Files.newBufferedWriter(historyFile.toPath(), StandardCharsets.UTF_8)) {
+        try {
+            StringBuilder content = new StringBuilder();
             for (var playerEntry : history.entrySet()) {
                 for (var worldEntry : playerEntry.getValue().entrySet()) {
-                    for (SavedPoint point : worldEntry.getValue()) {
-                        out.write(playerEntry.getKey() + "|" + worldEntry.getKey() + "|0|" + point.x + "|" + point.z + "\n");
+                    Deque<SavedPoint> points = worldEntry.getValue();
+                    synchronized (points) {
+                        for (SavedPoint point : points) content.append(playerEntry.getKey()).append('|').append(worldEntry.getKey()).append("|0|").append(point.x).append('|').append(point.z).append('\n');
                     }
                 }
             }
+            atomicWrite(historyFile, content.toString());
         } catch (IOException e) { getLogger().error("Could not save RTP history", e); }
+    }
+
+    private void journal(String level, String message) {
+        if (eventFile == null) return;
+        String line = java.time.Instant.now() + " [" + level + "] " + message + System.lineSeparator();
+        try {
+            Files.writeString(eventFile.toPath(), line, StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (IOException e) { getLogger().warning("Could not append PNXRTP event journal: " + e.getMessage()); }
+    }
+
+    private static void atomicWrite(File target, String content) throws IOException {
+        File temp = new File(target.getParentFile(), target.getName() + ".tmp");
+        Files.writeString(temp.toPath(), content, StandardCharsets.UTF_8);
+        try {
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private static String worldKey(Level level) {
