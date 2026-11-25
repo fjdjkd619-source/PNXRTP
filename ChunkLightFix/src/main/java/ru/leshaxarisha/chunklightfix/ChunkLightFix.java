@@ -63,6 +63,10 @@ public final class ChunkLightFix extends PluginBase {
             sender.sendMessage("§cМир игрока не найден.");
             return true;
         }
+        if (!"world".equalsIgnoreCase(level.getName())) {
+            sender.sendMessage("§cChunkLightFix разрешён только в основном мире world.");
+            return true;
+        }
 
         String mode = args.length == 0 ? "status" : args[0].toLowerCase();
         switch (mode) {
@@ -85,7 +89,14 @@ public final class ChunkLightFix extends PluginBase {
             return;
         }
         sender.sendMessage("§eПроверяю только тестовый чанк (-2, 2). Другие чанки не затрагиваются.");
-        ProcessResult result = processChunk(level, TEST_CHUNK_X, TEST_CHUNK_Z);
+        ProcessResult result;
+        try {
+            result = processChunk(level, TEST_CHUNK_X, TEST_CHUNK_Z);
+        } catch (Throwable error) {
+            getLogger().error("ChunkLightFix test failed", error);
+            result = ProcessResult.of(Kind.ERROR, false,
+                    "ошибка " + error.getClass().getSimpleName() + ": " + error.getMessage());
+        }
         lastStatus = "Тестовый чанк (-2,2): " + result.message;
         sender.sendMessage((result.repaired ? "§a" : "§e") + "ChunkLightFix: " + result.message);
         if (result.repaired) {
