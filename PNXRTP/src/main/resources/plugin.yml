@@ -9,7 +9,7 @@ description: Safe random teleport and throttled chunk generation for PowerNukkit
 commands:
   rtp:
     description: Random safe teleport and protected chunk cleanup preview
-    usage: /rtp [cleanup]
+    usage: /rtp [cleanup|purge]
     permission: pnxrtp.use
   rtpgen:
     description: Manage gradual world generation
