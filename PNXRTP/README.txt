@@ -23,7 +23,7 @@ Chunk generator
 - Region center defaults to the selected world's spawn. A custom block-coordinate center can be configured with /rtpgen region <circle|square> <X> <Z>.
 - /rtpgen preview displays the active region shape, radius, and center.
 - /rtpgen status reports counters, current session completion rate, memory use, and queue observations.
-- Uses PNX isChunkGenerating observations to track in-flight requests. Leaving the generation queue does NOT prove that LevelDB has flushed a chunk to disk.
+- Uses PNX isChunkGenerating observations to track in-flight requests separately for each world. Leaving the generation queue does NOT prove that LevelDB has flushed a chunk to disk.
 - Memory policy defaults: slow down at 65%, auto-pause at 75%, auto-resume at 60%, stop at 85%. Thresholds are configurable in config.properties.
 - Progress, configuration, and RTP history are written through temporary files and replace operations.
 - Progress checkpoints are throttled by generator ticks and request count.
