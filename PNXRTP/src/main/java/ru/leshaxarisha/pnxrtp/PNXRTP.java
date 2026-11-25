@@ -262,8 +262,8 @@ public class PNXRTP extends PluginBase {
                 {"Сохранённые регионы (", "Saved regions ("}, {"Останови генератор перед изменением профилей регионов.", "Stop the generator before changing region profiles."},
                 {"Использование: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>", "Usage: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>"},
                 {"Регион с таким именем уже существует.", "A region with this name already exists."}, {"Регион сохранён:", "Region saved:"},
-                {"Активирован регион ", "Activated region "}, {"Регион не найден.", "Region not found."},
-                {"Регион удалён.", "Region removed."}, {"Карта 21x21 чанков:", "21x21 chunk map:"}, {"Средний TPS:", "Average TPS:"}, {"Загрузка тиков:", "Tick usage:"},
+                {"Активирован регион ", "Activated region "}, {"Активный регион:", "Active region:"}, {"Регион не найден.", "Region not found."},
+                {"Регион удалён.", "Region removed."}, {"Карта 21x21 чанков:", "21x21 chunk map:"}, {"известен индексу", "known to index"}, {"не отмечен", "not indexed"}, {"Средний TPS:", "Average TPS:"}, {"Загрузка тиков:", "Tick usage:"},
                 {"Память:", "Memory:"}, {"Запросов за час:", "Requests this hour:"}, {"Пауза по нагрузке:", "Load pause:"},
                 {"по расписанию:", "schedule pause:"},
                 {"Сначала выбери мир: /rtpgen world <name>.", "Select a world first: /rtpgen world <name>."},
@@ -957,10 +957,11 @@ public class PNXRTP extends PluginBase {
             if (p.length != 5 || !p[0].matches("[A-Za-z0-9_-]{1,24}")) continue;
             try {
                 if (!p[1].equalsIgnoreCase("circle") && !p[1].equalsIgnoreCase("square")) continue;
-                Integer.parseInt(p[2]);
-                Integer.parseInt(p[3]);
+                int centerX = Integer.parseInt(p[2]);
+                int centerZ = Integer.parseInt(p[3]);
                 int radius = Integer.parseInt(p[4]);
-                if (radius < 100 || radius > MAX_GENERATION_RADIUS) continue;
+                if (Math.abs((long)centerX) > 30000000L || Math.abs((long)centerZ) > 30000000L
+                        || radius < 100 || radius > MAX_GENERATION_RADIUS) continue;
                 result.add(profile);
             } catch (NumberFormatException ignored) { }
         }
@@ -1107,7 +1108,7 @@ public class PNXRTP extends PluginBase {
     private void configureBiome(CommandSender sender, String[] args, boolean english) {
         if (args.length < 2) {
             send(sender, english, "§eЦелевой биом ID: §f" + targetBiomeId + " (-1 = любой)");
-            send(sender, english, "§7Использование: /rtpgen biome <ID|off>");
+            send(sender, english, "§7Использование: /rtpgen biome <ID|here|off>");
             return;
         }
         if (args[1].equalsIgnoreCase("here") && sender instanceof Player player) {
@@ -1119,7 +1120,7 @@ public class PNXRTP extends PluginBase {
                 targetBiomeId = Integer.parseInt(args[1]);
                 if (targetBiomeId < 0 || targetBiomeId > 65535) throw new NumberFormatException();
             } catch (NumberFormatException ex) {
-                send(sender, english, "§cID биома должен быть числом от 0 до 65535 или off.");
+                send(sender, english, "§cID биома должен быть числом от 0 до 65535, here или off.");
                 return;
             }
         }
@@ -1429,6 +1430,7 @@ public class PNXRTP extends PluginBase {
         send(sender, english, "§eМир: §f" + (generationLevel == null ? getServer().getDefaultLevel() == null ? "нет" : worldKey(getServer().getDefaultLevel()) : worldKey(generationLevel)));
         send(sender, english, "§eРадиус: §f" + generationRadius + " блоков");
         send(sender, english, "§eСкорость: §f" + speed + " (1-4)");
+        send(sender, english, "§eАктивный регион: §f" + (activeRegionName.isBlank() ? regionShape : activeRegionName));
         send(sender, english, "§eПропущено существующих чанков: §f" + skippedExistingChunks);
         send(sender, english, "§eПозиция спирали: §fкольцо " + ring + ", сторона " + side + ", смещение " + offset);
         send(sender, english, "§eПопыток запросов: §f" + requestAttempts);
