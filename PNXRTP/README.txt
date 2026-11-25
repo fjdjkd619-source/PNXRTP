@@ -115,3 +115,4 @@ Install and validation
 - The manifest PNXRTP-world-purge-manifest.csv records dimension_id, chunk_x, chunk_z and KEEP/DELETE classification. It lists recognized chunk coordinates; it is not a complete inventory of all LevelDB keys.
 
 1.5.1 chunk guard fix: generator skips chunks already in PowerNukkitX FINISHED/sendable state and advances its cursor instead of retrying the same chunk indefinitely.
+Build output for this fix branch: PNXRTP-1.5.1.jar (PowerNukkitX 3.0.6 API).
