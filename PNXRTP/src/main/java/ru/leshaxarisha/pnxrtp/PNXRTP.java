@@ -728,7 +728,7 @@ public class PNXRTP extends PluginBase {
             continue;
         }
         long packed = pack(centerX + dx, centerZ + dz);
-        if (isInsideAnyExclusion(config.getProperty("generator.exclusions", ""), (centerX + dx) * 16 + 8, (centerZ + dz) * 16 + 8)) continue;
+        if (isChunkIntersectingExclusion(config.getProperty("generator.exclusions", ""), centerX + dx, centerZ + dz)) continue;
         if (index.chunkSet.contains(packed)) {
             skippedExistingChunks++;
             continue;
@@ -1248,6 +1248,31 @@ public class PNXRTP extends PluginBase {
         if (errors == 0) send(sender, english, "§aБазовые параметры конфигурации корректны.");
     }
 
+    private boolean isChunkIntersectingExclusion(String encoded, int chunkX, int chunkZ) {
+        if (encoded == null || encoded.isBlank()) return false;
+        long minX = (long) chunkX * 16L;
+        long minZ = (long) chunkZ * 16L;
+        long maxX = minX + 15L;
+        long maxZ = minZ + 15L;
+        for (String zone : encoded.split(";")) {
+            String[] p = zone.trim().split(",");
+            if (p.length != 4) continue;
+            try {
+                long x1 = Integer.parseInt(p[0].trim());
+                long z1 = Integer.parseInt(p[1].trim());
+                long x2 = Integer.parseInt(p[2].trim());
+                long z2 = Integer.parseInt(p[3].trim());
+                long zoneMinX = Math.min(x1, x2);
+                long zoneMaxX = Math.max(x1, x2);
+                long zoneMinZ = Math.min(z1, z2);
+                long zoneMaxZ = Math.max(z1, z2);
+                if (maxX >= zoneMinX && minX <= zoneMaxX
+                        && maxZ >= zoneMinZ && minZ <= zoneMaxZ) return true;
+            } catch (NumberFormatException ignored) { }
+        }
+        return false;
+    }
+
     private boolean isInsideAnyExclusion(String encoded, int x, int z) {
         if (encoded == null || encoded.isBlank()) return false;
         for (String zone : encoded.split(";")) {
@@ -1350,7 +1375,7 @@ public class PNXRTP extends PluginBase {
         int centerX = (customRegionCenter ? regionCenterX : spawn.getFloorX()) >> 4;
         int centerZ = (customRegionCenter ? regionCenterZ : spawn.getFloorZ()) >> 4;
         Set<Long> pending = pendingChunksByWorld.getOrDefault(worldKey(generationLevel), Set.of());
-        send(sender, english, "§eКарта 21x21 чанков: §a# §7сохранён, §6+ §7в очереди, §8. §7не обработан");
+        send(sender, english, "§eКарта 21x21 чанков: §a# §7известен индексу, §6+ §7в очереди, §8. §7не отмечен");
         for (int z = centerZ - 10; z <= centerZ + 10; z++) {
             StringBuilder row = new StringBuilder("§7");
             for (int x = centerX - 10; x <= centerX + 10; x++) {
@@ -1381,7 +1406,7 @@ public class PNXRTP extends PluginBase {
                 writer.write("chunk_x,chunk_z,status");
                 writer.newLine();
                 for (long packed : index.chunks) {
-                    writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",saved");
+                    writer.write(((int) (packed >> 32)) + "," + ((int) packed) + ",indexed");
                     writer.newLine();
                 }
                 for (long packed : pendingChunksByWorld.getOrDefault(worldKey(generationLevel), Set.of())) {
@@ -1390,7 +1415,7 @@ public class PNXRTP extends PluginBase {
                     writer.newLine();
                 }
             }
-            send(sender, english, "§aКарта чанков экспортирована: " + output.getName() + " (" + index.chunks.size() + " saved).");
+            send(sender, english, "§aКарта чанков экспортирована: " + output.getName() + " (" + index.chunks.size() + " indexed).");
             journal("INFO", "Chunk map exported for " + worldKey(generationLevel));
         } catch (IOException error) {
             send(sender, english, "§cНе удалось экспортировать карту чанков.");
