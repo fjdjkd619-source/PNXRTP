@@ -257,7 +257,9 @@ public class PNXRTP extends PluginBase {
                 {"Использование: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>", "Usage: /rtpgen region add <name> <circle|square> <centerX> <centerZ> <radius>"},
                 {"Регион с таким именем уже существует.", "A region with this name already exists."}, {"Регион сохранён:", "Region saved:"},
                 {"Активирован регион ", "Activated region "}, {"Регион не найден.", "Region not found."},
-                {"Регион удалён.", "Region removed."}, {"Карта 21x21 чанков:", "21x21 chunk map:"},
+                {"Регион удалён.", "Region removed."}, {"Карта 21x21 чанков:", "21x21 chunk map:"}, {"Средний TPS:", "Average TPS:"}, {"Загрузка тиков:", "Tick usage:"},
+                {"Память:", "Memory:"}, {"Запросов за час:", "Requests this hour:"}, {"Пауза по нагрузке:", "Load pause:"},
+                {"по расписанию:", "schedule pause:"},
                 {"Сначала выбери мир: /rtpgen world <name>.", "Select a world first: /rtpgen world <name>."},
                 {"Индекс ещё строится.", "Index is still building."}
         };
@@ -1144,12 +1146,12 @@ public class PNXRTP extends PluginBase {
         float tps = getServer().getTicksPerSecondAverage();
         float usage = getServer().getTickUsageAverage();
         send(sender, english, "§e----- Производительность PNXRTP -----");
-        send(sender, english, "§eTPS average: §f" + String.format(Locale.ROOT, "%.2f", tps));
-        send(sender, english, "§eTick usage: §f" + String.format(Locale.ROOT, "%.1f%%", usage));
-        send(sender, english, "§eMemory: §f" + memoryPercent() + "%");
-        send(sender, english, "§ePending chunks: §f" + pendingCount());
-        send(sender, english, "§eRequests this hour: §f" + quotaRequests + "/" + config.getProperty("generator.max-requests-per-hour", "0"));
-        send(sender, english, "§eLoad pause: §f" + loadPaused + ", schedule pause: " + schedulePaused);
+        send(sender, english, "§eСредний TPS: §f" + String.format(Locale.ROOT, "%.2f", tps));
+        send(sender, english, "§eЗагрузка тиков: §f" + String.format(Locale.ROOT, "%.1f%%", usage));
+        send(sender, english, "§eПамять: §f" + memoryPercent() + "%");
+        send(sender, english, "§eОжидающие чанки: §f" + pendingCount());
+        send(sender, english, "§eЗапросов за час: §f" + quotaRequests + "/" + config.getProperty("generator.max-requests-per-hour", "0"));
+        send(sender, english, "§eПауза по нагрузке: §f" + loadPaused + ", по расписанию: " + schedulePaused);
     }
 
     private void validateConfiguration(CommandSender sender, boolean english) {
