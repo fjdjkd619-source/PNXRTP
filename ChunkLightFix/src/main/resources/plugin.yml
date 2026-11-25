@@ -1,0 +1,18 @@
+name: ChunkLightFix
+main: ru.leshaxarisha.chunklightfix.ChunkLightFix
+version: 0.1.0
+api: "3.0.6"
+load: POSTWORLD
+author: Lesha x Arisha
+description: Resumes only the missing PNX 3.0.6 light-population stage for safe existing chunks
+
+commands:
+  chunklightfix:
+    description: Safely resume the missing light stage in the protected area
+    usage: /chunklightfix <test|start|status|stop>
+    permission: chunklightfix.use
+
+permissions:
+  chunklightfix.use:
+    description: Allows running ChunkLightFix
+    default: op
