@@ -2,6 +2,9 @@ name: LevelDB Diagnostic
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - leveldb-diagnostic
 
 permissions:
   contents: read
