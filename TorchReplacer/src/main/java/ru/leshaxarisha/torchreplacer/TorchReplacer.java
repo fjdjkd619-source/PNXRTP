@@ -302,7 +302,17 @@ public final class TorchReplacer extends PluginBase {
                 }
 
                 torchesFound++;
-                replaceTorch(current.level, x, y, z, oldBlock);
+                try {
+                    replaceTorch(current.level, x, y, z, oldBlock);
+                } catch (Throwable error) {
+                    replacementFailures++;
+                    String failure = "REPLACE EXCEPTION | world=" + current.level.getFolderName()
+                            + " | x=" + x + " | y=" + y + " | z=" + z
+                            + " | block=" + id + " | " + error.getClass().getSimpleName()
+                            + ": " + error.getMessage();
+                    detailedLog.add(failure);
+                    getLogger().error("TorchReplacer: exception replacing block at " + x + "," + y + "," + z, error);
+                }
             }
 
             current.columnIndex++;
@@ -401,6 +411,11 @@ public final class TorchReplacer extends PluginBase {
         }
         scanFuture = null;
         if (current != null && current.started) {
+            String partial = "CHUNK INTERRUPTED | world=" + current.level.getFolderName()
+                    + " | chunkX=" + current.chunkX + " | chunkZ=" + current.chunkZ
+                    + " | columnsProcessed=" + current.columnIndex + "/256";
+            chunkLog.add(partial);
+            detailedLog.add(partial);
             releaseChunk(current);
         }
         current = null;
