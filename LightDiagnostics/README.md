@@ -6,7 +6,7 @@ It is read-only: it does not change blocks, light values, spawn rules, gamerules
 
 ## Commands
 
-- `/lightdiag probe <world> <x> <y> <z>` — reads the already-loaded chunk's stored block light, sky light, block emission, light-populated flag and finalization state at an exact position. It refuses to load or generate an unloaded chunk.
+- `/lightdiag probe <world> <x> <y> <z>` — reads the already-loaded chunk's stored block light, sky light, block emission, light-populated flag and chunk state at an exact position. It refuses to load or generate an unloaded chunk.
 - `/lightdiag track on` — clears the event buffer and starts recording CreatureSpawnEvent (including NATURAL reason and cancellation state) and actual creature EntitySpawnEvent events, with server-side light sampled at the spawn position.
 - `/lightdiag track off` — stops tracking.
 - `/lightdiag track status` — shows tracking state and buffered event count.
