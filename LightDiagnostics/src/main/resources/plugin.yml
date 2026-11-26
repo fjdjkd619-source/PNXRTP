@@ -1,0 +1,18 @@
+name: LightDiagnostics
+main: ru.leshaxarisha.lightdiagnostics.LightDiagnostics
+version: "0.1.0"
+api: "3.0.6"
+load: POSTWORLD
+author: Lesha x Arisha
+description: Diagnoses server-side block/sky light and records creature spawn events.
+
+commands:
+  lightdiag:
+    description: Inspect server light values and track creature spawning
+    usage: /lightdiag <probe|track|export|help>
+    permission: lightdiagnostics.admin
+
+permissions:
+  lightdiagnostics.admin:
+    description: Allows using LightDiagnostics commands
+    default: op
