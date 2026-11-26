@@ -105,13 +105,13 @@ public final class LightDiagnostics extends PluginBase implements Listener {
             sender.sendMessage("§7Sky light: §f" + skyLight + "/15");
             sender.sendMessage("§7Излучение самого блока: §f" + block.getLightLevel() + "/15");
             sender.sendMessage("§7Chunk light populated: §f" + chunk.isLightPopulated());
-            sender.sendMessage("§7Chunk finalization: §f" + chunk.getFinalizationState());
+            sender.sendMessage("§7Chunk finalization: §f" + chunk.getChunkState());
             sender.sendMessage("§7Важно: это чтение данных сервера, а не яркости картинки клиента.");
             getLogger().info("PROBE | world=" + level.getFolderName() + " | xyz=" + x + "," + y + "," + z
                     + " | block=" + block.getId() + " | blockLight=" + blockLight
                     + " | skyLight=" + skyLight + " | emission=" + block.getLightLevel()
                     + " | lightPopulated=" + chunk.isLightPopulated()
-                    + " | finalization=" + chunk.getFinalizationState());
+                    + " | finalization=" + chunk.getChunkState());
         } catch (NumberFormatException ex) {
             sender.sendMessage("§cКоординаты должны быть целыми числами.");
         } catch (Throwable ex) {
@@ -168,8 +168,7 @@ public final class LightDiagnostics extends PluginBase implements Listener {
             Entity entity = event.getEntity();
             var pos = entity.getPosition();
             record(sampleSpawn("ENTITY_SPAWN", pos.level, pos.getFloorX(), pos.getFloorY(), pos.getFloorZ(),
-                    "type=" + entity.getClass().getSimpleName() + " | networkId=" + entity.getNetworkId()
-                           ));
+                    "type=" + entity.getClass().getSimpleName() + " | networkId=" + entity.getNetworkId()));
         } catch (Throwable ex) {
             record("ENTITY_SPAWN | sampleError=" + ex.getClass().getSimpleName() + ":" + ex.getMessage());
         }
@@ -188,7 +187,7 @@ public final class LightDiagnostics extends PluginBase implements Listener {
                 if (chunk != null) {
                     blockLight = chunk.getBlockLight(Math.floorMod(x, 16), y, Math.floorMod(z, 16));
                     skyLight = chunk.getBlockSkyLight(Math.floorMod(x, 16), y, Math.floorMod(z, 16));
-                    chunkState = String.valueOf(chunk.getFinalizationState());
+                    chunkState = String.valueOf(chunk.getChunkState());
                     blockId = level.getBlock(x, y, z).getId();
                 }
             }
