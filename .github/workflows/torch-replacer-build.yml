@@ -1,6 +1,7 @@
 name: TorchReplacer build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - torch-replacer-0.1.0
