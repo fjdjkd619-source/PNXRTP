@@ -148,7 +148,7 @@ public final class LightDiagnostics extends PluginBase implements Listener {
         if (!tracking) return;
         try {
             var pos = event.getPosition();
-            Level level = pos.getLevel();
+            Level level = pos.level;
             int x = pos.getFloorX();
             int y = pos.getFloorY();
             int z = pos.getFloorZ();
@@ -167,9 +167,9 @@ public final class LightDiagnostics extends PluginBase implements Listener {
         try {
             Entity entity = event.getEntity();
             var pos = entity.getPosition();
-            record(sampleSpawn("ENTITY_SPAWN", pos.getLevel(), pos.getFloorX(), pos.getFloorY(), pos.getFloorZ(),
+            record(sampleSpawn("ENTITY_SPAWN", pos.level, pos.getFloorX(), pos.getFloorY(), pos.getFloorZ(),
                     "type=" + entity.getClass().getSimpleName() + " | networkId=" + entity.getNetworkId()
-                            + " | closed=" + entity.isClosed()));
+                           ));
         } catch (Throwable ex) {
             record("ENTITY_SPAWN | sampleError=" + ex.getClass().getSimpleName() + ":" + ex.getMessage());
         }
