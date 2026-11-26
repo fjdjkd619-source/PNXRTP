@@ -241,6 +241,8 @@ public final class TorchReplacer extends PluginBase {
                         getLogger().error("TorchReplacer: skipped world " + plan.level.getFolderName() + ": " + plan.error);
                         continue;
                     }
+                    detailedLog.add("WORLD INDEXED | world=" + plan.level.getFolderName()
+                            + " | existingChunks=" + plan.chunkCoordinates.size());
                     for (long packed : plan.chunkCoordinates) {
                         chunks.addLast(new ChunkCursor(plan.level, (int) (packed >> 32), (int) packed));
                     }
@@ -385,6 +387,10 @@ public final class TorchReplacer extends PluginBase {
             boolean unloaded = cursor.level.unloadChunk(cursor.chunkX, cursor.chunkZ, true, true);
             if (!unloaded) {
                 chunksNotUnloaded++;
+                String failure = "CHUNK UNLOAD FAILED | world=" + cursor.level.getFolderName()
+                        + " | chunkX=" + cursor.chunkX + " | chunkZ=" + cursor.chunkZ;
+                chunkLog.add(failure);
+                detailedLog.add(failure);
             }
         }
     }
