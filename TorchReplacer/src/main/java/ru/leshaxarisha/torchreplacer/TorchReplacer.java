@@ -213,10 +213,7 @@ public final class TorchReplacer extends PluginBase {
             return new WorldPlan(level, List.of(), error.getClass().getSimpleName() + ": " + error.getMessage());
         } finally {
             if (iterator != null) {
-                try {
-                    iterator.close();
-                } catch (IOException ignored) {
-                }
+                iterator.close();
             }
         }
 
@@ -251,6 +248,9 @@ public final class TorchReplacer extends PluginBase {
                 totalChunks = chunks.size();
                 getLogger().info("TorchReplacer: found " + totalChunks + " existing chunk records");
             } catch (Throwable error) {
+                String message = "INDEXING FAILED | " + error.getClass().getSimpleName() + ": " + error.getMessage();
+                worldErrors.add(message);
+                detailedLog.add(message);
                 getLogger().error("TorchReplacer: indexing failed", error);
                 stopProcessing();
                 return;
