@@ -12,6 +12,12 @@ import org.powernukkitx.level.util.LevelDBKeyUtil;
 import org.powernukkitx.plugin.PluginBase;
 
 import java.io.IOException;
+import java.io.BufferedWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayDeque;
@@ -30,6 +36,12 @@ public final class TorchReplacer extends PluginBase {
     private static final int COLUMNS_PER_TICK = 64;
 
     private final ArrayDeque<ChunkCursor> chunks = new ArrayDeque<>();
+    private final List<String> detailedLog = new ArrayList<>();
+    private final List<String> chunkLog = new ArrayList<>();
+    private final List<String> worldErrors = new ArrayList<>();
+    private String lastReportPath = "";
+    private String runStartedAt = "";
+    private String runFinishedAt = "";
 
     private volatile boolean running;
     private volatile CompletableFuture<List<WorldPlan>> scanFuture;
@@ -79,7 +91,17 @@ public final class TorchReplacer extends PluginBase {
                     sender.sendMessage("§cЗамена остановлена. Уже обработанные чанки сохранены.");
                 }
             }
-            default -> sender.sendMessage("§eИспользование: /torchreplace <start|status|cancel> [world]");
+            case "export" -> {
+                if (running) {
+                    sender.sendMessage("§eОтчёт можно экспортировать после остановки или завершения.");
+                } else {
+                    String path = writeReportFile();
+                    sender.sendMessage(path == null ? "§cНе удалось создать отчёт. Проверь консоль."
+                            : "§aОтчёт сохранён: §f" + path);
+                }
+            }
+            case "broadcast" -> broadcastFullReport();
+            default -> sender.sendMessage("§eИспользование: /torchreplace <start|status|cancel|export|broadcast> [world]");
         }
         return true;
     }
@@ -116,6 +138,12 @@ public final class TorchReplacer extends PluginBase {
         }
 
         chunks.clear();
+        detailedLog.clear();
+        chunkLog.clear();
+        worldErrors.clear();
+        lastReportPath = "";
+        runStartedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        runFinishedAt = "";
         current = null;
         totalChunks = processedChunks = loadFailures = 0;
         torchesFound = torchesReplaced = replacementFailures = unrecoverableFailures = 0;
@@ -210,6 +238,9 @@ public final class TorchReplacer extends PluginBase {
                 scanFuture = null;
                 for (WorldPlan plan : plans) {
                     if (plan.error != null) {
+                        String message = "WORLD ERROR | world=" + plan.level.getFolderName() + " | " + plan.error;
+                        worldErrors.add(message);
+                        detailedLog.add(message);
                         getLogger().error("TorchReplacer: skipped world " + plan.level.getFolderName() + ": " + plan.error);
                         continue;
                     }
@@ -232,12 +263,19 @@ public final class TorchReplacer extends PluginBase {
                 finish();
                 return;
             }
+            current.torchesFoundAtStart = torchesFound;
+            current.torchesReplacedAtStart = torchesReplaced;
+            current.failuresAtStart = replacementFailures;
         }
 
         if (!current.started) {
             current.wasLoaded = current.level.isChunkLoaded(current.chunkX, current.chunkZ);
             if (!current.level.loadChunk(current.chunkX, current.chunkZ, false)) {
                 loadFailures++;
+                String failed = "CHUNK LOAD FAILED | world=" + current.level.getFolderName()
+                        + " | chunkX=" + current.chunkX + " | chunkZ=" + current.chunkZ;
+                chunkLog.add(failed);
+                detailedLog.add(failed);
                 processedChunks++;
                 current = null;
                 return;
@@ -272,6 +310,13 @@ public final class TorchReplacer extends PluginBase {
         }
 
         if (current.columnIndex >= 256) {
+            String summary = "CHUNK DONE | world=" + current.level.getFolderName()
+                    + " | chunkX=" + current.chunkX + " | chunkZ=" + current.chunkZ
+                    + " | torchesFound=" + (torchesFound - current.torchesFoundAtStart)
+                    + " | replaced=" + (torchesReplaced - current.torchesReplacedAtStart)
+                    + " | failures=" + (replacementFailures - current.failuresAtStart);
+            chunkLog.add(summary);
+            detailedLog.add(summary);
             releaseChunk(current);
             processedChunks++;
             current = null;
@@ -285,20 +330,26 @@ public final class TorchReplacer extends PluginBase {
         // Block.get(state, level, coordinates) asks the PNX registry for a fresh Block instance.
         // The immutable state preserves torch type and all orientation properties.
         Block replacement = Block.get(originalState, level, x, y, z);
-        if (!replacement.getId().equals(originalId)
+        if (replacement == null || !replacement.getId().equals(originalId)
                 || !replacement.getBlockState().equals(originalState)) {
             replacementFailures++;
+            detailedLog.add("REPLACE FAILED | world=" + level.getFolderName() + " | x=" + x + " | y=" + y
+                    + " | z=" + z + " | block=" + originalId + " | reason=state_mismatch");
             return;
         }
 
         boolean removed = level.setBlock(x, y, z, Block.get("minecraft:air"), true, true);
         if (!removed) {
             replacementFailures++;
+            detailedLog.add("REMOVE FAILED | world=" + level.getFolderName() + " | x=" + x + " | y=" + y
+                    + " | z=" + z + " | block=" + originalId);
             return;
         }
 
         if (level.setBlock(x, y, z, replacement, true, true)) {
             torchesReplaced++;
+            detailedLog.add("REPLACED | world=" + level.getFolderName() + " | x=" + x + " | y=" + y
+                    + " | z=" + z + " | block=" + originalId + " | state=" + originalState);
             return;
         }
 
@@ -306,7 +357,12 @@ public final class TorchReplacer extends PluginBase {
         Block recovery = Block.get(originalState, level, x, y, z);
         if (!level.setBlock(x, y, z, recovery, true, true)) {
             unrecoverableFailures++;
+            detailedLog.add("UNRECOVERABLE | world=" + level.getFolderName() + " | x=" + x + " | y=" + y
+                    + " | z=" + z + " | block=" + originalId + " | reason=reinstall_failed");
             getLogger().error("TorchReplacer: failed to reinstall torch at " + x + "," + y + "," + z);
+        } else {
+            detailedLog.add("RESTORED_OLD_STATE | world=" + level.getFolderName() + " | x=" + x + " | y=" + y
+                    + " | z=" + z + " | block=" + originalId);
         }
     }
 
@@ -325,14 +381,17 @@ public final class TorchReplacer extends PluginBase {
 
     private void finish() {
         running = false;
+        runFinishedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         getServer().getScheduler().cancelTask(this);
+        lastReportPath = writeReportFile();
         getLogger().info("TorchReplacer finished: chunks=" + processedChunks
                 + "/" + totalChunks
                 + ", found=" + torchesFound
                 + ", replaced=" + torchesReplaced
                 + ", failures=" + replacementFailures
                 + ", unrecoverable=" + unrecoverableFailures
-                + ", loadFailures=" + loadFailures);
+                + ", loadFailures=" + loadFailures
+                + ", report=" + (lastReportPath == null ? "WRITE_FAILED" : lastReportPath));
     }
 
     private void stopProcessing() {
@@ -345,7 +404,73 @@ public final class TorchReplacer extends PluginBase {
             releaseChunk(current);
         }
         current = null;
+        runFinishedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        lastReportPath = writeReportFile();
         getServer().getScheduler().cancelTask(this);
+    }
+
+    private String writeReportFile() {
+        try {
+            Path folder = getDataFolder().toPath();
+            Files.createDirectories(folder);
+            String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Path report = folder.resolve("torch-replacer-" + stamp + ".log");
+            try (BufferedWriter writer = Files.newBufferedWriter(report, StandardCharsets.UTF_8)) {
+                writer.write("TorchReplacer 0.1.0 detailed report");
+                writer.newLine();
+                writer.write("Started: " + runStartedAt);
+                writer.newLine();
+                writer.write("Finished: " + (runFinishedAt.isEmpty() ? "not finished" : runFinishedAt));
+                writer.newLine();
+                writer.write("Status: " + (running ? "RUNNING" : "STOPPED_OR_FINISHED"));
+                writer.newLine();
+                writer.newLine();
+                writer.write(summaryText());
+                writer.newLine();
+                writer.write("=== WORLD ERRORS ===");
+                writer.newLine();
+                for (String line : worldErrors) { writer.write(line); writer.newLine(); }
+                writer.write("=== CHUNK RESULTS ===");
+                writer.newLine();
+                for (String line : chunkLog) { writer.write(line); writer.newLine(); }
+                writer.write("=== EVERY TORCH CHANGE / FAILURE ===");
+                writer.newLine();
+                for (String line : detailedLog) { writer.write(line); writer.newLine(); }
+            }
+            return report.toAbsolutePath().toString();
+        } catch (IOException error) {
+            getLogger().error("TorchReplacer: cannot write detailed report", error);
+            return null;
+        }
+    }
+
+    private String summaryText() {
+        return "Chunks indexed: " + totalChunks + "\n"
+                + "Chunks processed: " + processedChunks + "\n"
+                + "Chunk load failures: " + loadFailures + "\n"
+                + "Torches found: " + torchesFound + "\n"
+                + "New torches installed: " + torchesReplaced + "\n"
+                + "Replacement failures: " + replacementFailures + "\n"
+                + "Unrecoverable placements: " + unrecoverableFailures + "\n"
+                + "Chunks not unloaded: " + chunksNotUnloaded + "\n"
+                + "Detailed log entries: " + detailedLog.size();
+    }
+
+    private void broadcastFullReport() {
+        getServer().broadcastMessage("§6===== TorchReplacer: FULL REPORT =====");
+        getServer().broadcastMessage("§eStatus: " + (running ? "RUNNING" : "STOPPED / FINISHED"));
+        for (String line : summaryText().split("\\n")) getServer().broadcastMessage("§e" + line);
+        getServer().broadcastMessage("§6--- World errors ---");
+        if (worldErrors.isEmpty()) getServer().broadcastMessage("§aNone");
+        else for (String line : worldErrors) getServer().broadcastMessage("§c" + line);
+        getServer().broadcastMessage("§6--- Chunk results ---");
+        if (chunkLog.isEmpty()) getServer().broadcastMessage("§7No completed chunks yet");
+        else for (String line : chunkLog) getServer().broadcastMessage("§f" + line);
+        getServer().broadcastMessage("§6--- Individual torch changes / failures ---");
+        if (detailedLog.isEmpty()) getServer().broadcastMessage("§7No changes recorded yet");
+        else for (String line : detailedLog) getServer().broadcastMessage("§f" + line);
+        getServer().broadcastMessage("§6Report file: " + (lastReportPath == null || lastReportPath.isEmpty()
+                ? "not created yet" : lastReportPath));
     }
 
     private void sendStatus(CommandSender sender) {
@@ -358,6 +483,9 @@ public final class TorchReplacer extends PluginBase {
         sender.sendMessage("§eНе удалось восстановить после ошибки: §f" + unrecoverableFailures);
         sender.sendMessage("§eОшибки загрузки чанков: §f" + loadFailures);
         sender.sendMessage("§eЧанки, которые не удалось выгрузить: §f" + chunksNotUnloaded);
+        sender.sendMessage("§eЗаписей подробного журнала: §f" + detailedLog.size());
+        sender.sendMessage("§eФайл отчёта: §f" + (lastReportPath == null || lastReportPath.isEmpty()
+                ? "ещё не создан" : lastReportPath));
     }
 
     private static boolean isTorchRecordKey(byte[] key, byte[] template, byte typeByte) {
@@ -396,6 +524,9 @@ public final class TorchReplacer extends PluginBase {
         private boolean started;
         private boolean wasLoaded;
         private boolean loadedByPlugin;
+        private long torchesFoundAtStart;
+        private long torchesReplacedAtStart;
+        private long failuresAtStart;
 
         private ChunkCursor(Level level, int chunkX, int chunkZ) {
             this.level = level;
