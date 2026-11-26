@@ -44,3 +44,12 @@ TorchReplacer/target/TorchReplacer-0.1.0.jar
 ```
 
 A GitHub Actions workflow on this branch downloads the official PNX 3.0.6 release jar, builds the plugin, and uploads the JAR as a workflow artifact.
+
+
+## Report and chat commands
+
+- `/torchreplace status` — current counters and report-file path.
+- `/torchreplace export` — writes/refreshes the detailed report after processing has stopped.
+- `/torchreplace broadcast` — prints the full collected report into the server chat for all online players.
+
+When a run finishes normally, the plugin automatically writes a UTF-8 `.log` report into the plugin data folder. The report contains run timestamps, totals, world-level errors, every processed chunk result, and each torch replacement/restoration/failure with world name and block coordinates. A report is also written when processing is manually cancelled.
