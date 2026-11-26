@@ -405,6 +405,9 @@ public final class TorchReplacer extends PluginBase {
     }
 
     private void stopProcessing() {
+        if (!running && scanFuture == null && current == null) {
+            return;
+        }
         running = false;
         if (scanFuture != null && !scanFuture.isDone()) {
             scanFuture.cancel(true);
