@@ -9,7 +9,7 @@ description: Replaces existing torch blocks with newly created block instances w
 commands:
   torchreplace:
     description: Replace torches in saved chunks
-    usage: /torchreplace <start|status|cancel> [world]
+    usage: /torchreplace <start|status|cancel|export|broadcast> [world]
     permission: torchreplacer.admin
 
 permissions:
