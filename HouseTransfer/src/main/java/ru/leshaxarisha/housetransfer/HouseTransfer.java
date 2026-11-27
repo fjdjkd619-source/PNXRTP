@@ -22,13 +22,13 @@ public final class HouseTransfer extends PluginBase {
 
     @Override
     public void onEnable() {
-        getLogger().info("HouseTransfer 0.1.0 enabled for PowerNukkitX 3.0.6.");
+        getLogger().info("HouseTransfer 0.1.1 enabled for PowerNukkitX 3.0.6.");
         getLogger().info("Uses PNX Structure NBT; block entities and their NBT are included. Living/player entities are excluded.");
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!label.equalsIgnoreCase("housecopy")) return false;
+        if (!label.equalsIgnoreCase("copy") && !label.equalsIgnoreCase("housecopy")) return false;
         if (!sender.hasPermission("housetransfer.admin")) {
             sender.sendMessage("§cНедостаточно прав. Требуется housetransfer.admin.");
             return true;
@@ -85,7 +85,7 @@ public final class HouseTransfer extends PluginBase {
     private void showInfo(CommandSender sender, Player player) {
         Selection s = selections.get(player.getName());
         if (s == null || !s.hasPos1 || !s.hasPos2) {
-            sender.sendMessage("§eНужно установить обе точки: /housecopy pos1 и /housecopy pos2.");
+            sender.sendMessage("§eНужно установить обе точки: /copy pos1 и /copy pos2.");
             return;
         }
         if (s.level1 != s.level2) {
@@ -110,12 +110,12 @@ public final class HouseTransfer extends PluginBase {
 
     private void save(CommandSender sender, Player player, String[] args) {
         if (args.length != 2 || !SAFE_NAME.matcher(args[1].toLowerCase(Locale.ROOT)).matches()) {
-            sender.sendMessage("§eФормат: /housecopy save <имя_схемы>");
+            sender.sendMessage("§eФормат: /copy save <имя_схемы>");
             return;
         }
         Selection s = selections.get(player.getName());
         if (s == null || !s.hasPos1 || !s.hasPos2) {
-            sender.sendMessage("§cСначала установи обе точки: /housecopy pos1 и /housecopy pos2.");
+            sender.sendMessage("§cСначала установи обе точки: /copy pos1 и /copy pos2.");
             return;
         }
         if (s.level1 != s.level2) {
@@ -185,7 +185,7 @@ public final class HouseTransfer extends PluginBase {
 
     private void paste(CommandSender sender, Player player, String[] args) {
         if (args.length != 2 && args.length != 5) {
-            sender.sendMessage("§eФормат: /housecopy paste <имя> [x y z]");
+            sender.sendMessage("§eФормат: /copy paste <имя> [x y z]");
             return;
         }
         if (!SAFE_NAME.matcher(args[1].toLowerCase(Locale.ROOT)).matches()) {
@@ -253,12 +253,12 @@ public final class HouseTransfer extends PluginBase {
     }
 
     private void help(CommandSender sender) {
-        sender.sendMessage("§6--- HouseTransfer 0.1.0 ---");
-        sender.sendMessage("§e/housecopy pos1 §7— первая точка на блоке под ногами");
-        sender.sendMessage("§e/housecopy pos2 §7— вторая точка на блоке под ногами");
-        sender.sendMessage("§e/housecopy info §7— размер выделения");
-        sender.sendMessage("§e/housecopy save <имя> §7— сохранить дом вместе с BlockEntity NBT");
-        sender.sendMessage("§e/housecopy paste <имя> [x y z] §7— вставить схему");
+        sender.sendMessage("§6--- HouseTransfer 0.1.1 ---");
+        sender.sendMessage("§e/copy pos1 §7— первая точка на блоке под ногами");
+        sender.sendMessage("§e/copy pos2 §7— вторая точка на блоке под ногами");
+        sender.sendMessage("§e/copy info §7— размер выделения");
+        sender.sendMessage("§e/copy save <имя> §7— сохранить дом вместе с BlockEntity NBT");
+        sender.sendMessage("§e/copy paste <имя> [x y z] §7— вставить схему");
         sender.sendMessage("§cПлагин не удаляет блоки и чанки исходного дома.");
         sender.sendMessage("§7Отдельные сущности (мобы, рамки, картины, стойки) не копируются.");
     }
