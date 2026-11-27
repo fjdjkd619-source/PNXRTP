@@ -11,7 +11,7 @@ import org.powernukkitx.event.entity.CreatureSpawnEvent;
 import org.powernukkitx.event.entity.EntitySpawnEvent;
 import org.powernukkitx.level.Level;
 import org.powernukkitx.level.format.IChunk;
-import org.powernukkitx.level.plugin.PluginBase;
+import org.powernukkitx.plugin.PluginBase;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
