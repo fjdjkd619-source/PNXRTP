@@ -16,7 +16,7 @@
             <artifactId>server-local</artifactId>
             <version>3.0.6-SNAPSHOT</version>
             <scope>system</scope>
-            <systemPath>\${user.home}/storage/downloads/powernukkitx.jar</systemPath>
+            <systemPath>${user.home}/storage/downloads/powernukkitx.jar</systemPath>
         </dependency>
     </dependencies>
     <build>
