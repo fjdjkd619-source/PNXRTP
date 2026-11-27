@@ -59,6 +59,20 @@ jobs:
           print(new)
           PY
 
+      - name: Inspect Bedrock Protocol snapshot metadata
+        shell: bash
+        working-directory: pnx-source
+        run: |
+          set -euo pipefail
+          base="https://repo.opencollab.dev/maven-snapshots/org/powernukkitx/protocol"
+          for module in bedrock-connection bedrock-codec; do
+            echo "===== $module Maven metadata ====="
+            curl -fsSL "$base/$module/3.0.0.Beta7-Debug-SNAPSHOT/maven-metadata.xml" || true
+            echo
+          done
+          echo "===== Resolved compile dependency ====="
+          ./gradlew dependencyInsight --dependency bedrock-connection --configuration compileClasspath --no-daemon || true
+
       - name: Build runnable server JAR
         working-directory: pnx-source
         run: ./gradlew buildForGithubAction --no-daemon -PbuildVersion=3.0.6-patched
