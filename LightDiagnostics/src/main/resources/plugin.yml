@@ -1,14 +1,14 @@
 name: LightDiagnostics
 main: ru.leshaxarisha.lightdiagnostics.LightDiagnostics
-version: "0.2.0"
+version: "0.3.0"
 api: "3.0.6"
 load: POSTWORLD
 author: Lesha x Arisha
-description: Read-only light and creature-spawn diagnostics for PowerNukkitX 3.0.6.
+description: Read-only light and spawn-origin diagnostics for PowerNukkitX 3.0.6.
 
 commands:
   lightdiag:
-    description: Inspect server light values and diagnose creature spawn events
+    description: Inspect light values and classify creature spawn origins
     usage: /lightdiag <probe|track|stats|export|help>
     permission: lightdiagnostics.admin
 
