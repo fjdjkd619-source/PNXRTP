@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 public final class HouseTransfer extends PluginBase {
-    private static final long MAX_BLOCKS = 1_000_000L;
+    private static final long MAX_BLOCKS = 300_000L;
     private static final Pattern SAFE_NAME = Pattern.compile("[a-z0-9_-]{1,32}");
     private final Map<String, Selection> selections = new HashMap<>();
 
@@ -139,7 +139,7 @@ public final class HouseTransfer extends PluginBase {
         }
         if (volume <= 0 || volume > MAX_BLOCKS) {
             sender.sendMessage("§cВыделение слишком большое: " + volume
-                    + " блоков. Максимум: " + MAX_BLOCKS + ".");
+                    + " блоков. Максимум: " + MAX_BLOCKS + ". Чтобы не перегружать сервер.");
             return;
         }
         if (!allChunksLoaded(level, minX, minZ, sizeX, sizeZ)) {
