@@ -35,6 +35,8 @@ public final class LightDiagnostics extends PluginBase implements Listener {
     private long cancelledCreatureEventCount;
     private long cancelledEntityEventCount;
     private long naturalReasonCount;
+    private long naturalChunkCallCount;
+    private long naturalTagWithoutChunkCallCount;
     private long otherReasonCount;
     private long missingReasonCount;
     private long reasonCheckErrorCount;
@@ -150,6 +152,8 @@ public final class LightDiagnostics extends PluginBase implements Listener {
                 cancelledCreatureEventCount = 0;
                 cancelledEntityEventCount = 0;
                 naturalReasonCount = 0;
+                naturalChunkCallCount = 0;
+                naturalTagWithoutChunkCallCount = 0;
                 otherReasonCount = 0;
                 missingReasonCount = 0;
                 reasonCheckErrorCount = 0;
@@ -175,6 +179,8 @@ public final class LightDiagnostics extends PluginBase implements Listener {
         sender.sendMessage("§7EntitySpawnEvent creatures: §f" + entityEventCount
                 + " §7(cancelled: §f" + cancelledEntityEventCount + "§7)");
         sender.sendMessage("§7NBT SpawnReason=NATURAL: §f" + naturalReasonCount);
+        sender.sendMessage("§7Callsite Chunk.doMobSpawning: §f" + naturalChunkCallCount);
+        sender.sendMessage("§7NATURAL tag without that callsite: §f" + naturalTagWithoutChunkCallCount);
         sender.sendMessage("§7NBT other SpawnReason: §f" + otherReasonCount);
         sender.sendMessage("§7NBT SpawnReason missing after 1 tick: §f" + missingReasonCount);
         sender.sendMessage("§7Reason check errors: §f" + reasonCheckErrorCount);
@@ -216,24 +222,43 @@ public final class LightDiagnostics extends PluginBase implements Listener {
                     + " | networkId=" + entity.getNetworkId()
                     + " | cancelled=" + event.isCancelled()
                     + " | source=AWAITING_NBT_REASON";
-            record(sampleSpawn("ENTITY_SPAWN", level, x, y, z, entityInfo));
+            String callPath = captureSpawnCallPath();
+            boolean naturalChunkCall = callPath.startsWith("NATURAL_CHUNK_CALL|");
+            record(sampleSpawn("ENTITY_SPAWN", level, x, y, z, entityInfo)
+                    + " | spawnCallPath=" + callPath);
 
             // PowerNukkitX 3.0.6 assigns SpawnReason=NATURAL immediately after
             // entity construction, while EntitySpawnEvent is fired inside construction.
             // One main-thread tick later the caller has completed that assignment.
-            getServer().getScheduler().scheduleDelayedTask(this, () -> classifySpawnReason(entity, level, x, y, z), REASON_CHECK_DELAY_TICKS);
+            getServer().getScheduler().scheduleDelayedTask(this,
+                    () -> classifySpawnReason(entity, level, x, y, z, callPath, naturalChunkCall),
+                    REASON_CHECK_DELAY_TICKS);
         } catch (Throwable ex) {
             record("ENTITY_SPAWN | schedulingError=" + ex.getClass().getSimpleName() + ":" + safeMessage(ex));
         }
     }
 
-    private void classifySpawnReason(Entity entity, Level level, int x, int y, int z) {
+    private void classifySpawnReason(Entity entity, Level level, int x, int y, int z,
+                                     String callPath, boolean naturalChunkCall) {
         if (!tracking) return;
         try {
             CompoundTag nbt = entity.getNbt();
             String reason = nbt != null && nbt.contains("SpawnReason")
                     ? nbt.getString("SpawnReason")
                     : "";
+            String classification;
+            if (naturalChunkCall) {
+                naturalChunkCallCount++;
+                classification = "NATURAL_CHUNK_SPAWN_CALLSITE";
+            } else if (reason.equalsIgnoreCase("NATURAL")) {
+                naturalTagWithoutChunkCallCount++;
+                classification = "NATURAL_TAG_BUT_CALLSITE_NOT_CONFIRMED";
+            } else if (!reason.isEmpty()) {
+                classification = "OTHER_NBT_REASON";
+            } else {
+                classification = "UNKNOWN_NO_NBT_REASON";
+            }
+
             if (reason.equalsIgnoreCase("NATURAL")) {
                 naturalReasonCount++;
             } else if (!reason.isEmpty()) {
@@ -248,13 +273,38 @@ public final class LightDiagnostics extends PluginBase implements Listener {
                     + " | xyz=" + x + "," + y + "," + z
                     + " | entityClass=" + entity.getClass().getSimpleName()
                     + " | networkId=" + entity.getNetworkId()
-                    + " | nbtSpawnReason=" + reason
+                    + " | nbtSpawnReason=" + (reason.isEmpty() ? "MISSING" : reason)
+                    + " | classification=" + classification
+                    + " | spawnCallPath=" + callPath
                     + " | entityClosed=" + entity.closed);
         } catch (Throwable ex) {
             reasonCheckErrorCount++;
             record("SPAWN_CLASSIFICATION | xyz=" + x + "," + y + "," + z
                     + " | result=ERROR | error=" + ex.getClass().getSimpleName() + ":" + safeMessage(ex));
         }
+    }
+
+    private String captureSpawnCallPath() {
+        StringBuilder path = new StringBuilder();
+        boolean naturalChunkCall = false;
+        int included = 0;
+        for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+            String className = frame.getClassName();
+            String method = frame.getMethodName();
+            if (!className.startsWith("org.powernukkitx.")) continue;
+            if (className.contains(".event.") || className.contains(".plugin.")
+                    || className.contains(".scheduler.")) continue;
+            if (className.equals("org.powernukkitx.level.format.Chunk") && method.equals("doMobSpawning")) {
+                naturalChunkCall = true;
+            }
+            if (included < 8) {
+                if (path.length() > 0) path.append(" <- ");
+                path.append(className).append("#").append(method);
+                included++;
+            }
+        }
+        if (naturalChunkCall) return "NATURAL_CHUNK_CALL|" + path;
+        return path.length() == 0 ? "NO_PNX_CALLER_FRAME" : path.toString();
     }
 
     private String sampleSpawn(String eventName, Level level, int x, int y, int z, String extra) {
@@ -339,6 +389,10 @@ public final class LightDiagnostics extends PluginBase implements Listener {
                 writer.newLine();
                 writer.write("NBT SpawnReason NATURAL: " + naturalReasonCount);
                 writer.newLine();
+                writer.write("Natural Chunk.doMobSpawning callsite: " + naturalChunkCallCount);
+                writer.newLine();
+                writer.write("NATURAL tag without confirmed chunk callsite: " + naturalTagWithoutChunkCallCount);
+                writer.newLine();
                 writer.write("NBT other SpawnReason: " + otherReasonCount);
                 writer.newLine();
                 writer.write("NBT SpawnReason missing after 1 tick: " + missingReasonCount);
@@ -347,7 +401,9 @@ public final class LightDiagnostics extends PluginBase implements Listener {
                 writer.newLine();
                 writer.write("Buffered events: " + events.size() + "/" + MAX_EVENTS);
                 writer.newLine();
-                writer.write("NOTE: PowerNukkitX 3.0.6 natural chunk spawning sets NBT SpawnReason=NATURAL after EntitySpawnEvent.");
+                writer.write("NOTE: NBT SpawnReason alone is not proof of a fresh spawn; saved entities may retain tags.");
+                writer.newLine();
+                writer.write("NOTE: NATURAL_CHUNK_SPAWN_CALLSITE is identified from the live call stack at EntitySpawnEvent.");
                 writer.newLine();
                 writer.write("NOTE: This plugin is read-only and samples already-loaded chunks only.");
                 writer.newLine();
