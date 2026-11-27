@@ -1,0 +1,18 @@
+name: HouseTransfer
+main: ru.leshaxarisha.housetransfer.HouseTransfer
+version: "0.1.0"
+api: "3.0.6"
+load: POSTWORLD
+author: Lesha x Arisha
+description: Save and paste a house using PowerNukkitX structure NBT, including block-entity inventories.
+
+commands:
+  housecopy:
+    description: Select, save and paste a house structure
+    usage: /housecopy <pos1|pos2|info|save|paste>
+    permission: housetransfer.admin
+
+permissions:
+  housetransfer.admin:
+    description: Allows using HouseTransfer commands
+    default: op
