@@ -32,16 +32,7 @@ jobs:
           GH_TOKEN: \${{ github.token }}
         run: |
           mkdir -p "$HOME/storage/downloads"
-          asset_url="$(curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/3.0.6 \
-            | jq -r '[.assets[] | select((.name | ascii_downcase | endswith(".jar")) and ((.name | ascii_downcase | contains("source")) | not))][0].browser_download_url // empty')"
-          if [ -z "$asset_url" ]; then
-            echo "No server JAR asset found in the PowerNukkitX 3.0.6 release."
-            exit 1
-          fi
-          curl -fL "$asset_url" -o "$HOME/storage/downloads/powernukkitx.jar"
+          curl -fL https://github.com/PowerNukkitX/PowerNukkitX/releases/download/3.0.6/powernukkitx.jar -o "$HOME/storage/downloads/powernukkitx.jar"
           test -s "$HOME/storage/downloads/powernukkitx.jar"
           jar tf "$HOME/storage/downloads/powernukkitx.jar" >/dev/null
 
