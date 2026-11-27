@@ -90,7 +90,7 @@ public final class LightDiagnostics extends PluginBase implements Listener {
             int x = Integer.parseInt(args[2]);
             int y = Integer.parseInt(args[3]);
             int z = Integer.parseInt(args[4]);
-            if (y < level.getMinHeight() || y >= level.getMaxHeight()) {
+            if (y < level.getDimensionData().getMinHeight() || y >= level.getDimensionData().getMaxHeight()) {
                 sender.sendMessage("§cY вне диапазона мира: " + level.getMinHeight() + ".." + (level.getMaxHeight() - 1));
                 return;
             }
