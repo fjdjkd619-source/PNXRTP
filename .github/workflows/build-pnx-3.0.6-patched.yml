@@ -1,0 +1,80 @@
+name: Build patched PowerNukkitX 3.0.6
+
+on:
+  push:
+    branches:
+      - pnx-3.0.6-potion-registry-fix
+    paths:
+      - .github/workflows/build-pnx-3.0.6-patched.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Patch and build PNX 3.0.6
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out this build recipe
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Fetch exact PNX 3.0.6 source
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/PowerNukkitX/PowerNukkitX.git pnx-source
+          cd pnx-source
+          git checkout c57499365737654eca32df008751ef6bca5af142
+          test "$(git rev-parse HEAD)" = "c57499365737654eca32df008751ef6bca5af142"
+
+      - name: Apply and verify the registry initialization fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("pnx-source/src/main/java/org/powernukkitx/Server.java")
+          source = path.read_text(encoding="utf-8")
+          old = """CompletableFuture.allOf(itemF, blockStateF)"""
+          new = """CompletableFuture.allOf(itemF, blockStateF, potionF, entityF, itemRtIdF)"""
+
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f"Patch aborted: expected exactly 1 target, found {count}")
+
+          patched = source.replace(old, new, 1)
+          required = ("potionF", "entityF", "itemRtIdF")
+          if not all(token in patched for token in required):
+              raise SystemExit("Patch verification failed: missing required future dependency")
+
+          path.write_text(patched, encoding="utf-8")
+          print("Patch applied and verified:")
+          print(new)
+          PY
+
+      - name: Build runnable server JAR
+        working-directory: pnx-source
+        run: ./gradlew buildForGithubAction --no-daemon -PbuildVersion=3.0.6-patched
+
+      - name: Verify output JAR
+        shell: bash
+        run: |
+          test -s pnx-source/build/powernukkitx.jar
+          ls -lh pnx-source/build/powernukkitx.jar
+          sha256sum pnx-source/build/powernukkitx.jar
+
+      - name: Upload patched server JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: powernukkitx-3.0.6-patched
+          path: pnx-source/build/powernukkitx.jar
+          if-no-files-found: error
+          retention-days: 14
