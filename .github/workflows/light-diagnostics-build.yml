@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - light-diagnostics-0.1.0
+      - light-diagnostics-0.2.0
     paths:
       - "LightDiagnostics/**"
       - ".github/workflows/light-diagnostics-build.yml"
@@ -55,7 +55,7 @@ jobs:
       - name: Upload plugin JAR
         uses: actions/upload-artifact@v4
         with:
-          name: LightDiagnostics-0.1.0
-          path: LightDiagnostics/target/LightDiagnostics-0.1.0.jar
+          name: LightDiagnostics-0.2.0
+          path: LightDiagnostics/target/LightDiagnostics-0.2.0.jar
           if-no-files-found: error
           retention-days: 14
