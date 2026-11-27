@@ -62,7 +62,7 @@ public final class HouseTransfer extends PluginBase {
 
     private void setPosition(CommandSender sender, Player player, boolean first) {
         int x = player.getFloorX();
-        int y = player.getFloorY();
+        int y = player.getFloorY() - 1;
         int z = player.getFloorZ();
         Selection selection = selections.computeIfAbsent(player.getName(), key -> new Selection());
         if (first) {
@@ -78,7 +78,7 @@ public final class HouseTransfer extends PluginBase {
             selection.level2 = player.getLevel();
             selection.hasPos2 = true;
         }
-        sender.sendMessage("§aТочка " + (first ? "1" : "2") + " установлена: §f"
+        sender.sendMessage("§aТочка " + (first ? "1" : "2") + " (блок под ногами) установлена: §f"
                 + x + " " + y + " " + z + " §7(мир " + player.getLevel().getFolderName() + ")");
     }
 
@@ -250,8 +250,8 @@ public final class HouseTransfer extends PluginBase {
 
     private void help(CommandSender sender) {
         sender.sendMessage("§6--- HouseTransfer 0.1.0 ---");
-        sender.sendMessage("§e/housecopy pos1 §7— первая точка на позиции игрока");
-        sender.sendMessage("§e/housecopy pos2 §7— вторая точка на позиции игрока");
+        sender.sendMessage("§e/housecopy pos1 §7— первая точка на блоке под ногами");
+        sender.sendMessage("§e/housecopy pos2 §7— вторая точка на блоке под ногами");
         sender.sendMessage("§e/housecopy info §7— размер выделения");
         sender.sendMessage("§e/housecopy save <имя> §7— сохранить дом вместе с BlockEntity NBT");
         sender.sendMessage("§e/housecopy paste <имя> [x y z] §7— вставить схему");
