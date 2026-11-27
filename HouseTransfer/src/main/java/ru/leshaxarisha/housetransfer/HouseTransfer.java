@@ -149,6 +149,10 @@ public final class HouseTransfer extends PluginBase {
         }
 
         String name = "housecopy:" + args[1].toLowerCase(Locale.ROOT);
+        if (StructureAPI.exists(name)) {
+            sender.sendMessage("§cСхема с таким именем уже существует. Выбери другое имя, чтобы не затереть сохранённую копию.");
+            return;
+        }
         sender.sendMessage("§eСохраняю область " + sizeX + "×" + sizeY + "×" + sizeZ
                 + " (" + volume + " блоков). Не выходи из игры до завершения.");
 
