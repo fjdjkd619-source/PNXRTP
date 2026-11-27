@@ -67,11 +67,11 @@ jobs:
           base="https://repo.opencollab.dev/maven-snapshots/org/powernukkitx/protocol"
           for module in bedrock-connection bedrock-codec; do
             echo "===== $module Maven metadata ====="
-            curl -fsSL "$base/$module/3.0.0.Beta7-Debug-SNAPSHOT/maven-metadata.xml" || true
+            curl --connect-timeout 8 --max-time 20 -fsSL "$base/$module/3.0.0.Beta7-Debug-SNAPSHOT/maven-metadata.xml" || echo "Metadata request failed or timed out"
             echo
           done
           echo "===== Resolved compile dependency ====="
-          ./gradlew dependencyInsight --dependency bedrock-connection --configuration compileClasspath --no-daemon || true
+          timeout 90s ./gradlew dependencyInsight --dependency bedrock-connection --configuration compileClasspath --no-daemon --console=plain || true
 
       - name: Build runnable server JAR
         working-directory: pnx-source
