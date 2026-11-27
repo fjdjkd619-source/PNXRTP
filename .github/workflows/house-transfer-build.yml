@@ -41,6 +41,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HouseTransfer-0.1.1
-          path: HouseTransfer/target/HouseTransfer-0.1.0.jar
+          path: HouseTransfer/target/HouseTransfer-0.1.1.jar
           if-no-files-found: error
           retention-days: 14
