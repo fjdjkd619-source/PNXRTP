@@ -1,0 +1,150 @@
+name: Audit all server plugins against official PNX nightly
+on:
+  push:
+    branches:
+      - pnxrtp-1.5.0-dev
+    paths:
+      - '.github/workflows/audit-all-plugins.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout plugin sources (all maintained projects)
+        uses: actions/checkout@v4
+        with:
+          ref: house-transfer-0.1.0
+          path: sources
+
+      - name: Checkout exact PNXRTP 1.5.1 source
+        uses: actions/checkout@v4
+        with:
+          ref: pnxrtp-1.5.1-chunkguard-fix
+          path: pnxrtp151
+
+      - name: Checkout EssentialsPNX upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: hardsiamang655/EssentialsPNX
+          ref: master
+          path: essentials-source
+
+      - name: Set up Java 25 (plugins remain Java 21 bytecode)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Download and verify official PNX nightly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/storage/downloads" package/PNX package/plugins package/audit
+          curl --fail --location --retry 3 --connect-timeout 20 \
+            https://github.com/PowerNukkitX/PowerNukkitX/releases/download/nightly/powernukkitx.jar \
+            -o package/PNX/powernukkitx.jar
+          echo "43573df79fb2c8b65af1349865412b040d12db5de834625893100a165953aaa2  package/PNX/powernukkitx.jar" | sha256sum --check -
+          cp package/PNX/powernukkitx.jar "$HOME/storage/downloads/powernukkitx.jar"
+          sha256sum package/PNX/powernukkitx.jar > package/audit/pnx-sha256.txt
+
+      - name: Compile ChunkDiag against nightly
+        run: |
+          set -euo pipefail
+          cd sources/ChunkDiag
+          mvn -B -ntp clean package
+          cp target/ChunkDiag-1.1.0.jar ../../package/plugins/
+
+      - name: Compile ChunkLightFix against nightly
+        run: |
+          set -euo pipefail
+          cd sources/ChunkLightFix
+          mvn -B -ntp clean package
+          cp target/ChunkLightFix-0.1.0.jar ../../package/plugins/
+
+      - name: Compile HouseTransfer against nightly
+        run: |
+          set -euo pipefail
+          cd sources/HouseTransfer
+          mvn -B -ntp clean package
+          cp target/HouseTransfer-0.1.1.jar ../../package/plugins/
+
+      - name: Compile LightDiagnostics against nightly
+        run: |
+          set -euo pipefail
+          cd sources/LightDiagnostics
+          mvn -B -ntp clean package
+          cp target/LightDiagnostics-0.3.0.jar ../../package/plugins/
+
+      - name: Compile TorchReplacer against nightly
+        run: |
+          set -euo pipefail
+          cd sources/TorchReplacer
+          mvn -B -ntp clean package
+          cp target/TorchReplacer-0.1.0.jar ../../package/plugins/
+
+      - name: Compile PNXRTP 1.5.1 against nightly
+        run: |
+          set -euo pipefail
+          cd pnxrtp151/PNXRTP
+          mvn -B -ntp clean package
+          test -s target/PNXRTP-1.5.1.jar
+          cp target/PNXRTP-1.5.1.jar ../../package/plugins/
+
+      - name: Audit installed EssentialsPNX 1.9.7 binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          jdeps --multi-release 21 --missing-deps \
+            --class-path package/PNX/powernukkitx.jar \
+            essentials-source/target/EssentialsPNX.jar > package/audit/essentials-jdeps.txt 2>&1 || true
+          # The installed EssentialsPNX 1.9.7 is supplied separately by the user;
+          # this job cannot substitute upstream 1.9.3 source for that binary.
+          printf '%s\n' \
+            'Installed EssentialsPNX.jar version: 1.9.7 (from supplied server archive)' \
+            'Upstream source repository version: 1.9.3; not treated as identical to installed binary.' \
+            'The exact installed 1.9.7 binary still requires a runtime load test on PNX nightly.' \
+            > package/audit/ESSENTIALS-STATUS.txt
+          find package/plugins -name '*.jar' -print0 | while IFS= read -r -d '' f; do
+            javap -verbose -classpath "$f" $(jar tf "$f" | grep '\.class$' | head -1 | sed 's#/#.#g;s#\.class$##') | grep 'major version: 65' >/dev/null
+          done
+
+      - name: Write test report and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > package/README.txt <<'EOF'
+          PNX nightly plugin compatibility audit
+          =======================================
+          PNX: official nightly for Bedrock 1.26.60 (SHA-256 checked).
+          Included plugin JARs were rebuilt from the maintained source branches
+          against that exact PNX nightly API, using Java 25 compiler and Java 21
+          bytecode target.
+
+          EssentialsPNX is deliberately NOT replaced by a guessed build:
+          the installed JAR is 1.9.7, while the upstream source currently reports
+          1.9.3. The installed 1.9.7 binary must pass a runtime load test before
+          it is placed in the live plugins directory.
+
+          This is a compatibility build audit, not a full gameplay or world
+          migration test. Back up the complete server before any upgrade.
+          Do not delete worlds, player data, configuration, or other data folders.
+          EOF
+          (
+            cd package
+            sha256sum PNX/powernukkitx.jar plugins/*.jar > SHA256SUMS.txt
+          )
+          zip -r PNX-Plugin-Audit.zip package
+          unzip -t PNX-Plugin-Audit.zip
+
+      - name: Upload audit bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: PNX-Plugin-Audit
+          path: PNX-Plugin-Audit.zip
+          if-no-files-found: error
