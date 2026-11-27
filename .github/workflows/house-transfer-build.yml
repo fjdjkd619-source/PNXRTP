@@ -28,8 +28,6 @@ jobs:
 
       - name: Download PowerNukkitX 3.0.6 server jar
         shell: bash
-        env:
-          GH_TOKEN: \${{ github.token }}
         run: |
           mkdir -p "$HOME/storage/downloads"
           curl -fL https://github.com/PowerNukkitX/PowerNukkitX/releases/download/3.0.6/powernukkitx.jar -o "$HOME/storage/downloads/powernukkitx.jar"
