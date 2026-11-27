@@ -1,0 +1,57 @@
+name: HouseTransfer build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - house-transfer-0.1.0
+    paths:
+      - "HouseTransfer/**"
+      - ".github/workflows/house-transfer-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Download PowerNukkitX 3.0.6 server jar
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          mkdir -p "$HOME/storage/downloads"
+          asset_url="$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/3.0.6 \
+            | jq -r '[.assets[] | select((.name | ascii_downcase | endswith(".jar")) and ((.name | ascii_downcase | contains("source")) | not))][0].browser_download_url // empty')"
+          if [ -z "$asset_url" ]; then
+            echo "No server JAR asset found in the PowerNukkitX 3.0.6 release."
+            exit 1
+          fi
+          curl -fL "$asset_url" -o "$HOME/storage/downloads/powernukkitx.jar"
+          test -s "$HOME/storage/downloads/powernukkitx.jar"
+          jar tf "$HOME/storage/downloads/powernukkitx.jar" >/dev/null
+
+      - name: Build plugin
+        run: mvn --batch-mode --no-transfer-progress -f HouseTransfer/pom.xml clean package
+
+      - name: Upload plugin JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: HouseTransfer-0.1.0
+          path: HouseTransfer/target/HouseTransfer-0.1.0.jar
+          if-no-files-found: error
+          retention-days: 14
