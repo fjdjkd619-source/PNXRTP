@@ -1,0 +1,92 @@
+name: Build one-click PNX server update ZIP
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pnxrtp-1.5.0-dev
+    paths:
+      - '.github/workflows/package-pnx-update.yml'
+      - 'PNXRTP/**'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PNXRTP 1.5.0 source
+        uses: actions/checkout@v4
+        with:
+          ref: pnxrtp-1.5.0-dev
+
+      - name: Set up Java 25 (plugin bytecode remains Java 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Download and verify official PNX nightly for Bedrock 1.26.60
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package/PNX package/plugins
+          curl --fail --location --retry 3 --connect-timeout 20 \
+            https://github.com/PowerNukkitX/PowerNukkitX/releases/download/nightly/powernukkitx.jar \
+            -o package/PNX/powernukkitx.jar
+          echo "43573df79fb2c8b65af1349865412b040d12db5de834625893100a165953aaa2  package/PNX/powernukkitx.jar" | sha256sum --check -
+
+      - name: Build PNXRTP 1.5.0 against the exact nightly API
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/storage/downloads"
+          cp package/PNX/powernukkitx.jar "$HOME/storage/downloads/powernukkitx.jar"
+          cd PNXRTP
+          mvn -B -ntp clean package
+          test -s target/PNXRTP-1.5.0.jar
+          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'plugin.yml'
+          jar tf target/PNXRTP-1.5.0.jar | grep -Fx 'ru/leshaxarisha/pnxrtp/PNXRTP.class'
+          javap -verbose -classpath target/PNXRTP-1.5.0.jar ru.leshaxarisha.pnxrtp.PNXRTP | grep 'major version: 65'
+          cp target/PNXRTP-1.5.0.jar ../package/plugins/PNXRTP-1.5.0.jar
+
+      - name: Add installation notes and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > package/README.txt <<'EOF'
+          PowerNukkitX server update package
+          ==================================
+
+          Contents:
+          - PNX/powernukkitx.jar: official PowerNukkitX nightly for Bedrock 1.26.60
+          - plugins/PNXRTP-1.5.0.jar: PNXRTP 1.5.0 compiled against this PNX nightly
+
+          IMPORTANT:
+          This package is a tested build bundle, not an automatic server installer.
+          Stop the server and make a complete backup before replacing any files.
+          Keep worlds, players, server configuration, resource packs, structures,
+          and other server data. Replace only the server JAR and the matching plugin.
+          Do not delete existing data folders.
+          This CI job verifies the PNX download checksum and plugin compilation,
+          JAR contents, and Java 21 bytecode. It does not claim a full live-server
+          migration test.
+          EOF
+          (
+            cd package
+            sha256sum PNX/powernukkitx.jar plugins/PNXRTP-1.5.0.jar > SHA256SUMS.txt
+          )
+          cd package
+          zip -r ../PNX-Server-Update.zip PNX plugins README.txt SHA256SUMS.txt
+          cd ..
+          unzip -l PNX-Server-Update.zip
+          unzip -t PNX-Server-Update.zip
+
+      - name: Upload the single ZIP bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: PNX-Server-Update
+          path: PNX-Server-Update.zip
+          if-no-files-found: error
