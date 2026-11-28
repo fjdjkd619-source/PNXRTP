@@ -89,20 +89,18 @@ POM
 # (camera API migration + matching Beta8 dependency pin) to this isolated build tree.
 PNX_PROTOCOL_COMPAT_COMMIT="ff86b15d18e3699459c7913eb1ebec16521b7ad0"
 git -C "$PNX" fetch --no-tags origin "$PNX_PROTOCOL_COMPAT_COMMIT"
-# Generate the migration diff against the exact pinned source revision rather than
-# the target commit's immediate parent (the upstream change was committed after two
-# documentation-only commits, and the pinned checkout may be shallow).
-git -C "$PNX" diff --binary "$PNX_REF" "$PNX_PROTOCOL_COMPAT_COMMIT" -- \
-  gradle/libs.versions.toml \
-  src/main/java/org/powernukkitx/camera/CameraProgressKeyFrame.java \
-  src/main/java/org/powernukkitx/camera/CameraRotationKeyFrame.java \
-  src/main/java/org/powernukkitx/camera/PlayerCamera.java \
-  src/main/java/org/powernukkitx/command/defaults/CameraCommand.java \
-  src/test/java/org/powernukkitx/utils/DefaultCameraPresetsTest.java \
-  > "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
-[[ -s "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch" ]] || { echo "Empty PNX Beta8 compatibility diff" >&2; exit 1; }
-git -C "$PNX" apply --check "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
-git -C "$PNX" apply "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+# Replace only the six upstream-owned protocol/camera files with their exact contents
+# from the official Beta8 migration commit. Stage 1–42 patches do not touch these files;
+# path checkout avoids fragile context matching while retaining all generator changes.
+for path in \\
+  gradle/libs.versions.toml \\
+  src/main/java/org/powernukkitx/camera/CameraProgressKeyFrame.java \\
+  src/main/java/org/powernukkitx/camera/CameraRotationKeyFrame.java \\
+  src/main/java/org/powernukkitx/camera/PlayerCamera.java \\
+  src/main/java/org/powernukkitx/command/defaults/CameraCommand.java \\
+  src/test/java/org/powernukkitx/utils/DefaultCameraPresetsTest.java; do
+  git -C "$PNX" checkout "$PNX_PROTOCOL_COMPAT_COMMIT" -- "$path"
+done
 # Cloudburst Network's NetherNet child now accepts a provenance-bearing remote address.
 # Keep the transport identity regression test aligned with that API while preserving
 # the same signaled peer and local endpoint used by the test.
