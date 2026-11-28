@@ -9,15 +9,15 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
-STRUCTURES_KEY = re.compile(r"^(?P<indent>[ \\t]*)structures:[ \\t]*(?P<value>.*?)\\s*$")
-STRUCTURE_LIST_ITEM = re.compile(r"^[ \\t]+-\\s*([A-Za-z0-9_.:/-]+)\\s*:")
-ANCHOR = re.compile(r"&([A-Za-z0-9_-]+)\\s+([A-Za-z0-9_.:/-]+)")
-NESTED_LITERAL = re.compile(r"""\\b(?:structure|placeStructure|place_structure)\\s*\\(\\s*(['"])(.*?)\\1""")
-NESTED_CALL = re.compile(r"\\b(?:structure|placeStructure|place_structure)\\s*\\(")
-BLOCK_WRITE = re.compile(r"\\bblock\\s*\\(")
-BLOCK_READ = re.compile(r"\\b(?:getBlock|blockState|check)\\s*\\(")
-LOOP = re.compile(r"\\bfor\\s*\\(")
-BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\\[[^]]+\\])?")
+STRUCTURES_KEY = re.compile(r"^(?P<indent>[ \t]*)structures:[ \t]*(?P<value>.*?)\s*$")
+STRUCTURE_LIST_ITEM = re.compile(r"^[ \t]+-\s*([A-Za-z0-9_.:/-]+)\s*:")
+ANCHOR = re.compile(r"&([A-Za-z0-9_-]+)\s+([A-Za-z0-9_.:/-]+)")
+NESTED_LITERAL = re.compile(r"""\b(?:structure|placeStructure|place_structure)\s*\(\s*(['"])(.*?)\1""")
+NESTED_CALL = re.compile(r"\b(?:structure|placeStructure|place_structure)\s*\(")
+BLOCK_WRITE = re.compile(r"\bblock\s*\(")
+BLOCK_READ = re.compile(r"\b(?:getBlock|blockState|check)\s*\(")
+LOOP = re.compile(r"\bfor\s*\(")
+BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?")
 
 
 def git_head(root: Path) -> str:
@@ -63,7 +63,7 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
 
         for child in lines[index + 1:]:
             if child.strip() and not child.lstrip().startswith("#"):
-                child_indent = len(child) - len(child.lstrip(" \\t"))
+                child_indent = len(child) - len(child.lstrip(" \t"))
                 if child_indent <= indent:
                     break
             nested_key = STRUCTURES_KEY.match(child)
@@ -115,7 +115,7 @@ def main() -> int:
             "loop_count": len(LOOP.findall(source)),
             "block_write_call_count": len(BLOCK_WRITE.findall(source)),
             "block_read_or_check_call_count": len(BLOCK_READ.findall(source)),
-            "uses_random_or_math": bool(re.search(r"\\b(random|randomInt|sampler|pow|sqrt)\\b", source)),
+            "uses_random_or_math": bool(re.search(r"\b(random|randomInt|sampler|pow|sqrt)\b", source)),
             "notes": "Inventory only. No static bounds are certified by this script.",
         })
 
@@ -171,7 +171,7 @@ def main() -> int:
         "duplicate_script_ids": duplicate_ids,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(output, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    args.output.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, sort_keys=True))
     return 0
 
