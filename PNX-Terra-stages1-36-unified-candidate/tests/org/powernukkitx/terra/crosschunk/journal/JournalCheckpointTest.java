@@ -12,6 +12,7 @@ public final class JournalCheckpointTest {
         rejectsPayloadTamperingWithoutModifyingCheckpoint();
         rejectsTruncatedCheckpoint();
         atomicallyReplacesExistingCheckpoint();
+        journalExportsConsistentCheckpointSnapshot();
         System.out.println("JournalCheckpointTest: PASS");
     }
 
@@ -73,6 +74,24 @@ public final class JournalCheckpointTest {
                 new JournalEvent.AnchorStarted(2L, "world", new ChunkPos(1, 1))));
         JournalCheckpoint.writeAtomically(file, next);
         require(next.equals(JournalCheckpoint.read(file)), "atomic replacement did not publish new snapshot");
+    }
+
+
+    private static void journalExportsConsistentCheckpointSnapshot() throws Exception {
+        Path directory = Files.createTempDirectory("journal-checkpoint-integration");
+        Path wal = directory.resolve("world.wal");
+        Path checkpoint = directory.resolve("world.checkpoint");
+        JournalCheckpoint.Snapshot expected;
+        try (PlacementJournal journal = new PlacementJournal(wal)) {
+            journal.appendAnchorStarted("world", new ChunkPos(4, -7));
+            journal.appendAnchorCompleted("world", new ChunkPos(4, -7));
+            expected = journal.checkpointSnapshot();
+            journal.writeCheckpoint(checkpoint);
+            require(expected.equals(JournalCheckpoint.read(checkpoint)),
+                    "journal checkpoint API did not publish a consistent snapshot");
+            require(Files.size(wal) > 0L, "Stage 43 unexpectedly modified or truncated the WAL");
+        }
+        require(expected.lastSequence() == 2L, "checkpoint watermark does not match committed WAL prefix");
     }
 
     private static void expectIOException(IoAction action) throws Exception {
