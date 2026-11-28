@@ -1,0 +1,14 @@
+// Small, bounded floating rock island with a grass cap and a central oak marker.
+for (num x = -5; x <= 5; x = x + 1) {
+    for (num z = -5; z <= 5; z = z + 1) {
+        if (x * x + z * z <= 25) {
+            block(x, -2, z, "minecraft:stone");
+            block(x, -1, z, "minecraft:dirt");
+            block(x, 0, z, "minecraft:grass_block");
+        }
+    }
+}
+
+for (num y = 1; y <= 3; y = y + 1) {
+    block(0, y, 0, "minecraft:oak_log");
+}

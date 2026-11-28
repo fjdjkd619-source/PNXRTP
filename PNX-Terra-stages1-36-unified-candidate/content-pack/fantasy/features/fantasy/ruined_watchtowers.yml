@@ -1,0 +1,19 @@
+id: FANTASY_RUINED_WATCHTOWERS
+type: FEATURE
+
+distributor:
+  type: PADDED_GRID
+  width: 640
+  padding: 256
+  salt: 48054
+
+locator:
+  type: SURFACE
+  range:
+    min: ${meta.yml:ocean-level} + 2
+    max: $meta.yml:top-y
+
+structures:
+  distribution:
+    type: CONSTANT
+  structures: fantasy_ruined_watchtower

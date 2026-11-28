@@ -1,0 +1,20 @@
+id: FANTASY_FLOATING_ISLANDS
+type: FEATURE
+
+distributor:
+  type: PADDED_GRID
+  width: 512
+  padding: 256
+  salt: 48051
+
+locator:
+  type: RANDOM
+  amount: 1
+  height:
+    min: ${meta.yml:ocean-level} + 48
+    max: $meta.yml:top-y - 24
+
+structures:
+  distribution:
+    type: CONSTANT
+  structures: fantasy_floating_island

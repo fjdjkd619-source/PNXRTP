@@ -1,0 +1,12 @@
+// Compact underground crystal pocket. Every write is inside [-3,3] on all axes.
+block(0, 0, 0, "minecraft:amethyst_block");
+block(0, 1, 0, "minecraft:budding_amethyst");
+block(0, 2, 0, "minecraft:amethyst_cluster");
+block(1, 0, 0, "minecraft:calcite");
+block(-1, 0, 0, "minecraft:calcite");
+block(0, 0, 1, "minecraft:calcite");
+block(0, 0, -1, "minecraft:calcite");
+block(1, 1, 0, "minecraft:amethyst_block");
+block(-1, 1, 0, "minecraft:amethyst_block");
+block(0, 1, 1, "minecraft:amethyst_block");
+block(0, 1, -1, "minecraft:amethyst_block");
