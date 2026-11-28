@@ -1,26 +1,25 @@
 diff --git a/src/main/java/org/powernukkitx/entity/Entity.java b/src/main/java/org/powernukkitx/entity/Entity.java
-index 0a9a465..e991fe2 100644
 --- a/src/main/java/org/powernukkitx/entity/Entity.java
 +++ b/src/main/java/org/powernukkitx/entity/Entity.java
-@@ -2,11 +2,14 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+@@ -121,5 +121,6 @@
      public static final Entity[] EMPTY_ARRAY = new Entity[0];
      protected final ActorDataMap actorDataMap = new ActorDataMap();
      public static AtomicLong entityCount = new AtomicLong(1);
 +    private static final ThreadLocal<Boolean> GENERATION_ENTITY_CREATION = ThreadLocal.withInitial(() -> false);
      public final List<Entity> passengers = new ArrayList<>();
-     protected final AxisAlignedBB offsetBoundingBox = new SimpleAxisAlignedBB(0, 0, 0, 0, 0, 0);
- 
+     public final AxisAlignedBB offsetBoundingBox = new SimpleAxisAlignedBB(0, 0, 0, 0, 0, 0);
+@@ -240,5 +241,7 @@
+     private int maxHealth = 20;
      protected String name;
      private volatile boolean initialized;
 +    private boolean generationActivationPending;
 +    private boolean generationRegisteredForSave;
      protected volatile boolean saveWithChunk = true;
- 
-     @Nullable
-@@ -15,6 +18,20 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+     private final Map<String, Integer> intProperties = new LinkedHashMap<>();
+@@ -353,5 +356,18 @@
+         Identifier.assertValid(identifier);
          return Registries.ENTITY.provideEntity(identifier, chunk, nbt, args);
      }
- 
 +    /** Construct an entity for a durable generation transaction without registering or scheduling it. */
 +    @Nullable
 +    public static Entity createEntityForGeneration(@NotNull String identifier, @NotNull IChunk chunk,
@@ -34,33 +33,28 @@ index 0a9a465..e991fe2 100644
 +            else GENERATION_ENTITY_CREATION.remove();
 +        }
 +    }
-+
-     protected final void init(IChunk chunk, CompoundTag nbt) {
-         if ((chunk == null || chunk.getProvider() == null)) {
-             throw new ChunkException("Invalid garbage Chunk given to Entity");
-@@ -24,6 +41,7 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+ 
+     /**
+@@ -670,5 +686,6 @@
          this.temporalVector = new Vector3();
          this.justCreated = true;
          this.nbt = nbt;
 +        this.generationActivationPending = GENERATION_ENTITY_CREATION.get();
  
-         this.setMotion(this.temporalVector.setComponents(0, 0, 0));
-         try {
-@@ -34,6 +52,13 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+         // Restore entity properties from NBT (overwriting defaults)
+@@ -760,5 +777,11 @@
+                 return;
              }
              this.initialized = true;
- 
 +            if (this.generationActivationPending) {
 +                EntitySpawnEvent event = new EntitySpawnEvent(this);
 +                this.server.getPluginManager().callEvent(event);
 +                if (event.isCancelled()) this.close(false);
 +                return;
 +            }
-+
-             this.chunk.addEntity(this);
-             this.level.addEntity(this);
  
-@@ -51,6 +76,24 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+             this.chunk.addEntity(this);
+@@ -778,5 +801,22 @@
          }
      }
  
@@ -81,7 +75,5 @@ index 0a9a465..e991fe2 100644
 +        this.lastUpdate = this.level.getTick();
 +        return true;
 +    }
-+
      public Set<String> typeFamily() {
-         return Set.of();
-     }
+         if (isCustomEntity()) {
