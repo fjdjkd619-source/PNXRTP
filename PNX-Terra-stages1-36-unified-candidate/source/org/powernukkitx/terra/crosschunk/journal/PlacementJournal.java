@@ -440,9 +440,47 @@ public final class PlacementJournal implements AutoCloseable {
         }
     }
 
+    /**
+     * Caps serialized payload growth while encoding. The previous implementation built the
+     * entire placement in an unbounded ByteArrayOutputStream and checked MAX_FRAME only after
+     * allocation, allowing a single oversized placement to exhaust heap before rejection.
+     */
+    static final class BoundedOutputStream extends OutputStream {
+        private final OutputStream delegate;
+        private final long maximumBytes;
+        private long writtenBytes;
+
+        BoundedOutputStream(OutputStream delegate, long maximumBytes) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+            if (maximumBytes < 0) throw new IllegalArgumentException("maximumBytes must be non-negative");
+            this.maximumBytes = maximumBytes;
+        }
+
+        @Override public void write(int value) throws IOException {
+            reserve(1);
+            delegate.write(value);
+        }
+
+        @Override public void write(byte[] bytes, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, bytes.length);
+            reserve(length);
+            delegate.write(bytes, offset, length);
+        }
+
+        @Override public void flush() throws IOException { delegate.flush(); }
+        @Override public void close() throws IOException { delegate.close(); }
+
+        private void reserve(int length) throws IOException {
+            if (length > maximumBytes - writtenBytes)
+                throw new IOException("Journal frame exceeds maximum size while encoding (limit "
+                        + maximumBytes + " bytes)");
+            writtenBytes += length;
+        }
+    }
+
     private static byte[] encodePlacement(long seq, PlacementRecord record) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(bytes)) {
+        try (DataOutputStream out = new DataOutputStream(new BoundedOutputStream(bytes, MAX_FRAME))) {
             PlacementKey k=record.key(); out.writeByte(VERSION); out.writeByte(PLACEMENT); out.writeLong(seq);
             writeString(out,k.worldKey()); out.writeLong(k.worldSeed()); out.writeInt(k.anchor().x()); out.writeInt(k.anchor().z());
             writeString(out,k.featureId()); writeString(out,k.structureId());
