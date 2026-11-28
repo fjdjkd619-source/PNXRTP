@@ -26,16 +26,18 @@ text = path.read_text(encoding="utf-8")
 
 def add_feature_list(stage: str, feature_ids: list[str]) -> None:
     global text
-    match = re.search(rf"(?m)^  {re.escape(stage)}:\n((?:    - [A-Z0-9_]+\n)+)", text)
+    match = re.search(rf"(?m)^  {re.escape(stage)}:\n((?:    - [A-Z0-9_]+(?:\n|$))+)", text)
     if not match:
         if stage != "landforms":
             raise SystemExit(f"Expected base biome feature list missing: {stage}")
         text = text.rstrip() + f"\n  {stage}:\n" + "".join(f"    - {feature}\n" for feature in feature_ids)
         return
     existing = match.group(1)
-    missing = [feature for feature in feature_ids if f"    - {feature}\n" not in existing]
+    existing_ids = set(re.findall(r"(?m)^    - ([A-Z0-9_]+)$", existing))
+    missing = [feature for feature in feature_ids if feature not in existing_ids]
     if missing:
-        text = text[:match.end()] + "".join(f"    - {feature}\n" for feature in missing) + text[match.end():]
+        separator = "" if text[:match.end()].endswith("\n") else "\n"
+        text = text[:match.end()] + separator + "".join(f"    - {feature}\n" for feature in missing) + text[match.end():]
 
 add_feature_list("structures", [
     "FANTASY_RUINED_WATCHTOWERS",
