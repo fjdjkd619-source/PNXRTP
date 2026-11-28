@@ -62,7 +62,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main
          };
      }
  
-@@ -76,136 +64,95 @@
+@@ -76,154 +64,95 @@
      public void stages(GenerateStage.Builder builder) {
          builder.start(new TerrainStage());
          builder.next(Registries.GENERATE_STAGE.get(GeneratedStage.NAME));
@@ -71,6 +71,8 @@ diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main
 -        }
 +        if ((boolean) options.getOrDefault("structures", true)) builder.next(new StructureStage());
          builder.next(new PopulateStage());
+-        // Keep durable sealing opt-in until Stage 12 connects exact feature bounds
+-        // to the dependency scheduler. Enabling it prematurely rejects valid late anchors.
 -        if ((boolean) options.getOrDefault("terraJournalFinalization", false)) {
 -            builder.next(new JournalFinalizeStage());
 -        }
@@ -171,6 +173,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main
 -        }
 -    }
 -    class PopulateStage extends GenerateStage {
+-
 -        @Override
 -        public void apply(ChunkGenerateContext context) {
 -            final IChunk chunk = context.getChunk();
@@ -187,9 +190,15 @@ diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main
 -                throw new IllegalStateException("Terra feature population failed", failure);
 -            }
 -            serverWorld.apply(chunk);
+-            // POPULATED is the dependency barrier: publish it only after Terra
+-            // feature generation and all root placement commits have finished.
 -            chunk.setChunkState(ChunkState.POPULATED);
 -        }
--        @Override public String name() { return "terra_populate"; }
+-
+-        @Override
+-        public String name() {
+-            return "terra_populate";
+-        }
 +        private final ObjectArraySet<String> populators=new ObjectArraySet<>();
 +        public StructureStage(){populators.addAll(switch(dimensionData.getDimensionId()){
 +            case 1->List.of(BastionRemnantPopulator.NAME,NetherFortressPopulator.NAME,PopulatorRuinedPortal.NAME,NetherFossilPopulator.NAME);
@@ -200,9 +209,15 @@ diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main
 +        @Override public String name(){return "terra_structure";}
      }
  
+-    /**
+-     * Durable journal barrier. It runs after placements anchored in this chunk
+-     * and before lighting/FinishedStage.
+-     */
 -    class JournalFinalizeStage extends GenerateStage {
+-        @Override
+-        public void apply(ChunkGenerateContext context) {
 +    class PopulateStage extends GenerateStage {
-         @Override public void apply(ChunkGenerateContext context) {
++        @Override public void apply(ChunkGenerateContext context) {
 +            final IChunk chunk=context.getChunk();
 +            final int chunkX=chunk.getX(),chunkZ=chunk.getZ();
 +            PnxGenerationJournalRuntime runtime=getJournalRuntime(context.getLevel());
@@ -225,14 +240,18 @@ diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main
 +                serverWorld.apply(chunk);
 +                // Completion marker is durable only after every root ticket has committed and anchor writes applied.
 +                anchorSession.finishPopulation();
-+                // Publish the dependency barrier only after all root tickets and anchor writes complete.
++                // Publish POPULATED only after the root placement has completed and its writes are staged.
 +                chunk.setChunkState(ChunkState.POPULATED);
 +            } catch(Exception e) {
 +                anchorSession.close();
 +                throw new IllegalStateException("Terra population failed for anchor "+anchor,e);
              }
          }
--        @Override public String name() { return "terra_journal_finalize"; }
+-
+-        @Override
+-        public String name() {
+-            return "terra_journal_finalize";
+-        }
 -    }
 -
 -    public String getName() {
