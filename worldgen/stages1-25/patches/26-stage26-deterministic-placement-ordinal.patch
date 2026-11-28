@@ -97,7 +97,7 @@ index 3b4226b..948bcbe 100644
                  List.of(new BlockWrite(-49, 21, 113, 1, new byte[]{1, 2, 3})));
          try (PlacementJournal journal = new PlacementJournal(wal)) {
              CrossChunkDependencyScheduler scheduler = new CrossChunkDependencyScheduler(world, journal);
-@@ -32,6 +32,7 @@ public final class Stage19DependencySchedulerTest {
+@@ -32,6 +32,7 @@ public final class Stage19RecoveryTest {
              CrossChunkDependencyScheduler replayScheduler = new CrossChunkDependencyScheduler(world, recovered);
              var replay = replayScheduler.openAnchor(anchor);
              var replayTicket = replay.beginPlacement();
