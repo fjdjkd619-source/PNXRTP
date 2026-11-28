@@ -129,7 +129,9 @@ jobs:
           find pnx -type f -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp -t artifact-output/pnx {} +
           find adapter -type f -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp -t artifact-output/adapter {} +
           find artifact-output -type f -name '*.jar' -print
-          test -n "$(find artifact-output -type f -name '*.jar' -print -quit)"
+          test -n "$(find artifact-output/terra -type f -name '*.jar' -print -quit)"
+          test -n "$(find artifact-output/pnx -type f -name '*.jar' -print -quit)"
+          test -n "$(find artifact-output/adapter -type f -name '*.jar' -print -quit)"
 
       - name: Assemble ConfigPack and release metadata
         if: success()
@@ -148,6 +150,7 @@ jobs:
           (
             cd artifact-output
             find . -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
           )
 
       - name: Upload JAR artifacts
