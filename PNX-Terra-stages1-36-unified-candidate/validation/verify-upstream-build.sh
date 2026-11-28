@@ -14,7 +14,7 @@ for spec in "$PNX:$PNX_REF:PowerNukkitX" "$TERRA:05ddc8b8a66e17412670647cce78ef8
   [[ "$actual" == "$expected" ]] || { echo "$name ref mismatch; expected $expected got $actual" >&2; exit 1; }
 done
 # Fail closed: build each actual modified checkout; do not treat stub contracts as integration.
-(cd "$TERRA" && ./gradlew --no-daemon clean test build publishToMavenLocal)
-(cd "$PNX" && ./gradlew --no-daemon clean test build)
-(cd "$ADAPTER" && ./gradlew --no-daemon clean test build)
+(cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --max-workers=1 clean test build publishToMavenLocal --stacktrace)
+(cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --max-workers=1 clean test build --stacktrace)
+(cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --max-workers=1 clean test build --stacktrace)
 echo "UPSTREAM_BUILD=PASS"
