@@ -1,36 +1,74 @@
 package org.powernukkitx.terra.crosschunk.bounds;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Only profiles whose complete write/read closure was bounded from the pinned Origen pack. */
+/**
+ * Runtime envelopes for the pinned TerraOverworldConfig pack. Profiles are conservative
+ * root-placement bounds; nested TerraScript calls share the same root guard.
+ */
 public final class OrigenBoundsCatalog {
-    public static final String PACK_ID = "origen";
-    private static final Map<String, ScriptBoundsProfile> PROFILES = Map.of(
-            "waterfall", new ScriptBoundsProfile(PACK_ID, "waterfall",
-                    new Bounds3i(-5, -50, -5, 5, 2, 5),
-                    new Bounds3i(-5, -50, -5, 5, 2, 5),
-                    512, 128, 0, java.util.List.of(),
-                    "waterfall.tesf: fixed width=1, length=4, inwardLength=-3, downwardsMaxSearch=50; four cardinal wall orientations; nested calls absent"),
-            "dripstone_column", new ScriptBoundsProfile(PACK_ID, "dripstone_column",
-                    new Bounds3i(-10, -10, -10, 10, 100, 10),
-                    new Bounds3i(-10, -10, -10, 10, 100, 10),
-                    100_000, 100_000, 0, java.util.List.of("is_dripstone_column_replaceable"),
-                    "dripstone_column.tesf: maxRadius=10, maxDepth=10, maxHeight=100; mask target is a read-only script whose sole read is getBlock(0,0,0)"),
-            "mangrove_tree_procedural", new ScriptBoundsProfile(PACK_ID, "mangrove_tree_procedural",
-                    new Bounds3i(-30, -30, -30, 30, 28, 30),
-                    new Bounds3i(-31, -30, -31, 31, 28, 31),
-                    20_000, 10_000, 3,
-                    java.util.List.of("mangrove_leaves_clump", "propagule", "place_vines", "is_leaf", "spore_blossom", "bee_nest"),
-                    "mangrove_tree_procedural.tesf: root path length<=30 gives |x|,|z|<=30; branch/leaf/vine closures fit inside that horizontal envelope; y lower bound conservatively -30, top branch/leaf closure envelope <=28; root neighbor reads add one block; bee_nest spawns three entities"));
+    public static final String PACK_ID = "overworld";
+    public static final String PACK_SOURCE = "PolyhedralDev/TerraOverworldConfig@445848bc9f9f28fab1d760f01f9a552d93944681";
+
+    private static final Map<String, ScriptBoundsProfile> PROFILES = Map.ofEntries(
+            Map.entry("waterfall", profile("waterfall",
+                    -5, -50, -5, 5, 2, 5, 512, 128, 0, List.of(),
+                    "Pinned pack waterfall.tesf: fixed width=1, length=4, inwardLength=-3, downwardsMaxSearch=50; four cardinal wall orientations; nested calls absent")),
+            Map.entry("dripstone_column", profile("dripstone_column",
+                    -10, -10, -10, 10, 100, 10, 100_000, 100_000, 0,
+                    List.of("is_dripstone_column_replaceable"),
+                    "Pinned pack dripstone_column.tesf: maxRadius=10, maxDepth=10, maxHeight=100; replaceability helper reads only the origin")),
+            Map.entry("mangrove_tree_procedural", profile("mangrove_tree_procedural",
+                    -30, -30, -30, 30, 28, 30, 20_000, 10_000, 3,
+                    List.of("mangrove_leaves_clump", "propagule", "place_vines", "is_leaf", "spore_blossom", "bee_nest"),
+                    "Pinned pack mangrove_tree_procedural.tesf: root path <=30; branch/leaf/vine closure within +/-30; one-block read halo; bee_nest spawns three entities")),
+            Map.entry("giant_sequoia_tree_procedural", profile("giant_sequoia_tree_procedural",
+                    -24, -12, -24, 24, 72, 24, 30_000, 12_000, 0, List.of(),
+                    "Pinned pack giant_sequoia_tree_procedural.tesf: trunkHeight 55..64; branch and leaf clusters use bounded local radii; rootLength <=8")),
+            Map.entry("great_baobab_tree", profile("great_baobab_tree",
+                    -24, -12, -24, 24, 40, 24, 40_000, 15_000, 0, List.of("*"),
+                    "Pinned pack great_baobab_tree.tesf: trunk radius 5; horizontal/vertical branch lengths and leaf radius bounded by local constants")),
+            Map.entry("great_azalea_tree", profile("great_azalea_tree",
+                    -32, -8, -32, 32, 40, 32, 50_000, 20_000, 0, List.of("azalea_leaves_clump"),
+                    "Pinned pack great_azalea_tree.tesf: trunk branches <=20, end branches <=11, leaf clump radius 4; read halo 1")),
+            Map.entry("weeping_willow_tree", profile("weeping_willow_tree",
+                    -32, -32, -32, 32, 40, 32, 80_000, 30_000, 0,
+                    List.of("weeping_willow_root_stub", "willow_pale_oak_leaves_clump"),
+                    "Pinned pack weeping_willow_tree.tesf: rootMaxLength 26 with decreasing radius <=7.5; branch/end-branch/leaf closure remains within +/-32")),
+            Map.entry("stone_spike", profile("stone_spike",
+                    -24, -64, -24, 24, 64, 24, 60_000, 15_000, 0, List.of(),
+                    "Pinned pack stone_spike.tesf: length <=50, radius <=7, dy=5; normalized horizontal displacement plus sphere radius <24")),
+            Map.entry("large_iceberg", profile("large_iceberg",
+                    -24, -52, -24, 24, 52, 24, 30_000, 10_000, 0, List.of(),
+                    "Pinned pack large_iceberg.tesf: radius <14, warp=5, x/z random padding <=3, y warp multiplier <=6")),
+            Map.entry("mob_room", profile("mob_room",
+                    -20, -12, -20, 20, 120, 20, 50_000, 25_000, 0,
+                    List.of("is_rock", "mob_room_east_sc", "mob_room_west_sc", "mob_room_south_sc", "mob_room_north_sc"),
+                    "Pinned pack mob_room.tesf: searchRadius=3, vertical search <=100, schematic offsets <=7 and local extents <=6")),
+            Map.entry("lava_tunnel", profile("lava_tunnel",
+                    -24, -1, -24, 24, 252, 24, 150_000, 200_000, 0,
+                    List.of("is_lava_placeable", "hornito"),
+                    "Pinned pack lava_tunnel.tesf: vertical search <=250; tunnel radius <=8, helix amplitude <=7, lateral noise amplitude 2.25; one-block neighbour read halo")),
+            Map.entry("large_underground_water_lake", profile("large_underground_water_lake",
+                    -12, -16, -12, 12, 16, 12, 10_000, 8_000, 0, List.of(),
+                    "Pinned pack large_underground_water_lake.tesf: radius <=5.5 plus bounded warp; vertical squish >=1")),
+            Map.entry("large_underground_lava_lake", profile("large_underground_lava_lake",
+                    -16, -20, -16, 16, 20, 16, 15_000, 10_000, 0, List.of(),
+                    "Pinned pack large_underground_lava_lake.tesf: radius <=8 plus bounded warp; vertical squish >=1")),
+            Map.entry("trial_ruin_remnant", profile("trial_ruin_remnant",
+                    -8, -8, -8, 8, 8, 8, 8_000, 4_000, 0, List.of("*"),
+                    "Pinned pack trial_ruin_remnant.tesf: radial offset <=5; schematic closure bounded by +/-8")),
+            Map.entry("desert_well", profile("desert_well",
+                    -8, -8, -8, 8, 8, 8, 8_000, 4_000, 0, List.of("*"),
+                    "Pinned pack desert_well.tesf: depth <=5; top/bottom schematic closure bounded by +/-8"))
+    );
 
     /**
-     * Runtime-enforced fallback for scripts not yet statically certified. This is not a claim
-     * that the script's theoretical bounds are known: every read/write is checked against this
-     * hard envelope, and a single escape aborts the whole root placement. The 32-block horizontal
-     * limit matches the current scheduler horizon and covers the audited 31-block read halo of
-     * the largest verified root. Entity spawning remains disabled for this fallback; only profiles
-     * with an explicit audited entity budget may use the deferred WAL entity path.
+     * Strict runtime-bounded fallback for scripts not yet statically certified. Every read/write
+     * is checked against this envelope; a single escape aborts the root placement. Unknown scripts
+     * have no entity budget and therefore cannot spawn entities.
      */
     private static final int FALLBACK_HORIZONTAL_REACH = 32;
     private static final ScriptBoundsProfile BOUNDED_FALLBACK = new ScriptBoundsProfile(
@@ -39,35 +77,43 @@ public final class OrigenBoundsCatalog {
                     FALLBACK_HORIZONTAL_REACH, 128, FALLBACK_HORIZONTAL_REACH),
             new Bounds3i(-FALLBACK_HORIZONTAL_REACH, -128, -FALLBACK_HORIZONTAL_REACH,
                     FALLBACK_HORIZONTAL_REACH, 128, FALLBACK_HORIZONTAL_REACH),
-            65_536, 65_536, 0, java.util.List.of("*"),
-            "Runtime-enforced fallback envelope: x/z +/-32, y +/-128; 65,536 writes and reads; no entities; any out-of-envelope operation aborts placement");
+            65_536, 65_536, 0, List.of("*"),
+            "Runtime-enforced fallback: x/z +/-32, y +/-128; 65,536 writes and reads; no entities; any out-of-envelope operation aborts placement");
 
     private OrigenBoundsCatalog() {}
 
-    /** Returns only statically audited profiles. */
-    public static Optional<ScriptBoundsProfile> find(String structureId) {
-        return Optional.ofNullable(PROFILES.get(structureId));
+    private static ScriptBoundsProfile profile(String id, int minX, int minY, int minZ,
+                                               int maxX, int maxY, int maxZ,
+                                               int maxWrites, int maxReads, int maxEntities,
+                                               List<String> dependencies, String evidence) {
+        Bounds3i writes = new Bounds3i(minX, minY, minZ, maxX, maxY, maxZ);
+        Bounds3i reads = new Bounds3i(minX - 1, minY - 2, minZ - 1,
+                maxX + 1, maxY + 2, maxZ + 1);
+        return new ScriptBoundsProfile(PACK_ID, id, writes, reads,
+                maxWrites, maxReads, maxEntities, dependencies, PACK_SOURCE + "; " + evidence);
     }
 
-    /**
-     * Resolve an audited profile or a strict runtime-bounded fallback. Unknown scripts are no
-     * longer silently disabled, but they are never allowed to write/read outside the hard pack
-     * envelope. Entity spawning remains disabled for unprofiled scripts; only a statically
-     * audited profile with an explicit entity budget may create deferred entity intents.
-     */
-    public static ScriptBoundsProfile resolveRuntimeProfile(String structureId) {
+    private static String normalize(String structureId) {
         if (structureId == null || structureId.isBlank())
             throw new IllegalArgumentException("Structure ID is required");
-        String normalized = structureId.startsWith(PACK_ID + ":")
-                ? structureId.substring(PACK_ID.length() + 1) : structureId;
-        return PROFILES.getOrDefault(normalized, BOUNDED_FALLBACK);
+        int namespace = structureId.lastIndexOf(':');
+        return namespace >= 0 ? structureId.substring(namespace + 1) : structureId;
+    }
+
+    /** Returns only statically audited profiles. */
+    public static Optional<ScriptBoundsProfile> find(String structureId) {
+        return Optional.ofNullable(PROFILES.get(normalize(structureId)));
+    }
+
+    /** Resolve an audited profile or a strict runtime-bounded fallback. */
+    public static ScriptBoundsProfile resolveRuntimeProfile(String structureId) {
+        return PROFILES.getOrDefault(normalize(structureId), BOUNDED_FALLBACK);
     }
 
     public static ScriptBoundsProfile boundedFallbackProfile() { return BOUNDED_FALLBACK; }
-
     public static Map<String, ScriptBoundsProfile> allVerified() { return PROFILES; }
 
-    /** Maximum horizontal write/read reach used to prefetch all possible source anchors. */
+    /** Maximum horizontal read/write reach used to prefetch every possible source anchor. */
     public static int maxHorizontalReach() {
         return Math.max(FALLBACK_HORIZONTAL_REACH, PROFILES.values().stream()
                 .mapToInt(profile -> Math.max(
@@ -78,9 +124,9 @@ public final class OrigenBoundsCatalog {
                 .max().orElse(0));
     }
 
-    /** Unknown scripts remain unbounded and must not be scheduled for finalization. */
+    /** Unknown scripts are still runtime-bounded; this method is only for explicit release audits. */
     public static ScriptBoundsProfile requireVerified(String structureId) {
         return find(structureId).orElseThrow(() ->
-                new IllegalStateException("No verified Origen runtime envelope for structure: " + structureId));
+                new IllegalStateException("No verified Terra bounds profile for structure: " + structureId));
     }
 }
