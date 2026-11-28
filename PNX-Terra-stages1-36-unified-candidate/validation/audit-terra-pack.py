@@ -59,7 +59,7 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
                 roots.add(item.group(1))
                 found_in_section = True
             if "BLOCK:" in child:
-                block_targets.update(re.findall(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\\[[^]]+\\])?", child))
+                block_targets.update(re.findall(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?", child))
                 found_in_section = True
         if not found_in_section:
             unresolved = True
