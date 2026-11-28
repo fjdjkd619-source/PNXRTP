@@ -2,9 +2,9 @@
 
 **Status: BLOCKED — the complete modified stages 1–25 chain has not yet passed a full upstream build or runtime certification. It is not deployable.**
 
-## Latest candidate overlay (2026-11-28, r7)
+## Latest candidate overlay (2026-11-28, r8)
 
-The candidate contains 39 Java source files, 11 test classes, 19 active patches, an exact-ref patch-application script, validation scripts/results, 13 original archives, and a new pinned PNX BlockEntity lifecycle audit.
+The r8 candidate is the r7 overlay plus a pinned Terra BlockEntity capture-gap audit. The underlying candidate contains 39 Java source files, 11 test classes, 19 active patches, an exact-ref patch-application script, validation scripts/results, and 13 original archives.
 
 Latest corrections carried in the candidate:
 
@@ -90,7 +90,7 @@ This is a compatibility baseline only; it does not contain the stages 1–25 ove
 - Apply the complete active patch chain to clean full upstream checkouts and resolve every context/API conflict.
 - Build the modified Terra, PNX and PNX-Terra source together; the successful upstream baseline build did not include this overlay.
 - Compile the full adapter against actual pinned APIs; only the core and narrow contract slices have been compiled locally.
-- Implement transactional BlockEntity creation/update, NBT encode/decode and factory integration (current wrapper is read-only).
+- Complete Terra-to-adapter BlockEntity intent capture from actual structure source data and connect it to the existing r7 NBT codec/applier; test end-to-end durable save/restart. The PNX applier exists, but no ordinary Terra structure path currently emits its intents.
 - Implement transactional entity spawn intents and durable recovery.
 - Connect the physics executor and crash-safe neighbor updates; finish water-layer/property mapping.
 - Complete non-identical Terra/PNX property aliases, global diagnostics and the static Origen bounds catalog.
