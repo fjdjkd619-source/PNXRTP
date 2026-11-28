@@ -1,7 +1,7 @@
 diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
 --- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
 +++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
-@@ -1,451 +1,464 @@
+@@ -1,464 +1,464 @@
 -package org.powernukkitx.terra.delegate;
 -
 -import org.powernukkitx.block.Block;
@@ -38,6 +38,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -import org.powernukkitx.terra.crosschunk.diagnostics.DiagnosticSink;
 -import org.powernukkitx.terra.crosschunk.diagnostics.GenerationDiagnostic;
 -import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
+-import org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent;
 -import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
 -import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
 -import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
@@ -110,12 +111,6 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -            publishUnsupported(featureId, structureId, origin, "Structure has no usable identifier; placement skipped");
 -            return PlacementGuardHost.PlacementScope.rejected();
 -        }
--        // Entity intents are not yet deferred/committed atomically by this adapter.
--        if (profile.maxEntitySpawns() != 0) {
--            publishUnsupported(featureId, structureId, origin, "Structure entity intents are not enabled in this adapter build");
--            return PlacementGuardHost.PlacementScope.rejected();
--        }
--
 -        Bounds3i.QuarterTurn turn = switch (rotation) {
 -            case NONE -> Bounds3i.QuarterTurn.NONE;
 -            // Seismic's CW_90 maps (x,z)->(z,-x), opposite the guard's CW label.
@@ -130,8 +125,8 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -                anchorSession.anchor(), featureId, structureId,
 -                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
 -        PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
--                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
--                Thread.currentThread(), journalTicket, journalKey);
+-                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(),
+-                new ArrayList<>(), guardScope, Thread.currentThread(), journalTicket, journalKey);
 -        activePlacement = root;
 -        return scopeFor(root, true);
 -    }
@@ -152,7 +147,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -        }
 -        PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
 -                parent.originX, parent.originY, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent,
--                new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
+-                new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
 -        activePlacement = child;
 -        return scopeFor(child, false);
 -    }
@@ -175,6 +170,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -                    transaction.parent.staged.merge(transaction.staged);
 -                    transaction.parent.blockEntities.addAll(transaction.blockEntities);
 -                    transaction.parent.physics.addAll(transaction.physics);
+-                    transaction.parent.entitySpawns.addAll(transaction.entitySpawns);
 -                    finish();
 -                    return true;
 -                }
@@ -182,7 +178,8 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -                int anchorChunkZ = transaction.originZ >> 4;
 -                if (transaction.journalTicket == null) {
 -                    // Legacy construction remains fail-closed until the PopulateStage journal service is supplied.
--                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()) { abort(); return false; }
+-                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()
+-                            || !transaction.entitySpawns.isEmpty()) { abort(); return false; }
 -                    for (Block block : transaction.staged.getBlocks()) {
 -                        if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
 -                            abort();
@@ -191,14 +188,19 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -                    }
 -                    level.merge(transaction.staged);
 -                } else if (transaction.staged.getBlocks().isEmpty()
--                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()) {
+-                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()
+-                        && transaction.entitySpawns.isEmpty()) {
 -                    transaction.journalTicket.abort();
 -                } else {
 -                    // Durable WAL first. Only anchor-local writes enter this stage's BlockManager;
 -                    // cross-chunk writes are left for the Stage18 journal applier after its barrier.
 -                    try {
+-                        List<EntitySpawnIntent> entityIntents = new ArrayList<>(transaction.entitySpawns.size());
+-                        for (int ordinal = 0; ordinal < transaction.entitySpawns.size(); ordinal++) {
+-                            entityIntents.add(transaction.entitySpawns.get(ordinal).toIntent(transaction.journalKey, ordinal));
+-                        }
 -                        PnxPlacementCommitter.commit(transaction.journalTicket, transaction.journalKey,
--                                transaction.staged, transaction.blockEntities, transaction.physics);
+-                                transaction.staged, transaction.blockEntities, transaction.physics, entityIntents);
 -                    } catch (IOException journalFailure) {
 -                        diagnostics.publish(GenerationDiagnostic.failure("terra_populate", transaction.featureId,
 -                                transaction.structureId, new ChunkPos(anchorChunkX, anchorChunkZ),
@@ -284,7 +286,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -        try {
 -            var waterState = PNXProtoChunk.water;
 -            if (oldLayerOneFluid) {
--                waterState = level.getLevel().getBlockStateAt(x, y, z, 1);
+-                waterState = tx.staged.getBlockStateAt(x, y, z, 1);
 -            } else if (oldBaseFluid) {
 -                waterState = old.getBlockState();
 -            }
@@ -335,7 +337,17 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -    public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
 -        PlacementTransaction tx = requirePlacement();
 -        tx.guard.beforeEntitySpawn((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
--        throw new UnsupportedOperationException("Entity spawn intents are not transactionally committed in this stage");
+-        if (tx.journalTicket == null || tx.journalKey == null) {
+-            throw new IllegalStateException("Entity spawning requires the durable placement journal");
+-        }
+-        Object handle = entityType == null ? null : entityType.getHandle();
+-        if (!(handle instanceof String identifier)
+-                || !identifier.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) {
+-            throw new IllegalArgumentException("Terra entity type must expose a canonical namespaced PNX identifier");
+-        }
+-        PNXStagedEntityDelegate staged = new PNXStagedEntityDelegate(identifier, x, y, z, this);
+-        tx.entitySpawns.add(staged);
+-        return staged;
 -    }
 -
 -    @Override
@@ -450,6 +462,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -    private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
 -                                        PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
 -                                        List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics,
+-                                        List<PNXStagedEntityDelegate> entitySpawns,
 -                                        PlacementGuardContext.Scope guardScope, Thread owner,
 -                                        CrossChunkDependencyScheduler.PlacementTicket journalTicket, PlacementKey journalKey) { }
 -}
@@ -920,7 +933,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java
 --- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java
 +++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java
-@@ -1,23 +1,29 @@
+@@ -1,29 +1,29 @@
 -package org.powernukkitx.terra.crosschunk.journal.pnx;
 -
 -import org.powernukkitx.level.generator.object.BlockManager;
@@ -940,8 +953,14 @@ diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlac
 -    public static long commit(CrossChunkDependencyScheduler.PlacementTicket ticket, PlacementKey key,
 -                              BlockManager staged, java.util.List<org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent> entities,
 -                              java.util.List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> physics)throws IOException{
+-        return commit(ticket,key,staged,entities,physics,java.util.List.of());
+-    }
+-    public static long commit(CrossChunkDependencyScheduler.PlacementTicket ticket, PlacementKey key,
+-                              BlockManager staged, java.util.List<org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent> entities,
+-                              java.util.List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> physics,
+-                              java.util.List<org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent> entitySpawns)throws IOException{
 -        Objects.requireNonNull(ticket,"ticket");
--        return ticket.commit(PnxPlacementRecordFactory.fromBlockManager(key,staged,entities,physics));
+-        return ticket.commit(PnxPlacementRecordFactory.fromBlockManager(key,staged,entities,physics,entitySpawns));
 -    }
 -}
 +package org.powernukkitx.terra.crosschunk.journal.pnx;
@@ -976,7 +995,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlac
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java
 --- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java
 +++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java
-@@ -1,27 +1,32 @@
+@@ -1,32 +1,32 @@
 -package org.powernukkitx.terra.crosschunk.journal.pnx;
 -
 -import org.powernukkitx.block.Block;
@@ -994,14 +1013,19 @@ diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlac
 -    }
 -    public static PlacementRecord fromBlockManager(PlacementKey key,BlockManager manager,
 -            List<BlockEntityIntent> blockEntities,List<PhysicsIntent> physics)throws IOException{
+-        return fromBlockManager(key,manager,blockEntities,physics,List.of());
+-    }
+-    public static PlacementRecord fromBlockManager(PlacementKey key,BlockManager manager,
+-            List<BlockEntityIntent> blockEntities,List<PhysicsIntent> physics,List<EntitySpawnIntent> entitySpawns)throws IOException{
 -        Objects.requireNonNull(key,"key");Objects.requireNonNull(manager,"manager");
 -        List<BlockWrite>writes=new ArrayList<>();
 -        for(Block block:manager.getBlocks()){
 -            writes.add(new BlockWrite(block.getFloorX(),block.getFloorY(),block.getFloorZ(),block.layer,
 -                    PnxBlockStateCodec.encode(block.getBlockState())));
 -        }
--        if(writes.isEmpty()&&blockEntities.isEmpty()&&physics.isEmpty())throw new IOException("Refusing to journal an empty root placement");
--        return new PlacementRecord(key,writes,blockEntities,physics);
+-        if(writes.isEmpty()&&blockEntities.isEmpty()&&physics.isEmpty()&&entitySpawns.isEmpty())
+-            throw new IOException("Refusing to journal an empty root placement");
+-        return new PlacementRecord(key,writes,blockEntities,physics,entitySpawns);
 -    }
 -}
 +package org.powernukkitx.terra.crosschunk.journal.pnx;
@@ -1298,7 +1322,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXStagedEntityDelega
 new file mode 100644
 --- /dev/null
 +++ b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedEntityDelegate.java
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,85 @@
 +package org.powernukkitx.terra.delegate;
 +
 +import com.dfsek.terra.api.entity.Entity;
@@ -1319,16 +1343,14 @@ new file mode 100644
 +    private final Object stagedHandle = new Object();
 +    private final PNXServerWorld owner;
 +    private final PlacementRuntimeGuard guard;
-+    private final org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard guard;
 +    private double x;
 +    private double y;
 +    private double z;
 +
 +    PNXStagedEntityDelegate(String identifier, double x, double y, double z, PNXServerWorld owner,
-+                            org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard guard) {
++                            PlacementRuntimeGuard guard) {
 +        this.identifier = Objects.requireNonNull(identifier, "identifier");
 +        this.owner = Objects.requireNonNull(owner, "owner");
-+        this.guard = Objects.requireNonNull(guard, "guard");
 +        this.guard = Objects.requireNonNull(guard, "guard");
 +        setPosition(x, y, z);
 +    }
@@ -1343,7 +1365,6 @@ new file mode 100644
 +        Objects.requireNonNull(position, "position");
 +        guard.beforeEntityMove((int) Math.floor(position.getX()), (int) Math.floor(position.getY()),
 +                (int) Math.floor(position.getZ()));
-+        guard.beforeEntityMove((int) Math.floor(position.getX()), (int) Math.floor(position.getY()), (int) Math.floor(position.getZ()));
 +        setPosition(position.getX(), position.getY(), position.getZ());
 +    }
 +
