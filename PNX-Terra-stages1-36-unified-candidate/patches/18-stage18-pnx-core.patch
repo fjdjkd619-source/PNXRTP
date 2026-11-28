@@ -1,16 +1,15 @@
 diff --git a/src/main/java/org/powernukkitx/level/Level.java b/src/main/java/org/powernukkitx/level/Level.java
-index a0b6e4c..2011702 100644
 --- a/src/main/java/org/powernukkitx/level/Level.java
 +++ b/src/main/java/org/powernukkitx/level/Level.java
-@@ -9,6 +9,7 @@ import org.powernukkitx.level.format.ChunkState;
- public class Level {
+@@ -330,6 +330,7 @@
+     private final Long2ObjectNonBlockingMap<Entity> entities = new Long2ObjectNonBlockingMap<>();
      private final ConcurrentLinkedQueue<BlockEntity> updateBlockEntities = new ConcurrentLinkedQueue<>();
      private final ConcurrentHashMap<Long, Boolean> chunkGenerationQueue = new ConcurrentHashMap<>();
 +    private final ConcurrentHashMap<Long, String> pendingChunkGenerationStages = new ConcurrentHashMap<>();
      private int chunkGenerationQueueSize = 8;
- 
-     public void generateChunk(int x, int z) {
-@@ -29,12 +30,72 @@ public class Level {
+     /**
+      * Server-wide count of chunks that have finished generating, across all levels. Incremented once per completed
+@@ -5584,8 +5585,9 @@
                  return;
              }
              this.generator.asyncGenerate(chunk, (c) -> {
@@ -18,7 +17,10 @@ index a0b6e4c..2011702 100644
 +                if (c.getChunk().getChunkState().canSend()) GENERATED_CHUNK_COUNT.incrementAndGet();
                  chunkGenerationQueue.remove(c.getChunk().getIndex());
 +                resumePendingGenerationStage(index, x, z, c.getChunk());
-             });
+             }, failure -> {
+                 try {
+                     log.error("Failed to generate chunk ({}, {}) in level '{}'", x, z, getFolderName(), failure);
+@@ -5596,6 +5598,72 @@
          }
      }
  
@@ -65,6 +67,13 @@ index a0b6e4c..2011702 100644
 +            this.generator.asyncGenerate(chunk, targetStage, (c) -> {
 +                chunkGenerationQueue.remove(c.getChunk().getIndex());
 +                resumePendingGenerationStage(index, x, z, c.getChunk());
++            }, failure -> {
++                try {
++                    log.error("Failed to generate chunk ({}, {}) through stage '{}' in level '{}'",
++                            x, z, targetStage, getFolderName(), failure);
++                } finally {
++                    chunkGenerationQueue.remove(index);
++                }
 +            });
 +            return true;
 +        }
@@ -83,98 +92,37 @@ index a0b6e4c..2011702 100644
 +
      public void syncGenerateChunk(int x, int z) {
          long index = Level.chunkHash(x, z);
-     }
-diff --git a/src/main/java/org/powernukkitx/level/format/ChunkState.java b/src/main/java/org/powernukkitx/level/format/ChunkState.java
-index 8b75281..c125043 100644
---- a/src/main/java/org/powernukkitx/level/format/ChunkState.java
-+++ b/src/main/java/org/powernukkitx/level/format/ChunkState.java
-@@ -13,6 +13,6 @@ public enum ChunkState {
-     FINISHED;
- 
-     public boolean canSend() {
--        return this.ordinal() >= 3;
-+        return this == FINISHED;
-     }
- }
-diff --git a/src/main/java/org/powernukkitx/level/generator/GenerateStage.java b/src/main/java/org/powernukkitx/level/generator/GenerateStage.java
-index 8472556..75b03b7 100644
---- a/src/main/java/org/powernukkitx/level/generator/GenerateStage.java
-+++ b/src/main/java/org/powernukkitx/level/generator/GenerateStage.java
-@@ -4,12 +4,21 @@ import org.powernukkitx.Server;
- import com.google.common.base.Preconditions;
- 
- import java.util.concurrent.Executor;
-+import java.util.concurrent.CompletableFuture;
- 
- public abstract class GenerateStage {
-     private GenerateStage next;
- 
-     public abstract void apply(ChunkGenerateContext context);
- 
-+    /**
-+     * Asynchronous stage contract. Ordinary stages retain their existing executor behavior;
-+     * dependency-aware stages may override this method and complete later without blocking a worker.
-+     */
-+    public CompletableFuture<Void> applyAsync(ChunkGenerateContext context) {
-+        return CompletableFuture.runAsync(() -> apply(context), getExecutor());
-+    }
-+
-     public abstract String name();
- 
-     public Executor getExecutor() {
+         if (isChunkGenerating(x, z) && getChunk(x, z, false).getChunkState() == ChunkState.NEW)
+
 diff --git a/src/main/java/org/powernukkitx/level/generator/Generator.java b/src/main/java/org/powernukkitx/level/generator/Generator.java
-index 261cdcc..e2ae1d4 100644
 --- a/src/main/java/org/powernukkitx/level/generator/Generator.java
 +++ b/src/main/java/org/powernukkitx/level/generator/Generator.java
-@@ -59,25 +59,14 @@ public abstract class Generator implements BlockID {
-     protected IChunk syncGenerate(IChunk chunk, String to) {
-         Preconditions.checkNotNull(to);
-         final ChunkGenerateContext context = new ChunkGenerateContext(this, level, chunk);
--        final GenerateStage start = getStart(context);
-+        final GenerateStage first = getStart(context);
-         if (chunk.getChunkState().ordinal() < ChunkState.STARTED.ordinal()) {
-             chunk.setChunkState(ChunkState.STARTED);
-         }
--        if (start == null) {
-+        if (first == null) {
+@@ -66,19 +66,7 @@
+         if (start == null) {
              return context.getChunk();
          }
--        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
--            start.apply(context);
--        }, start.getExecutor());
+-        CompletableFuture<Void> future = start.applyAsync(context);
 -        GenerateStage now = start;
 -        while ((now = now.getNextStage()) != null) {
 -            final GenerateStage finalNow = now;
 -            if (finalNow.name().equals(to)) {
--                future = future.thenRunAsync(() -> finalNow.apply(context), now.getExecutor());
+-                future = future.thenCompose(ignored -> finalNow.applyAsync(context));
 -                break;
 -            }
--            future = future.thenRunAsync(() -> finalNow.apply(context), finalNow.getExecutor());
+-            future = future.thenCompose(ignored -> finalNow.applyAsync(context));
 -        }
-+        CompletableFuture<Void> future = asyncGenerateFuture0(context, first, to);
-         future.join();
+-        // Only the synchronous caller waits. Generation workers remain free
+-        // to complete asynchronous cross-chunk dependencies.
+-        future.join();
++        asyncGenerateFuture0(context, start, to).join();
          return context.getChunk();
      }
-@@ -102,31 +91,42 @@ public abstract class Generator implements BlockID {
-     public final void asyncGenerate(IChunk chunk, String to, Consumer<ChunkGenerateContext> callback) {
-         Preconditions.checkNotNull(to);
-         final ChunkGenerateContext context = new ChunkGenerateContext(this, level, chunk);
--        final GenerateStage start = getStart(context);
-+        final GenerateStage first = getStart(context);
-         if (chunk.getChunkState().ordinal() < ChunkState.STARTED.ordinal()) {
-             chunk.setChunkState(ChunkState.STARTED);
-         }
--        asyncGenerate0(context, start, to, () -> callback.accept(context));
-+        asyncGenerateFuture0(context, first, to).whenComplete((ignored, failure) -> {
-+            if (failure != null) log.error("Asynchronous chunk generation failed at stage {} for chunk ({}, {})",
-+                    to, chunk.getX(), chunk.getZ(), failure);
-+            // Always release the Level generation-queue slot. A failed chunk remains non-sendable
-+            // and can be retried by the normal chunk request path.
-+            callback.accept(context);
-+        });
+ 
+@@ -126,6 +114,24 @@
+         asyncGenerate0(context, start, to, () -> callback.accept(context), failureCallback);
      }
  
-+    /** Future-returning pipeline used by integrations with asynchronous dependency barriers. */
++    /** Future-returning pipeline for integrations with asynchronous dependency barriers. */
 +    public final CompletableFuture<Void> asyncGenerateFuture(IChunk chunk) {
 +        final ChunkGenerateContext context = new ChunkGenerateContext(this, level, chunk);
 +        final GenerateStage first = getStart(context);
@@ -183,34 +131,15 @@ index 261cdcc..e2ae1d4 100644
 +        }
 +        return asyncGenerateFuture0(context, first, getEndName(chunk));
 +    }
- 
--    protected final void asyncGenerate0(final ChunkGenerateContext context, final GenerateStage start, String to, final Runnable callback) {
--        if (start == null || to == null) {
-+    protected final void asyncGenerate0(final ChunkGenerateContext context, final GenerateStage first, String to, final Runnable callback) {
-+        asyncGenerateFuture0(context, first, to).whenComplete((ignored, failure) -> {
-+            if (failure != null) log.error("Asynchronous generation stage chain failed at {}", to, failure);
-             callback.run();
--            return;
--        }
--        if (to.equals(start.name())) {
--            start.getExecutor().execute(() -> {
--                start.apply(context);
--                callback.run();
--            });
--            return;
--        }
--        start.getExecutor().execute(() -> {
--            start.apply(context);
--            asyncGenerate0(context, start.getNextStage(), to, callback);
-         });
-+    }
- 
++
 +    private CompletableFuture<Void> asyncGenerateFuture0(final ChunkGenerateContext context,
 +                                                          final GenerateStage stage, String to) {
 +        if (stage == null || to == null) return CompletableFuture.completedFuture(null);
 +        CompletableFuture<Void> applied = stage.applyAsync(context);
 +        if (to.equals(stage.name())) return applied;
 +        return applied.thenCompose(ignored -> asyncGenerateFuture0(context, stage.getNextStage(), to));
-     }
- 
-     public ObjectHolder createObjectHolder(Level level) {
++    }
++
+     protected final void asyncGenerate0(final ChunkGenerateContext context, final GenerateStage start,
+                                         String to, final Runnable callback) {
+         asyncGenerate0(context, start, to, callback, failure ->
