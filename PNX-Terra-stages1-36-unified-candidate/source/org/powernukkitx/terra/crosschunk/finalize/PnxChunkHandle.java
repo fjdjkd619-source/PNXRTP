@@ -1,9 +1,12 @@
 package org.powernukkitx.terra.crosschunk.finalize;
 
 import org.powernukkitx.block.BlockState;
+import org.powernukkitx.level.Level;
 import org.powernukkitx.level.format.IChunk;
 import org.powernukkitx.level.format.leveldb.LevelDBProvider;
 import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
+import org.powernukkitx.terra.crosschunk.physics.PhysicsIntentBatch;
 import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
 import org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent;
 import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
@@ -14,6 +17,7 @@ import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletionException;
 import java.util.NavigableMap;
 
 /** PNX 3.0.6 chunk adapter. It only ever mutates the already-loaded target chunk instance. */
@@ -86,6 +90,61 @@ public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkH
     @Override
     public void confirmBlockEntityIntents() {
         pendingBlockEntityRollback = List.of();
+    }
+
+    /**
+     * Queues PNX's native neighbour/block updates on the owning Level scheduler.
+     * updateAround() reads the six adjacent positions through Level.getBlock(..., load=true),
+     * so every cross-chunk neighbour is checked as already loaded before that API is called.
+     * PnxCrossChunkFinalizer invokes this method through PnxLevelExecutor, serializing it with
+     * the Level's chunk unload/generation lifecycle.
+     */
+    @Override
+    public void applyPhysicsIntents(List<PhysicsIntent> intents) throws IOException {
+        if (intents.isEmpty()) return;
+        Level level = chunk.getLevel();
+        if (level == null) throw new IOException("Target chunk has no owning Level");
+        if (level.getChunkIfLoaded(chunk.getX(), chunk.getZ()) != chunk || !chunk.isLoaded()) {
+            throw new IOException("Target chunk was unloaded before physics dispatch: " + position());
+        }
+        try {
+            PhysicsIntentBatch.dispatch(intents, Runnable::run, position(), (x, y, z) -> {
+                requireLoadedPhysicsNeighbours(level, x, y, z);
+                // PNX queues both layers of the six neighbouring positions for its normal
+                // Level tick loop. It does not synchronously mutate another chunk here.
+                level.updateAround(x, y, z);
+            }).join();
+        } catch (CompletionException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof PhysicsIntentBatch.PhysicsDispatchException dispatch
+                    && dispatch.getCause() instanceof IOException io) {
+                throw io;
+            }
+            if (cause instanceof IOException io) throw io;
+            throw new IOException("PNX physics dispatch failed for target " + position(), cause);
+        } catch (IllegalArgumentException invalid) {
+            throw new IOException("Invalid physics intent batch for target " + position(), invalid);
+        }
+    }
+
+    private void requireLoadedPhysicsNeighbours(Level level, int x, int y, int z) throws IOException {
+        int minHeight = chunk.getDimensionData().getMinHeight();
+        int maxHeight = chunk.getDimensionData().getMaxHeight();
+        int[][] offsets = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}};
+        for (int[] offset : offsets) {
+            int neighbourY = y + offset[1];
+            if (neighbourY < minHeight || neighbourY >= maxHeight) continue;
+            int neighbourX = x + offset[0];
+            int neighbourZ = z + offset[2];
+            ChunkPos neighbour = ChunkPos.fromBlock(neighbourX, neighbourZ);
+            if (neighbour.equals(position())) continue;
+            IChunk loaded = level.getChunkIfLoaded(neighbour.x(), neighbour.z());
+            if (loaded == null || !loaded.isLoaded()) {
+                throw new IOException("Physics intent at " + x + "," + y + "," + z
+                        + " requires unloaded neighbour chunk " + neighbour
+                        + "; refusing to force-load it");
+            }
+        }
     }
 
     @Override
