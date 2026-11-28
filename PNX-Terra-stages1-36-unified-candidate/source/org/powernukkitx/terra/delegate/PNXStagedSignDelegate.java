@@ -71,7 +71,7 @@ public final class PNXStagedSignDelegate extends PNXStagedBlockEntityDelegate im
     private void writeSignText(String side, String[] lines) {
         CompoundTag tag = nbt.containsCompound(side) ? nbt.getCompound(side) : new CompoundTag();
         tag.putString(TEXT, String.join("\n", lines))
-                .putInt("SignTextColor", DyeColor.BLACK.getSignColor())
+                .putInt("SignTextColor", DyeColor.BLACK.getSignColor().getARGB())
                 .putByte("IgnoreLighting", (byte) 0)
                 .putByte("PersistFormatting", (byte) 1)
                 .putBoolean("HideGlowOutline", false)

@@ -43,6 +43,14 @@ install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java"
 install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java"
+install -D "$ROOT/source/org/powernukkitx/terra/TerraGenerator.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/TerraGenerator.java"
+install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java"
+install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java"
+install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java"
 install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
 install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \
@@ -58,6 +66,14 @@ cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java"
 cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java"
+cmp "$ROOT/source/org/powernukkitx/terra/TerraGenerator.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/TerraGenerator.java"
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java"
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java"
+cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java"
 cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
 cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \

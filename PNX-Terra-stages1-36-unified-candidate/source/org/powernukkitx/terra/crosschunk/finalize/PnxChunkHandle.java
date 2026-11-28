@@ -10,6 +10,7 @@ import org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent;
 import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
 import org.powernukkitx.terra.crosschunk.physics.PhysicsIntentBatch;
 import org.powernukkitx.terra.crosschunk.journal.pnx.PnxEntitySpawnIntentApplier;
+import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockEntityIntentApplier;
 import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
 
 import java.io.IOException;
