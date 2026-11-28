@@ -66,6 +66,15 @@ public final class Stage37WalRecoveryTest {
         check(Files.exists(directory.resolve("collision.wal.torn-" + collisionOffset + "-1")),
                 "evidence collision receives a unique suffix");
 
+        Path partialHeader = directory.resolve("partial-header.wal");
+        createJournal(partialHeader);
+        long partialHeaderValidSize = Files.size(partialHeader);
+        Files.write(partialHeader, new byte[]{0x50, 0x58, 0x4A, 0x31, 0x00, 0x00}, StandardOpenOption.APPEND);
+        try (PlacementJournal recovered = new PlacementJournal(partialHeader)) {
+            check(recovered.events().size() == 1, "matching partial frame header recovers valid prefix");
+            check(Files.size(partialHeader) == partialHeaderValidSize, "partial header bytes are truncated");
+        }
+
         Path garbage = directory.resolve("garbage.wal");
         createJournal(garbage);
         Files.write(garbage, new byte[]{0x11, 0x22, 0x33, 0x44}, StandardOpenOption.APPEND);
