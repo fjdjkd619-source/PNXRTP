@@ -118,11 +118,11 @@ diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.ja
      }
  
 +    @Override
-+    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++    public com.dfsek.terra.api.world.PlacementScope beginPlacement(PlacementDescriptor descriptor) {
 +        if(delegate instanceof PlacementScopeProvider provider) {
 +            return provider.beginPlacement(descriptor.offset(offsetX, offsetY, offsetZ));
 +        }
-+        return PlacementScope.noop();
++        return com.dfsek.terra.api.world.PlacementScope.noop();
 +    }
  
 +
