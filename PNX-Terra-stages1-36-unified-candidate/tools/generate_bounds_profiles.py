@@ -557,7 +557,7 @@ def main():
         "feature_roots": len(roots),
         "profiles_generated": len(profiles),
         "static_profiles": len(profiles) - fallback_count,
-        "bounded_fail_closed_profiles": fallback_count,
+        "unverified_deny_all_profiles": fallback_count,
         "yaml_definitions_parsed": len(yaml_defs),
         "yaml_parse_errors": len(yaml_errors),
         "output": str(args.output),
