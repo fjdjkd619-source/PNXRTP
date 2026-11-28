@@ -1,0 +1,27 @@
+id: FANTASY_UNDERGROUND_CRYPTS
+type: FEATURE
+
+distributor:
+  type: PADDED_GRID
+  width: 384
+  padding: 128
+  salt: 48103
+
+locator:
+  type: AND
+  locators:
+    - type: RANDOM
+      amount: 1
+      height: &range
+        min: ${meta.yml:bottom-y} + 20
+        max: ${meta.yml:ocean-level} - 24
+    - type: PATTERN
+      range: *range
+      pattern:
+        type: MATCH_SOLID
+        offset: 0
+
+structures:
+  distribution:
+    type: CONSTANT
+  structures: fantasy_underground_crypt

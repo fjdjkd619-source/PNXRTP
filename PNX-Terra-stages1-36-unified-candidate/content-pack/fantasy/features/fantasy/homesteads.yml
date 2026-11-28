@@ -1,0 +1,19 @@
+id: FANTASY_HOMESTEADS
+type: FEATURE
+
+distributor:
+  type: PADDED_GRID
+  width: 768
+  padding: 256
+  salt: 48102
+
+locator:
+  type: SURFACE
+  range:
+    min: ${meta.yml:ocean-level} + 3
+    max: $meta.yml:top-y
+
+structures:
+  distribution:
+    type: CONSTANT
+  structures: fantasy_homestead

@@ -1,0 +1,19 @@
+id: FANTASY_CASTLE_KEEPS
+type: FEATURE
+
+distributor:
+  type: PADDED_GRID
+  width: 2048
+  padding: 512
+  salt: 48101
+
+locator:
+  type: SURFACE
+  range:
+    min: ${meta.yml:ocean-level} + 3
+    max: $meta.yml:top-y
+
+structures:
+  distribution:
+    type: CONSTANT
+  structures: fantasy_castle_keep

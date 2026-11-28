@@ -18,24 +18,31 @@ cp "$PACK/features/fantasy/"*.yml "$TERRA_CONFIG/features/fantasy/"
 cp "$PACK/structures/fantasy/"*.tesf "$TERRA_CONFIG/structures/fantasy/"
 python3 - "$TERRA_CONFIG/biomes/abstract/base.yml" <<'PY'
 from pathlib import Path
+import re
 import sys
+
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-feature = "    - FANTASY_RUINED_WATCHTOWERS"
-if feature not in text:
-    old = "  structures:\n    - MOB_ROOMS"
-    if old not in text:
-        raise SystemExit("Unexpected base biome structures list; refusing to patch")
-    text = text.replace(old, old + "\n" + feature, 1)
-landforms = """  landforms:
-    - FANTASY_FLOATING_ISLANDS
-    - FANTASY_CRYSTAL_CLUSTERS
-"""
-if "  landforms:\n" not in text:
-    text = text.rstrip() + "\n" + landforms
-else:
-    for item in ("    - FANTASY_FLOATING_ISLANDS", "    - FANTASY_CRYSTAL_CLUSTERS"):
-        if item not in text:
-            text = text.rstrip() + "\n" + item + "\n"
+
+def add_feature_list(stage: str, feature_ids: list[str]) -> None:
+    global text
+    match = re.search(rf"(?m)^  {re.escape(stage)}:\n((?:    - [A-Z0-9_]+\n)+)", text)
+    if not match:
+        raise SystemExit(f"Expected base biome feature list missing: {stage}")
+    existing = match.group(1)
+    missing = [feature for feature in feature_ids if f"    - {feature}\n" not in existing]
+    if missing:
+        text = text[:match.end()] + "".join(f"    - {feature}\n" for feature in missing) + text[match.end():]
+
+add_feature_list("structures", [
+    "FANTASY_RUINED_WATCHTOWERS",
+    "FANTASY_CASTLE_KEEPS",
+    "FANTASY_HOMESTEADS",
+    "FANTASY_UNDERGROUND_CRYPTS",
+])
+add_feature_list("landforms", [
+    "FANTASY_FLOATING_ISLANDS",
+    "FANTASY_CRYSTAL_CLUSTERS",
+])
 path.write_text(text, encoding="utf-8")
 PY

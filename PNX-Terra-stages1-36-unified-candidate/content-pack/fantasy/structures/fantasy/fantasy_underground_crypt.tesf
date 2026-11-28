@@ -1,0 +1,12 @@
+// Small underground crypt chamber. Bounded 9x7x9 envelope.
+for (num x = -4; x <= 4; x = x + 1) {
+    for (num y = -3; y <= 3; y = y + 1) {
+        for (num z = -4; z <= 4; z = z + 1) {
+            if (x * x == 16 || z * z == 16 || y == -3 || y == 3) {
+                block(x, y, z, "minecraft:deepslate_bricks");
+            } else {
+                block(x, y, z, "minecraft:air");
+            }
+        }
+    }
+}

@@ -1,0 +1,12 @@
+// Small timber homestead with stone foundation, wooden walls and roof.
+for (num y = 0; y <= 5; y = y + 1) {
+    for (num x = -3; x <= 3; x = x + 1) {
+        for (num z = -3; z <= 3; z = z + 1) {
+            if (y == 0) {
+                block(x, y, z, "minecraft:cobblestone");
+            } else if (y == 5 || x * x == 9 || z * z == 9) {
+                block(x, y, z, "minecraft:oak_planks");
+            }
+        }
+    }
+}

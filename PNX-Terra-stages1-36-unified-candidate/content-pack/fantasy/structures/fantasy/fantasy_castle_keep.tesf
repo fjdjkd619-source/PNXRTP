@@ -1,0 +1,10 @@
+// Compact castle keep. A bounded 13x13 footprint and 12-block height.
+for (num y = 0; y <= 11; y = y + 1) {
+    for (num x = -6; x <= 6; x = x + 1) {
+        for (num z = -6; z <= 6; z = z + 1) {
+            if (y == 0 || x * x == 36 || z * z == 36) {
+                block(x, y, z, "minecraft:stone_bricks");
+            }
+        }
+    }
+}
