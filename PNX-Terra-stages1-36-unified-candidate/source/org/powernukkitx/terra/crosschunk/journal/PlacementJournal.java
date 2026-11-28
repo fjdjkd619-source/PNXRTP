@@ -36,7 +36,14 @@ public final class PlacementJournal implements AutoCloseable {
     private final Set<AnchorId> completedAnchors = new HashSet<>();
     private final Set<AnchorId> startedAnchors = new HashSet<>();
     private final Map<ChunkId, String> appliedDigests = new HashMap<>();
+    private final Map<String, Long> placementSequences = new HashMap<>();
+    private final Map<AnchorId, Long> startedAnchorSequences = new HashMap<>();
+    private final Map<AnchorId, Long> completedAnchorSequences = new HashMap<>();
+    private final Map<ChunkId, Long> appliedSequences = new HashMap<>();
     private long nextSequence = 1;
+    private long recoveryDurationNanos;
+    private long recoveredTailBytes;
+    private boolean closed;
 
     public PlacementJournal(Path path) throws IOException {
         this.path = Objects.requireNonNull(path, "path");
