@@ -1,6 +1,6 @@
-# PNX–Terra Stage 1–42 status — 2026-11-28
+# PNX–Terra Stage 1–43 status — 2026-11-28
 
-**Integration gate: BLOCKED for production. Do not deploy.** The complete Stage 1–42 patch chain now applies successfully to clean pinned PNX, Terra and PNX-Terra checkouts; Java 21 overlay and contract validation passes. The full Gradle build is still in progress/retry after a prior Terra Loom `ClosedFileSystemException`, and no server runtime/recovery certification exists.
+**Integration gate: BLOCKED for production. Do not deploy.** Stage 1–42 applies to the clean pinned PNX, Terra 6.6.1 and adapter checkouts. Stage 43 adds a versioned, integrity-checked checkpoint snapshot codec to the source overlay and adapter patch chain; its regression test is written but intentionally deferred. Stages 44–50 remain open. The compile-only Gradle run that was triggered automatically on the preceding Stage 42 candidate is not a release build and must not be used as the Stage 43 artifact. Build and test workflows are now manual-only until Stage 50; all Terra, PNX and adapter Gradle build commands use `-x test`. See `STAGES43-50.md` for remaining work and acceptance gates.
 
 ## Added in Stage 27–36 candidate
 - Stage 27: immutable entity-spawn intents; deterministic UUID from placement identity + spawn ordinal; global UUID ownership collision rejection; WAL version 4 with backwards read compatibility for versions 1–3; target projection and digest coverage; fail-closed finalization apply/rollback/confirm hooks.
