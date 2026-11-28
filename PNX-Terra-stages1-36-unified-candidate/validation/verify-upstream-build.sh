@@ -13,6 +13,16 @@ for spec in "$PNX:$PNX_REF:PowerNukkitX" "$TERRA:016961c19c41c2501737599175937ae
   actual="$(git -C "$dir" rev-parse HEAD)"
   [[ "$actual" == "$expected" ]] || { echo "$name ref mismatch; expected $expected got $actual" >&2; exit 1; }
 done
+# Terra's pinned monorepo auto-includes the optional Allay platform, whose
+# org.allaymc:stateupdater:master-SNAPSHOT dependency is not published at the
+# pinned revision. Exclude only that unrelated platform; retain the full Gradle
+# build for Terra API, implementation, addons, Bukkit/NMS and Minestom projects.
+grep -q 'includeImmediateChildren(file("platforms")' "$TERRA/settings.gradle.kts" || {
+  echo "Unexpected Terra settings.gradle.kts layout; refusing to alter the build graph" >&2
+  exit 1
+}
+grep -q 'type == "platform" && it.name == "allay"' "$TERRA/settings.gradle.kts" || \
+  sed -i '/if (!it.isDirectory || !File(it, "build.gradle.kts").exists()) return@forEach/a\        if (type == "platform" && it.name == "allay") return@forEach' "$TERRA/settings.gradle.kts"
 # Build the exact Terra 6.6.1 Bukkit-common distribution consumed by the PNX adapter.
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
 (cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build --stacktrace)
