@@ -17,7 +17,13 @@ public final class PnxPlacementCommitter {
     public static long commit(CrossChunkDependencyScheduler.PlacementTicket ticket, PlacementKey key,
                               BlockManager staged, java.util.List<org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent> entities,
                               java.util.List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> physics)throws IOException{
+        return commit(ticket,key,staged,entities,physics,java.util.List.of());
+    }
+    public static long commit(CrossChunkDependencyScheduler.PlacementTicket ticket, PlacementKey key,
+                              BlockManager staged, java.util.List<org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent> entities,
+                              java.util.List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> physics,
+                              java.util.List<org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent> entitySpawns)throws IOException{
         Objects.requireNonNull(ticket,"ticket");
-        return ticket.commit(PnxPlacementRecordFactory.fromBlockManager(key,staged,entities,physics));
+        return ticket.commit(PnxPlacementRecordFactory.fromBlockManager(key,staged,entities,physics,entitySpawns));
     }
 }
