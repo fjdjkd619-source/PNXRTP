@@ -36,3 +36,14 @@ WalAudit.java and WalScale.java are diagnostic harnesses, not proof of productio
 The R14 branch tree at the inspected base commit contains the candidate ZIP archive and a separate legacy PNXRTP plugin source tree; it does not expose the generator's unpacked Maven/Gradle source tree as ordinary text files. The GitHub text-file interface rejects the ZIP blob as non-UTF-8, so the archive could not be extracted or built in this environment during this pass.
 
 No claim is made that stage 37 is applied, that stages 1-36 build, or that a server JAR is ready. The next implementation pass must work against the extracted R14 source tree, apply the corrected recovery logic, run the stage-37 tests, then perform the clean upstream build and the physical block-update/replay integration checks.
+
+## R15 implementation status — 2026-11-28
+
+The blocking recovery defect described above is corrected in `PNX-Terra-stages1-36-unified-candidate/source/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java`:
+
+- A complete frame with a bad CRC, bad magic, invalid length, malformed event or sequence gap now fails closed. Recovery does not truncate or rewrite that WAL.
+- Only a matching partial magic/header or a sane complete header whose declared frame extends beyond EOF is treated as a torn final write.
+- The torn suffix is preserved with collision-safe `CREATE_NEW` evidence naming before truncation.
+- Regression tests cover payload corruption, CRC corruption, invalid magic, unrecognized trailing bytes, partial headers, evidence collisions and unchanged source bytes on complete-frame corruption.
+
+The R15 Java 21 independent core validation passed in GitHub Actions run 46146027245 (commit `26f73b2c4d12a4cc425bcf7458655ea59bb275ff`). This is not a full upstream Gradle build or runtime certification; production remains blocked pending clean exact-ref PNX/Terra/adapter integration and live persistence/replay tests.
