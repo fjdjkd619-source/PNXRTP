@@ -73,3 +73,21 @@ The Stage 27–34 tests validate platform-neutral contracts only. The Stage 35�
 - `PlacementJournalEncodingLimitTest` covers exact-limit acceptance, single-byte overflow, bulk-write overflow, backing-buffer non-growth on rejection, and a zero-byte limit.
 - GitHub Actions run [46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903), commit `0f1d6508b57581d4825e9e4591f163512e3ef69e`: SUCCESS. Java 21 compilation, platform-neutral suites, PNX delegate contract, BlockEntity contract, runtime contract, entity-spawn contract, Stage 36 API fixture and shell/patch checks all passed.
 - This closes the pre-serialization allocation defect for placement frames. It does **not** solve append-only WAL growth, retained in-memory indexes, compaction/checkpointing, or the missing Stage 37–42 upstream patch/apply chain.
+
+
+## Exact pinned PNX patch-chain validation — follow-up R15
+
+GitHub Actions [46147409727](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46147409727) — **SUCCESS** on commit `adc59b3a224bc4a9d3c19c752200074131d0e7a7`.
+
+The workflow checks and applies the PNX patches against the exact pinned PowerNukkitX commit `c57499365737654eca32df008751ef6bca5af142` in the active order: Stage 7 async pipeline → Stage 11 durable LevelDB write → rebased Stage 18 async dependency API → Stage 22 spawner delay → Stage 35 rollback API → rebased Stage 36 deferred entity lifecycle. This confirms patch applicability and ordering on the pinned PNX source; it is **not** a PNX Gradle compile.
+
+Corrections made to reach this result:
+- Stage 18 PNX patch was rebased on top of Stage 7 rather than retaining conflicting pre-Stage-7 method bodies. It now adds the named-stage generation queue and future-returning API without reverting Stage 7 failure callbacks.
+- Stage 11 durable write patch was rebased to the actual `LevelDBStorage` API and corrected to construct `WriteOptions`, call `sync(true)`, then pass it to `db.write`.
+- Stage 36 entity patch was rebased on the actual pinned `Entity.java` after Stage 35. The verification checks staged spawn-event handling occurs before chunk/Level registration and that registration for durable save and activation methods exist.
+- The Stage 37–42 adapter patch applies to the extracted Stage 36 overlay baseline and its output byte-matches the R15 source/test overlay.
+- `apply-stages1-42.sh` now applies the full Stage 1–36 runner followed by the Stage 37–42 WAL patch.
+
+Latest Java 21 source-overlay test output: `Stage37WalRecoveryTest: PASS (36 assertions)`; `PlacementJournalEncodingLimitTest: PASS (6 assertions)`. All other core and adapter contract jobs in the workflow also passed.
+
+Still not certified: clean exact-ref Terra and PNX-Terra adapter patch application as one full chain, full Gradle builds of modified PNX/Terra/adapter, integrated JAR packaging, live server generation, crash/restart/replay tests, and long-duration memory/disk soak. WAL compaction/checkpointing and unbounded retained journal history remain open. Production gate remains BLOCKED.
