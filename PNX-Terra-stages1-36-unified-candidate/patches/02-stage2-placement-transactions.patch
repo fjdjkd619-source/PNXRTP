@@ -1,17 +1,18 @@
 diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
-index 0000000..1111111 100644
 --- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
 +++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
-@@ -1,5 +1,8 @@
- package org.powernukkitx.terra.delegate;
+@@ -2,6 +2,9 @@
  
+ import org.powernukkitx.block.Block;
+ import org.powernukkitx.block.BlockID;
 +import com.dfsek.terra.api.world.PlacementDescriptor;
 +import com.dfsek.terra.api.world.PlacementScope;
 +import com.dfsek.terra.api.world.PlacementScopeProvider;
- import org.powernukkitx.block.Block;
- import org.powernukkitx.block.BlockID;
  import org.powernukkitx.level.Level;
-@@ -19,8 +22,21 @@
+ import org.powernukkitx.level.Position;
+ import org.powernukkitx.level.format.IChunk;
+@@ -20,11 +23,19 @@
+ import com.dfsek.terra.api.world.chunk.generation.ChunkGenerator;
  
  import java.util.Objects;
 +import java.util.ArrayDeque;
@@ -26,15 +27,12 @@ index 0000000..1111111 100644
  
      private final TerraGenerator generatorWrapper;
      private final BlockManager level;
-+    /*
-+     * A generation stage owns one PNXServerWorld and runs its Terra stages on
-+     * the generation worker. ThreadLocal prevents unrelated generation workers
-+     * from accidentally sharing a structure transaction.
-+     */
 +    private final ThreadLocal<Deque<WriteTransaction>> transactions =
 +            ThreadLocal.withInitial(ArrayDeque::new);
  
-@@ -42,6 +58,7 @@
+     public PNXServerWorld(TerraGenerator generatorWrapper, Level level) {
+         this.generatorWrapper = generatorWrapper;
+@@ -40,6 +51,7 @@
      }
  
      public void apply(IChunk chunk) {
@@ -42,8 +40,7 @@ index 0000000..1111111 100644
          for(Block b : level.getBlocks()) {
              if(b.getChunk() != chunk) {
                  level.getChunk(b.getChunkX(), b.getChunkZ());
-@@ -52,23 +69,154 @@
- 
+@@ -51,27 +63,169 @@
      @Override
      public void setBlockState(int x, int y, int z, BlockState blockState, boolean b) {
          var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
@@ -51,19 +48,6 @@ index 0000000..1111111 100644
 -        if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)) {
 -            level.setBlockStateAt(x, y, z, innerBlockState);
 -            level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
--            return;
--        }
--
--        var ob = level.getBlockAt(x, y, z);
--        if (Objects.equals(ob.getId(), BlockID.WATERLILY)
--                || Objects.equals(ob.getId(), BlockID.WATER)
--                || Objects.equals(ob.getId(), BlockID.FLOWING_WATER)) {
--
--            level.setBlockStateAt(x, y, z, innerBlockState);
--            level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
--        } else {
--            level.setBlockStateAt(x, y, z, innerBlockState);
--        }
 +        WriteTransaction current = currentTransaction();
 +        if (current != null) {
 +            String previousId = current.readBlockId(x, y, z);
@@ -72,28 +56,35 @@ index 0000000..1111111 100644
 +                    || isWaterLike(previousId)) {
 +                current.write(x, y, z, PNXProtoChunk.water, 1);
 +            }
-+            return;
-+        }
+             return;
+         }
+-
+-        var ob = level.getBlockAt(x, y, z);
+-        if (Objects.equals(ob.getId(), BlockID.WATERLILY)
+-                || Objects.equals(ob.getId(), BlockID.WATER)
+-                || Objects.equals(ob.getId(), BlockID.FLOWING_WATER)) {
 +        writeDirect(x, y, z, innerBlockState);
-     }
++    }
  
+-            level.setBlockStateAt(x, y, z, innerBlockState);
 +    private void writeDirect(int x, int y, int z, org.powernukkitx.block.BlockState state) {
 +        if (Objects.equals(state.getIdentifier(), BlockID.KELP)
 +                || isWaterLike(level.getBlockIfCachedOrLoaded(x, y, z).getId())) {
 +            level.setBlockStateAt(x, y, z, state);
-+            level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
-+        } else {
+             level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+         } else {
+-            level.setBlockStateAt(x, y, z, innerBlockState);
 +            level.setBlockStateAt(x, y, z, state);
-+        }
-+    }
-+
+         }
+     }
+ 
 +    private static boolean isWaterLike(String id) {
 +        return Objects.equals(id, BlockID.WATER)
 +                || Objects.equals(id, BlockID.FLOWING_WATER)
 +                || Objects.equals(id, BlockID.WATERLILY);
 +    }
 +
-+    @Override
+     @Override
 +    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
 +        Deque<WriteTransaction> stack = transactions.get();
 +        WriteTransaction parent = stack.peek();
@@ -214,8 +205,8 @@ index 0000000..1111111 100644
 +    private record BlockWrite(int x, int y, int z, int layer,
 +                              org.powernukkitx.block.BlockState state) {}
 +
-@@ -74,5 +222,15 @@
-     @Override
++
++    @Override
      public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
 +        if (currentTransaction() != null) {
 +            /*
@@ -230,7 +221,7 @@ index 0000000..1111111 100644
          String identifier = (String) entityType.getHandle();
          org.powernukkitx.entity.Entity nukkitEntity =
                  org.powernukkitx.entity.Entity.createEntity(
-@@ -85,7 +233,14 @@
+@@ -83,7 +237,14 @@
  
      @Override
      public BlockState getBlockState(int x, int y, int z) {
@@ -245,27 +236,29 @@ index 0000000..1111111 100644
 +        return PNXAdapter.adapt(level.getBlockIfCachedOrLoaded(x, y, z).getBlockState());
      }
  
- 
+     @Override
+
 diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
-index 0000000..2222222 100644
 --- a/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
 +++ b/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
-@@ -1,4 +1,7 @@
- package org.powernukkitx.terra.delegate;
+@@ -2,6 +2,9 @@
  
+ import lombok.extern.slf4j.Slf4j;
+ import org.powernukkitx.level.Position;
 +import com.dfsek.terra.api.world.PlacementDescriptor;
 +import com.dfsek.terra.api.world.PlacementScope;
 +import com.dfsek.terra.api.world.PlacementScopeProvider;
- import lombok.extern.slf4j.Slf4j;
- import org.powernukkitx.level.Position;
-@@ -13,5 +16,13 @@
+ import com.dfsek.terra.api.block.entity.BlockEntity;
+ import com.dfsek.terra.api.block.state.BlockState;
+ import com.dfsek.terra.api.config.ConfigPack;
+@@ -13,9 +16,17 @@
  import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
  
  @Slf4j
 -public record PNXProtoWorld(ServerWorld serverWorld, int centerChunkX, int centerChunkZ) implements ProtoWorld {
 +public record PNXProtoWorld(ServerWorld serverWorld, int centerChunkX, int centerChunkZ) implements ProtoWorld, PlacementScopeProvider {
  
-+    @Override
+     @Override
 +    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
 +        if (serverWorld instanceof PlacementScopeProvider provider) {
 +            return provider.beginPlacement(descriptor);
@@ -273,7 +266,12 @@ index 0000000..2222222 100644
 +        return PlacementScope.noop();
 +    }
 +
-@@ -39,11 +50,4 @@
++    @Override
+     public int centerChunkX() {
+         return centerChunkX;
+     }
+@@ -37,14 +48,7 @@
+ 
      @Override
      public Entity spawnEntity(double v, double v1, double v2, EntityType entityType) {
 -        String identifier = (String) entityType.getHandle();
@@ -286,3 +284,5 @@ index 0000000..2222222 100644
 -        }
 +        return serverWorld.spawnEntity(v, v1, v2, entityType);
      }
+ 
+     @Override
