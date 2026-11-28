@@ -2,8 +2,9 @@ name: R15 full Gradle build and JAR artifacts
 # Rebuild with Beta8 camera source overlay and validated shell syntax.
 
 on:
-  # Deliberately manual until Stage 50 is complete; do not build intermediate stages.
   workflow_dispatch:
+  push:
+    branches: [R15]
 
 concurrency:
   group: r15-full-gradle-build
@@ -55,7 +56,7 @@ jobs:
       - name: Configure Gradle dependency cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Apply complete Stage 1–47 patch chain
+      - name: Apply Stage 1–47 patches and Stage 48 source overlays
         run: |
           bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-47.sh \
             --pnx "$GITHUB_WORKSPACE/pnx" \
