@@ -39,7 +39,9 @@ public final class JournalCheckpointTest {
         JournalCheckpoint.writeAtomically(file, snapshot);
         JournalCheckpoint.Snapshot restored = JournalCheckpoint.read(file);
         require(snapshot.equals(restored), "checkpoint round-trip changed logical state");
-        require(Files.list(directory).count() == 1L, "temporary checkpoint file was left behind");
+        try (var files = Files.list(directory)) {
+            require(files.count() == 1L, "temporary checkpoint file was left behind");
+        }
     }
 
     private static void rejectsPayloadTamperingWithoutModifyingCheckpoint() throws Exception {
