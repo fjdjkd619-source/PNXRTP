@@ -47,12 +47,18 @@ final class PNXStagedEntityDelegate implements Entity {
     }
 
     private void setPosition(double x, double y, double z) {
-        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
-            throw new IllegalArgumentException("Staged entity coordinates must be finite");
-        }
+        validatePosition(x, y, z);
         this.x = x;
         this.y = y;
         this.z = z;
+    }
+
+    private static void validatePosition(double x, double y, double z) {
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
+                || x < Integer.MIN_VALUE || x > Integer.MAX_VALUE
+                || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Staged entity coordinates must be finite and horizontally representable");
+        }
     }
 
     @Override
