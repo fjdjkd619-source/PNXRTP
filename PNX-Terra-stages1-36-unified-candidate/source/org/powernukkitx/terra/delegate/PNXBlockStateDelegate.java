@@ -70,7 +70,12 @@ public record PNXBlockStateDelegate(org.powernukkitx.block.BlockState innerBlock
 
     @Override
     public BlockType getBlockType() {
-        return new PNXBlockType(innerBlockState);
+        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
+        if (properties == null) {
+            throw new IllegalStateException("PNX block properties are not registered for "
+                    + innerBlockState.getIdentifier());
+        }
+        return new PNXBlockType(properties.getDefaultState());
     }
 
     @Override
