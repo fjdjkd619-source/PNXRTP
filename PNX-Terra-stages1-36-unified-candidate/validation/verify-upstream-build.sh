@@ -143,22 +143,6 @@ ADAPTER_BUILD="$ADAPTER/build.gradle.kts"
 PNX_BUILT_JAR="$PNX/build/powernukkitx.jar"
 [[ -s "$PNX_BUILT_JAR" ]] || { echo "Missing compiled PNX shaded JAR: $PNX_BUILT_JAR" >&2; exit 1; }
 [[ -f "$ADAPTER_BUILD" ]] || { echo "Missing adapter build file" >&2; exit 1; }
-# The pinned adapter consumes Terra's manually staged shaded JAR with an intentionally
-# minimal POM. Its API signatures expose Seismic vector types, so add the exact Terra
-# 6.6.1 Seismic API as a compile-only dependency. The Terra shaded runtime JAR supplies
-# these classes at runtime; do not package a second copy in the adapter.
-python3 - "$ADAPTER_BUILD" <<'PY'
-import pathlib, sys
-path = pathlib.Path(sys.argv[1])
-content = path.read_text()
-dependency = '    compileOnly("com.dfsek:seismic:2.5.7")'
-if dependency not in content:
-    marker = '    implementation("org.powernukkitx:Terra:6.6.1-BETA")'
-    if marker not in content:
-        raise SystemExit("Expected Terra adapter dependency block not found; refusing unsafe rewrite")
-    content = content.replace(marker, dependency + "\\n" + marker, 1)
-path.write_text(content)
-PY
 python3 - "$ADAPTER_BUILD" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
