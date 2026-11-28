@@ -5,6 +5,7 @@ import com.dfsek.terra.api.util.vector.Vector3;
 import com.dfsek.terra.api.world.ServerWorld;
 import org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent;
 import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
+import org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard;
 
 import java.util.Objects;
 
@@ -16,6 +17,7 @@ final class PNXStagedEntityDelegate implements Entity {
     private final String identifier;
     private final Object stagedHandle = new Object();
     private final PNXServerWorld owner;
+    private final PlacementRuntimeGuard guard;
     private final org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard guard;
     private double x;
     private double y;
@@ -25,6 +27,7 @@ final class PNXStagedEntityDelegate implements Entity {
                             org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard guard) {
         this.identifier = Objects.requireNonNull(identifier, "identifier");
         this.owner = Objects.requireNonNull(owner, "owner");
+        this.guard = Objects.requireNonNull(guard, "guard");
         this.guard = Objects.requireNonNull(guard, "guard");
         setPosition(x, y, z);
     }
@@ -39,6 +42,7 @@ final class PNXStagedEntityDelegate implements Entity {
         Objects.requireNonNull(position, "position");
         guard.beforeEntityMove((int) Math.floor(position.getX()), (int) Math.floor(position.getY()),
                 (int) Math.floor(position.getZ()));
+        guard.beforeEntityMove((int) Math.floor(position.getX()), (int) Math.floor(position.getY()), (int) Math.floor(position.getZ()));
         setPosition(position.getX(), position.getY(), position.getZ());
     }
 
@@ -70,6 +74,7 @@ final class PNXStagedEntityDelegate implements Entity {
 
     EntitySpawnIntent toIntent(PlacementKey key, int ordinal) {
         Objects.requireNonNull(key, "key");
+        guard.beforeEntityMove((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
         return new EntitySpawnIntent(
                 EntitySpawnIntent.deterministicUuid(key.stableId(), ordinal),
                 identifier, x, y, z, 0.0f, 0.0f, new byte[0]);
