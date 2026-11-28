@@ -59,6 +59,7 @@ jobs:
           git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/35-pnx-entity-rollback-api.patch"
           git -C pnx-pinned apply "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/35-pnx-entity-rollback-api.patch"
           git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/36-pnx-deferred-entity-api.patch"
+          git -C pnx-pinned apply "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/36-pnx-deferred-entity-api.patch"
       - name: Compile and run platform-neutral regression suites
         working-directory: PNX-Terra-stages1-36-unified-candidate
         run: bash validation/run-core-tests.sh
