@@ -219,12 +219,19 @@ public final class PlacementJournal implements AutoCloseable {
         ensureOpen();
         if (payload.length > MAX_FRAME) throw new IOException("Journal frame exceeds maximum size");
         CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
-        ByteBuffer frame = ByteBuffer.allocate(HEADER_BYTES + payload.length + TRAILER_BYTES);
-        frame.putInt(MAGIC).putInt(payload.length).put(payload).putInt((int) crc.getValue()).flip();
+        ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
+        header.putInt(MAGIC).putInt(payload.length).flip();
+        ByteBuffer body = ByteBuffer.wrap(payload);
+        ByteBuffer trailer = ByteBuffer.allocate(TRAILER_BYTES);
+        trailer.putInt((int) crc.getValue()).flip();
         long start = channel.size();
         channel.position(start);
         try {
-            while (frame.hasRemaining()) channel.write(frame);
+            // Write the existing payload array directly. Allocating one combined frame buffer
+            // duplicated up to MAX_FRAME bytes for every concurrent append.
+            while (header.hasRemaining()) channel.write(header);
+            while (body.hasRemaining()) channel.write(body);
+            while (trailer.hasRemaining()) channel.write(trailer);
             channel.force(true);
         } catch (IOException failure) {
             try {
