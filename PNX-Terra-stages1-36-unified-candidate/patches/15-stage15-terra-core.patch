@@ -46,14 +46,21 @@
  import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
  import com.dfsek.terra.api.world.chunk.generation.stage.GenerationStage;
  import com.dfsek.terra.api.world.chunk.generation.util.Column;
-@@ -87,25 +86,23 @@
+@@ -87,25 +86,27 @@
                                                  .getSuitableCoordinates(column.clamp(min, max))
                                                  .forEach(y -> {
                                                      var structure = feature.getStructure(world, x, y, z);
 -                                                    var descriptor = new PlacementDescriptor(
 -                                                        feature.getID(),
 -                                                        structure instanceof StringIdentifiable identifiable
--                                                            ? identifiable.getID()
++                                                    var origin = Vector3Int.of(x, y, z);
++                                                    var random = RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
++                                                            "Xoroshiro128PlusPlus")
++                                                        .create(coordinateSeed * 31 + y);
++                                                    String structureId = structure instanceof IdentifiedStructure identified
++                                                        ? identified.getID()
++                                                        : structure instanceof StringIdentifiable identifiable
+                                                             ? identifiable.getID()
 -                                                            : structure.getClass().getName(),
 -                                                        Vector3Int.of(x, y, z),
 -                                                        Rotation.NONE
@@ -69,14 +76,10 @@
 -                                                                .create(coordinateSeed * 31 + y),
 -                                                            Rotation.NONE);
 -                                                        if(generated) placement.commit();
-+                                                    var origin = Vector3Int.of(x, y, z);
-+                                                    var random = RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
-+                                                            "Xoroshiro128PlusPlus")
-+                                                        .create(coordinateSeed * 31 + y);
-+                                                    if(world instanceof PlacementGuardHost host
-+                                                            && structure instanceof IdentifiedStructure identified) {
++                                                            : structure.getClass().getName();
++                                                    if(world instanceof PlacementGuardHost host) {
 +                                                        try(PlacementGuardHost.PlacementScope placement = host.beginPlacement(
-+                                                                feature.getID(), identified.getID(), origin, Rotation.NONE)) {
++                                                                feature.getID(), structureId, origin, Rotation.NONE)) {
 +                                                            if(placement.accepted()
 +                                                                    && structure.generate(origin, world, random, Rotation.NONE)) {
 +                                                                placement.commit();
@@ -84,7 +87,7 @@
 +                                                                placement.abort();
 +                                                            }
 +                                                        }
-+                                                    } else if(!(world instanceof PlacementGuardHost)) {
++                                                    } else {
 +                                                        structure.generate(origin, world, random, Rotation.NONE);
                                                      }
                                                  });
@@ -104,7 +107,7 @@
  
  
  public class StructureFunction implements Function<Boolean> {
-@@ -78,34 +77,23 @@
+@@ -78,34 +77,27 @@
                  return false;
              }
  
@@ -136,8 +139,12 @@
 +                y.apply(implementationArguments, scope).intValue(), FloatingPointFunctions.round(xz.getZ()));
 +            Rotation childRotation = arguments.getRotation().rotate(rotation1);
 +            if (arguments.getWorld() instanceof PlacementGuardHost host) {
-+                if (!(script instanceof IdentifiedStructure identified)) return false;
-+                try (PlacementGuardHost.PlacementScope nested = host.beginNestedPlacement(identified.getID())) {
++                String nestedStructureId = script instanceof IdentifiedStructure identified
++                    ? identified.getID()
++                    : script instanceof com.dfsek.terra.api.registry.key.StringIdentifiable identifiable
++                        ? identifiable.getID()
++                        : script.getClass().getName();
++                try (PlacementGuardHost.PlacementScope nested = host.beginNestedPlacement(nestedStructureId)) {
 +                    if (!nested.accepted()) return false;
 +                    boolean generated = script instanceof StructureScript structureScript
 +                        ? structureScript.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation, arguments.getRecursions() + 1)
