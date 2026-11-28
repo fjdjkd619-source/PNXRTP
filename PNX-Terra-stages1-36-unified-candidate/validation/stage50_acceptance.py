@@ -55,7 +55,7 @@ def main() -> None:
     script_records = {
         item.get("id"): item for item in inventory.get("scripts", [])
     }
-    catalog_ids = set(re.findall(r'Map\\.entry\\("([^"]+)", profile\\("', catalog))
+    catalog_ids = set(re.findall(r'Map\.entry\("([^"]+)", profile\("', catalog))
 
     checks = []
     for feature_id, structure_id in EXPECTED.items():
@@ -117,7 +117,7 @@ def main() -> None:
         },
         "scope": "static and contract acceptance; live world generation/restart certification remains separate",
     }
-    args.output.write_text(json.dumps(result, indent=2) + "\\n", encoding="utf-8")
+    args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2))
 
 
