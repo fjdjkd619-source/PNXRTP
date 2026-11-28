@@ -1,4 +1,4 @@
-name: Stages 1–25 integration gate
+name: Stages 1–26 integration gate
 
 on:
   workflow_dispatch:
@@ -21,8 +21,8 @@ jobs:
         shell: bash
         run: |
           cat worldgen/stages1-25/STATUS.md
-          if grep -q 'Status: BLOCKED' worldgen/stages1-25/STATUS.md; then
-            echo 'Stages 1–25 are not a complete integrated build.'
+          if grep -Eiq 'BLOCKED|not deployable' worldgen/stages1-25/STATUS.md; then
+            echo 'Stages 1–26 are not a complete integrated build.'
             echo 'The acceptance gate is intentionally closed until the complete upstream integration and runtime tests pass.'
             exit 1
           fi
