@@ -1,6 +1,6 @@
-# PNX–Terra Stage 1–36 status — 2026-11-28
+# PNX–Terra Stage 1–42 status — 2026-11-28
 
-**Integration gate: BLOCKED for production. Do not deploy.** Stages 27–36 core contracts and adapter overlay are added, but the complete patch chain has not been applied and built against clean exact-ref PNX/Terra/PNX-Terra repositories, and no server runtime/recovery certification exists.
+**Integration gate: BLOCKED for production. Do not deploy.** The complete Stage 1–42 patch chain now applies successfully to clean pinned PNX, Terra and PNX-Terra checkouts; Java 21 overlay and contract validation passes. The full Gradle build is still in progress/retry after a prior Terra Loom `ClosedFileSystemException`, and no server runtime/recovery certification exists.
 
 ## Added in Stage 27–36 candidate
 - Stage 27: immutable entity-spawn intents; deterministic UUID from placement identity + spawn ordinal; global UUID ownership collision rejection; WAL version 4 with backwards read compatibility for versions 1–3; target projection and digest coverage; fail-closed finalization apply/rollback/confirm hooks.
@@ -37,7 +37,7 @@
 3. The generic property alias bridge is not populated with a complete verified Terra↔PNX alias catalog or wired to every PNX delegate property.
 4. `GenerationStageGuard` is not yet wrapped around every Terra/PNX stage entry point.
 5. The built-in Origen catalog still has only the previously audited profiles plus a strict runtime fallback.
-6. The complete Stage 1–36 patch chain has not passed a clean exact-ref upstream application and Gradle build.
+6. Clean exact-ref Stage 1–42 patch application now passes. Full Gradle build of the modified upstream checkouts remains unconfirmed; latest serialized build run is pending.
 7. Full runtime generation, BlockEntity/entity persistence, physics, crash/restart/replay, lighting, cross-chunk and load tests remain outstanding.
 8. Integrated JAR packaging is blocked.
 
@@ -65,7 +65,7 @@ The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-
 - Placement serialization is now bounded during encoding at `MAX_FRAME` (64 MiB), before each write reaches the backing buffer. An oversized placement fails with `IOException` instead of first accumulating an arbitrarily large byte array.
 - Added `PlacementJournalEncodingLimitTest` for exact-boundary acceptance, single-byte and bulk overflow, no backing-buffer growth on rejection, and zero-byte limits.
 - Java 21 full source-overlay validation: [GitHub Actions 46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903) — SUCCESS. All workflow steps passed, including platform-neutral regression suites and all existing contract checks.
-- This does not implement WAL compaction/checkpointing or bound retained journal history/indexes. Stages 37–42 still lack upstream patch files and an apply runner. Production remains BLOCKED; do not deploy.
+- This does not implement WAL compaction/checkpointing or bound retained journal history/indexes. Stages 37–42 now have `37-42-wal-hardening.patch` and are included in `apply-stages1-42.sh`. Production remains BLOCKED; do not deploy.
 
 
 ## R15 follow-up: WAL and pinned PNX patch integration
@@ -76,3 +76,14 @@ The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-
 - WAL placement encoding is now bounded during serialization at `MAX_FRAME`, and append avoids a second full-size frame buffer allocation.
 
 **Production remains BLOCKED.** This does not establish a complete Terra + PNX + PNX-Terra adapter patch-chain build, a full Gradle compile, integrated JAR packaging, live server generation, restart/replay correctness, or long-duration memory/disk stability. WAL compaction/checkpointing, PNX physics execution, generic water-layer policy, Terra entity-spawn capture, complete Origen bounds, and complete Terra↔PNX property aliases remain open.
+
+
+## R15 exact-upstream integration recheck — 2026-11-28
+
+- The Stage 7 → Stage 11 → Stage 15 → Stage 18 → Stage 22 → Stage 35 → Stage 36 → Stage 37–42 chain applies successfully to clean pinned PNX (`c57499365737654eca32df008751ef6bca5af142`), Terra (`05ddc8b8a66e17412670647cce78ef837b091256`) and PNX-Terra (`74318b4a1eae95322550f12d5eb8a76d92a93731`) checkouts. The Stage 7/18 overlap is therefore resolved for this exact pinned sequence.
+- Stage 37–42 production patch is now included in `apply-stages1-42.sh`; its source is checked against the Stage 36 overlay baseline. Regression tests remain in the validation overlay rather than being injected into production source patch.
+- Java 21 validation run [46150102841](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46150102841): SUCCESS. This includes shell syntax, every active patch parse, exact Stage 37–42 patch application/byte comparison, Stage 7 then Stage 18 PNX patch checks, all platform-neutral tests, and PNX delegate/BlockEntity/runtime/entity-spawn/Stage 36 API contract checks.
+- The first full Gradle attempt reached Terra's `:common:api:compileJava` but failed in upstream Loom task `:platforms:bukkit:common:validateAccessWidener` with `java.nio.file.ClosedFileSystemException`. This is an upstream build-tool failure, not a reported Java source compilation error. The verification script was changed to disable configuration cache, serialize Gradle workers (`--max-workers=1`) and emit stack traces; the rerun is [46150102841](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46150102841) and must complete before marking upstream build PASS.
+- Stage 15 follow-up also fixes forwarding of `BufferedWorld` offsets into the guarded placement origin. Unidentified structure implementations now retain a stable fallback ID via `StringIdentifiable` or class name instead of being skipped when the guard host is active.
+
+**Still BLOCKED:** WAL compaction/checkpoint and retained-index growth; PNX physics execution; generic water-layer integration; Terra entity-spawn capture; full Origen bounds and Terra↔PNX property aliases; live PNX server generation/restart/replay/soak tests; medieval-fantasy ConfigPack content. Do not deploy.
