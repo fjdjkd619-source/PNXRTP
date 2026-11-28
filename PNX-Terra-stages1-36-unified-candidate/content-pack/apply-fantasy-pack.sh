@@ -28,7 +28,10 @@ def add_feature_list(stage: str, feature_ids: list[str]) -> None:
     global text
     match = re.search(rf"(?m)^  {re.escape(stage)}:\n((?:    - [A-Z0-9_]+\n)+)", text)
     if not match:
-        raise SystemExit(f"Expected base biome feature list missing: {stage}")
+        if stage != "landforms":
+            raise SystemExit(f"Expected base biome feature list missing: {stage}")
+        text = text.rstrip() + f"\n  {stage}:\n" + "".join(f"    - {feature}\n" for feature in feature_ids)
+        return
     existing = match.group(1)
     missing = [feature for feature in feature_ids if f"    - {feature}\n" not in existing]
     if missing:
