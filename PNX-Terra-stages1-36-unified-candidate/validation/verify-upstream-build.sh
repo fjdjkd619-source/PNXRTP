@@ -28,13 +28,27 @@ MAVEN_CENTRAL_MIRROR='https://maven-central.storage-download.googleapis.com/mave
 for settings_file in "$TERRA/settings.gradle.kts" "$PNX/settings.gradle.kts"; do
   [[ -f "$settings_file" ]] || { echo "Missing Gradle settings file: $settings_file" >&2; exit 1; }
   if ! grep -q "$MAVEN_CENTRAL_MIRROR" "$settings_file"; then
-    sed -i '/repositories {/a\\        maven("'"$MAVEN_CENTRAL_MIRROR"'")' "$settings_file"
+    python3 - "$settings_file" "$MAVEN_CENTRAL_MIRROR" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+mirror = sys.argv[2]
+content = path.read_text()
+content = content.replace("repositories {", 'repositories {\n        maven("' + mirror + '")')
+path.write_text(content)
+PY
   fi
 done
 TERRA_BUILDSRC="$TERRA/buildSrc/build.gradle.kts"
 [[ -f "$TERRA_BUILDSRC" ]] || { echo "Missing Terra buildSrc build file" >&2; exit 1; }
 if ! grep -q "$MAVEN_CENTRAL_MIRROR" "$TERRA_BUILDSRC"; then
-  sed -i '/repositories {/a\\    maven("'"$MAVEN_CENTRAL_MIRROR"'")' "$TERRA_BUILDSRC"
+  python3 - "$TERRA_BUILDSRC" "$MAVEN_CENTRAL_MIRROR" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+mirror = sys.argv[2]
+content = path.read_text()
+content = content.replace("repositories {", 'repositories {\n    maven("' + mirror + '")')
+path.write_text(content)
+PY
 fi
 # The pinned Terra revision targets Minecraft 1.21.5. In that mapping VillagerType.PLAINS
 # is a RegistryKey<VillagerType>, while the biome-to-villager map stores VillagerType values.
