@@ -1,8 +1,8 @@
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
-index 0244a2f..ef44726 100644
+index 133c594..359d09d 100644
 --- a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
 +++ b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
-@@ -196,11 +196,19 @@ public final class CrossChunkDependencyScheduler implements AutoCloseable {
+@@ -196,14 +196,18 @@ public final class CrossChunkDependencyScheduler implements AutoCloseable {
      }
  
      public final class AnchorSession implements AutoCloseable{
@@ -11,20 +11,19 @@ index 0244a2f..ef44726 100644
          private AnchorSession(ChunkPos anchor){this.anchor=anchor;}
          public ChunkPos anchor(){return anchor;}
          public PlacementTicket beginPlacement(){
--            lock.lock();try{ensureOpen();if(populationFinished)throw new IllegalStateException("Population already marked finished");inFlight++;return new PlacementTicket(this);}finally{lock.unlock();}
-+            lock.lock();try{
-+                ensureOpen();
-+                if(populationFinished)throw new IllegalStateException("Population already marked finished");
+             lock.lock();try{
+                 ensureOpen();
+                 if(populationFinished)throw new IllegalStateException("Population already marked finished");
+-                inFlight++;return new PlacementTicket(this);
 +                if(nextPlacementOrdinal==Long.MAX_VALUE)throw new IllegalStateException("Per-anchor placement ordinal exhausted");
 +                long ordinal=nextPlacementOrdinal;
 +                nextPlacementOrdinal=Math.incrementExact(nextPlacementOrdinal);
 +                inFlight++;
 +                return new PlacementTicket(this, ordinal);
-+            }finally{lock.unlock();}
+             }finally{lock.unlock();}
          }
          /** Called only after Terra PopulateStage has finished selecting/running all features for this anchor. */
-         public void finishPopulation() throws IOException{
-@@ -215,8 +223,10 @@ public final class CrossChunkDependencyScheduler implements AutoCloseable {
+@@ -219,8 +223,10 @@ public final class CrossChunkDependencyScheduler implements AutoCloseable {
      }
  
      public final class PlacementTicket implements AutoCloseable{
@@ -37,6 +36,15 @@ index 0244a2f..ef44726 100644
          /** WAL append is fsynced before the ticket is released and before the anchor can complete. */
          public long commit(PlacementRecord record) throws IOException{
              if(finished)throw new IllegalStateException("Ticket already finished");
+@@ -228,6 +234,8 @@ public final class CrossChunkDependencyScheduler implements AutoCloseable {
+             try { session.ensureOpen(); } finally { lock.unlock(); }
+             if(!record.key().worldKey().equals(worldKey)||!record.key().anchor().equals(session.anchor))
+                 throw new IllegalArgumentException("Placement key does not belong to this world/anchor session");
++            if(record.key().placementOrdinal()!=ordinal)
++                throw new IllegalArgumentException("Placement key ordinal does not match its ticket");
+             long sequence=journal.appendPlacement(record);finished=true;session.ticketFinished();return sequence;
+         }
+         public void abort(){if(finished)return;finished=true;session.ticketFinished();}
 diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
 index 9008bcb..525e5d9 100644
 --- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
@@ -51,16 +59,47 @@ index 9008bcb..525e5d9 100644
                  guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
                  Thread.currentThread(), journalTicket, journalKey);
 diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
-index 05bc2df..d90c679 100644
+index 05bc2df..ed49341 100644
 --- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
 +++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
-@@ -23,6 +23,9 @@ public final class Stage17DependencySchedulerTest {
+@@ -23,6 +23,19 @@ public final class Stage17DependencySchedulerTest {
              check(!ready.isDone(),"target initially blocked");
              CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
              var ticket=session.beginPlacement();
 +            var secondTicket=session.beginPlacement();
 +            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
 +            secondTicket.abort();
++            var mismatchedTicket=session.beginPlacement();
++            boolean ordinalMismatchRejected=false;
++            try {
++                PlacementKey wrongOrdinal=new PlacementKey("world",1,new ChunkPos(0,0),"feature-mismatch","structure",2,64,2,0,3);
++                mismatchedTicket.commit(new PlacementRecord(wrongOrdinal,List.of()));
++            } catch(IllegalArgumentException expectedFailure) {
++                ordinalMismatchRejected=true;
++            }
++            check(ordinalMismatchRejected,"ticket rejects a journal record carrying another placement ordinal");
++            mismatchedTicket.abort();
              session.finishPopulation();
              check(!ready.isDone(),"population cannot complete with in-flight root placement");
              PlacementKey key=new PlacementKey("world",1,new ChunkPos(0,0),"feature","structure",1,64,1,0,0);
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage19RecoveryTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage19RecoveryTest.java
+index 3b4226b..948bcbe 100644
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage19RecoveryTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage19RecoveryTest.java
+@@ -15,7 +15,7 @@ public final class Stage19RecoveryTest {
+         String world = "recover-world";
+         ChunkPos anchor = new ChunkPos(-3, 7);
+         PlacementRecord record = new PlacementRecord(
+-                new PlacementKey(world, 42L, anchor, "recover-feature", "recover:structure", -48, 20, 112, 2, 9),
++                new PlacementKey(world, 42L, anchor, "recover-feature", "recover:structure", -48, 20, 112, 2, 0),
+                 List.of(new BlockWrite(-49, 21, 113, 1, new byte[]{1, 2, 3})));
+         try (PlacementJournal journal = new PlacementJournal(wal)) {
+             CrossChunkDependencyScheduler scheduler = new CrossChunkDependencyScheduler(world, journal);
+@@ -32,6 +32,7 @@ public final class Stage19RecoveryTest {
+             CrossChunkDependencyScheduler replayScheduler = new CrossChunkDependencyScheduler(world, recovered);
+             var replay = replayScheduler.openAnchor(anchor);
+             var replayTicket = replay.beginPlacement();
++            check(replayTicket.ordinal() == 0L, "incomplete anchor replay restarts deterministic placement ordinals at zero");
+             long sequence = replayTicket.commit(record);
+             check(sequence > 0, "replayed identical root placement is idempotent");
+             replay.finishPopulation();
