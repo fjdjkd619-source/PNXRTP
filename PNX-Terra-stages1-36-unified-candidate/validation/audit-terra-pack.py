@@ -18,6 +18,12 @@ BLOCK_WRITE = re.compile(r"\bblock\s*\(")
 BLOCK_READ = re.compile(r"\b(?:getBlock|blockState|check)\s*\(")
 LOOP = re.compile(r"\bfor\s*\(")
 BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?")
+YAML_FIELD = {
+    "id": re.compile(r"(?m)^id:\s*([A-Za-z0-9_.:/-]+)\s*$"),
+    "type": re.compile(r"(?m)^type:\s*([A-Za-z0-9_.:/-]+)\s*$"),
+    "extends": re.compile(r"(?m)^extends:\s*([A-Za-z0-9_.:/-]+)\s*$"),
+    "size": re.compile(r"(?m)^size:\s*([0-9]+)\s*$"),
+}
 
 
 def git_head(root: Path) -> str:
@@ -36,19 +42,16 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
     saw_structures_key = False
     lines = source.splitlines()
 
-    def add_scalar(raw: str) -> bool:
+    def add_scalar(raw: str) -> None:
         value = raw.split("#", 1)[0].strip()
         if not value:
-            return False
+            return
         if value.startswith("*"):
             value = anchors.get(value[1:], "")
         if value.startswith("BLOCK:"):
             block_targets.add(value)
-            return True
-        if re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
+        elif re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
             roots.add(value)
-            return True
-        return False
 
     for index, line in enumerate(lines):
         match = STRUCTURES_KEY.match(line)
@@ -71,10 +74,27 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
                 add_scalar(nested_key.group("value").strip())
             item = STRUCTURE_LIST_ITEM.match(child)
             if item:
-                roots.add(item.group(1))
+                item_id = item.group(1)
+                if item_id.startswith("BLOCK:"):
+                    block_targets.update(BLOCK_TARGET.findall(child))
+                else:
+                    roots.add(item_id)
             block_targets.update(BLOCK_TARGET.findall(child))
 
     return roots, block_targets, saw_structures_key and not roots and not block_targets
+
+
+def parse_structure_yaml(path: Path, root: Path) -> dict | None:
+    source = path.read_text(encoding="utf-8")
+    record = {"path": path.relative_to(root).as_posix(), "status": "UNKNOWN"}
+    for field, pattern in YAML_FIELD.items():
+        match = pattern.search(source)
+        if match:
+            record[field] = match.group(1)
+    if "id" not in record:
+        return None
+    record["abstract"] = bool(re.search(r"(?m)^abstract:\s*true\s*$", source))
+    return record
 
 
 def main() -> int:
@@ -92,7 +112,9 @@ def main() -> int:
         raise SystemExit(f"ConfigPack HEAD mismatch: expected {args.expected_head}, got {actual_head}")
 
     scripts = sorted(root.rglob("*.tesf"))
+    structure_yamls = sorted(root.glob("structures/**/*.yml"))
     features = sorted(p for p in root.rglob("*.yml") if "features" in p.relative_to(root).parts)
+
     scripts_by_id: dict[str, list[str]] = defaultdict(list)
     script_records = []
     for path in scripts:
@@ -119,28 +141,44 @@ def main() -> int:
             "notes": "Inventory only. No static bounds are certified by this script.",
         })
 
+    structure_definitions = [
+        record for path in structure_yamls
+        if (record := parse_structure_yaml(path, root)) is not None
+    ]
+    config_ids = {record["id"].lower(): record for record in structure_definitions}
+
     root_refs = defaultdict(list)
     unresolved_features = []
+    block_state_targets = set()
     feature_records = []
     for path in features:
         rel = path.relative_to(root).as_posix()
         source = path.read_text(encoding="utf-8")
-        ids, block_targets, unresolved = extract_feature_targets(source)
+        ids, blocks, unresolved = extract_feature_targets(source)
         if unresolved:
             unresolved_features.append(rel)
+        block_state_targets.update(blocks)
         feature_records.append({
             "path": rel,
             "structure_ids": sorted(ids),
-            "block_state_targets": sorted(block_targets),
+            "block_state_targets": sorted(blocks),
         })
-        for script_id in ids:
-            root_refs[script_id].append(rel)
+        for structure_id in ids:
+            root_refs[structure_id].append(rel)
 
     for record in script_records:
         record["root_feature_references"] = sorted(root_refs.get(record["id"], []))
         record["has_root_feature_reference"] = bool(record["root_feature_references"])
+    for record in structure_definitions:
+        record["root_feature_references"] = sorted(root_refs.get(record["id"], []))
+        record["has_root_feature_reference"] = bool(record["root_feature_references"])
 
-    missing = sorted(script_id for script_id in root_refs if script_id.lower() not in scripts_by_id)
+    script_matches = sum(1 for key in root_refs if key.lower() in scripts_by_id)
+    config_matches = sum(1 for key in root_refs if key.lower() in config_ids)
+    missing = sorted(
+        key for key in root_refs
+        if key.lower() not in scripts_by_id and key.lower() not in config_ids
+    )
     duplicate_ids = {
         script_id: paths for script_id, paths in sorted(scripts_by_id.items()) if len(paths) > 1
     }
@@ -148,13 +186,16 @@ def main() -> int:
     summary = {
         "config_pack": "PolyhedralDev/TerraOverworldConfig",
         "git_head": actual_head,
-        "inventory_policy": "Inventory only; every script remains UNKNOWN until separately audited.",
+        "inventory_policy": "Inventory only; every TerraScript and YAML structure remains UNKNOWN until separately audited.",
         "terra_script_count": len(scripts),
+        "structure_yaml_definition_count": len(structure_definitions),
         "feature_yaml_count": len(features),
         "feature_structure_reference_count": sum(len(v) for v in root_refs.values()),
         "unique_feature_root_ids": len(root_refs),
-        "matched_feature_root_ids": sum(1 for key in root_refs if key.lower() in scripts_by_id),
+        "matched_script_roots": script_matches,
+        "matched_yaml_structure_roots": config_matches,
         "unmatched_feature_root_ids": len(missing),
+        "block_state_target_count": len(block_state_targets),
         "unresolved_feature_yaml_count": len(unresolved_features),
         "duplicate_script_id_count": len(duplicate_ids),
         "dynamic_nested_target_script_count": sum(1 for r in script_records if r["dynamic_nested_target"]),
@@ -162,11 +203,13 @@ def main() -> int:
     }
     output = {
         "format": "terra-configpack-source-inventory",
-        "version": 1,
+        "version": 2,
         "summary": summary,
         "scripts": script_records,
+        "structure_definitions": structure_definitions,
         "features": feature_records,
         "unmatched_feature_root_ids": missing,
+        "block_state_targets": sorted(block_state_targets),
         "unresolved_feature_yaml": unresolved_features,
         "duplicate_script_ids": duplicate_ids,
     }
