@@ -30,10 +30,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--expected-head")
     args = parser.parse_args()
     root = args.root.resolve()
     if not root.is_dir():
         raise SystemExit(f"ConfigPack root does not exist: {root}")
+
+    actual_head = git_head(root)
+    if args.expected_head and actual_head != args.expected_head:
+        raise SystemExit(f"ConfigPack HEAD mismatch: expected {args.expected_head}, got {actual_head}")
 
     scripts = sorted(root.rglob("*.tesf"))
     features = sorted(
@@ -90,7 +95,7 @@ def main() -> int:
     status_counts = Counter(record["status"] for record in script_records)
     summary = {
         "config_pack": "PolyhedralDev/TerraOverworldConfig",
-        "git_head": git_head(root),
+        "git_head": actual_head,
         "inventory_policy": "Inventory only; every script remains UNKNOWN until separately audited.",
         "terra_script_count": len(scripts),
         "feature_yaml_count": len(features),
