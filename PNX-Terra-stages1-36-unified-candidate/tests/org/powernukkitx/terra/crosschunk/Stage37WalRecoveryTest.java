@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.zip.CRC32C;
 
 public final class Stage37WalRecoveryTest {
     private static int assertions;
@@ -36,6 +37,36 @@ public final class Stage37WalRecoveryTest {
         magicBytes[0] ^= 0x01;
         Files.write(badMagic, magicBytes);
         assertRejectedUnchanged(badMagic, "complete frame with invalid magic");
+
+        Path shortLength = directory.resolve("short-length.wal");
+        createJournal(shortLength);
+        byte[] shortLengthBytes = Files.readAllBytes(shortLength);
+        ByteBuffer.wrap(shortLengthBytes).order(ByteOrder.BIG_ENDIAN).putInt(4, 9);
+        Files.write(shortLength, shortLengthBytes);
+        assertRejectedUnchanged(shortLength, "complete frame with undersized payload length");
+
+        Path oversizedLength = directory.resolve("oversized-length.wal");
+        createJournal(oversizedLength);
+        byte[] oversizedLengthBytes = Files.readAllBytes(oversizedLength);
+        ByteBuffer.wrap(oversizedLengthBytes).order(ByteOrder.BIG_ENDIAN).putInt(4, 64 * 1024 * 1024 + 1);
+        Files.write(oversizedLength, oversizedLengthBytes);
+        assertRejectedUnchanged(oversizedLength, "complete frame with oversized payload length");
+
+        Path malformedPayload = directory.resolve("malformed-payload.wal");
+        createJournal(malformedPayload);
+        byte[] malformedPayloadBytes = Files.readAllBytes(malformedPayload);
+        malformedPayloadBytes[8] = (byte) 0x7f; // unsupported journal version, valid checksum
+        rewriteChecksum(malformedPayloadBytes);
+        Files.write(malformedPayload, malformedPayloadBytes);
+        assertRejectedUnchanged(malformedPayload, "complete frame with malformed event payload");
+
+        Path sequenceGap = directory.resolve("sequence-gap.wal");
+        createJournal(sequenceGap);
+        byte[] sequenceGapBytes = Files.readAllBytes(sequenceGap);
+        ByteBuffer.wrap(sequenceGapBytes).order(ByteOrder.BIG_ENDIAN).putLong(10, 2L);
+        rewriteChecksum(sequenceGapBytes);
+        Files.write(sequenceGap, sequenceGapBytes);
+        assertRejectedUnchanged(sequenceGap, "complete frame with a sequence gap");
 
         Path torn = directory.resolve("torn.wal");
         createJournal(torn);
@@ -125,6 +156,14 @@ public final class Stage37WalRecoveryTest {
         PlacementKey key = new PlacementKey("world", 123L, new ChunkPos(0, 0),
                 "stage37-test", "test:stone", 1, 64, 1, 0, 0);
         return new PlacementRecord(key, List.of(new BlockWrite(1, 64, 1, 0, new byte[]{1, 2, 3, 4})));
+    }
+
+    private static void rewriteChecksum(byte[] frame) {
+        ByteBuffer header = ByteBuffer.wrap(frame).order(ByteOrder.BIG_ENDIAN);
+        int payloadLength = header.getInt(4);
+        CRC32C crc = new CRC32C();
+        crc.update(frame, 8, payloadLength);
+        header.putInt(8 + payloadLength, (int) crc.getValue());
     }
 
     private static void assertRejectedUnchanged(Path path, String label) throws Exception {
