@@ -9,7 +9,6 @@ diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terr
 -import com.dfsek.terra.api.world.PlacementScope;
 -import com.dfsek.terra.api.world.PlacementScopeProvider;
 +import com.dfsek.terra.api.world.PlacementGuardHost;
-+import com.dfsek.terra.api.structure.IdentifiedStructure;
  import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
  import com.dfsek.terra.api.world.chunk.generation.stage.GenerationStage;
  import com.dfsek.terra.api.world.chunk.generation.util.Column;
@@ -129,6 +128,15 @@ diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/
 diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 --- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 +++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
+@@ -43,6 +43,7 @@
+ import com.dfsek.terra.api.registry.key.RegistryKey;
+ import com.dfsek.terra.api.structure.LootTable;
+ import com.dfsek.terra.api.structure.Structure;
++import com.dfsek.terra.api.structure.IdentifiedStructure;
+ import com.dfsek.terra.api.util.MathUtil;
+ import com.dfsek.terra.api.util.Rotation;
+ import com.dfsek.terra.api.util.vector.Vector3Int;
+
 @@ -49,7 +49,8 @@
  import com.dfsek.terra.api.world.WritableWorld;
  
