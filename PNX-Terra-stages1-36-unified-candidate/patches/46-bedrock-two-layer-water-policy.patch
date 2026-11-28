@@ -680,7 +680,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 +        try {
 +            var waterState = PNXProtoChunk.water;
 +            if (oldLayerOneFluid) {
-+                waterState = tx.staged.getBlockStateAt(x, y, z, 1);
++                waterState = level.getLevel().getBlockStateAt(x, y, z, 1);
 +            } else if (oldBaseFluid) {
 +                waterState = old.getBlockState();
 +            }
