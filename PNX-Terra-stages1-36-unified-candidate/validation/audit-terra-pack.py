@@ -176,6 +176,7 @@ def main() -> int:
     scripts = sorted(root.rglob("*.tesf"))
     all_yamls = sorted(root.rglob("*.yml"))
     structure_yamls = sorted(root.glob("structures/**/*.yml"))
+    palette_yamls = sorted(root.glob("palettes/**/*.yml"))
     features = sorted(p for p in all_yamls if "features" in p.relative_to(root).parts)
     scripts_by_id: dict[str, list[str]] = defaultdict(list)
     script_records = []
@@ -221,7 +222,7 @@ def main() -> int:
             "notes": "Inventory only. No static bounds are certified by this script.",
         })
 
-    for path in all_yamls:
+    for path in palette_yamls:
         record_block_literals(path, path.read_text(encoding="utf-8"))
 
     structure_definitions = []
@@ -314,6 +315,13 @@ def main() -> int:
         "dynamic_nested_target_script_count": sum(1 for r in script_records if r["dynamic_nested_target"]),
         "status_counts": dict(sorted(status_counts.items())),
     }
+    used_block_ids = sorted({state.split("[", 1)[0] for state in block_candidates})
+    pnx_states_by_block = {
+        block_id: sorted(
+            state for state in pnx_state_keys if state.split("[", 1)[0] == block_id
+        )
+        for block_id in used_block_ids
+    }
     block_mapping_audit = {
         "exact_or_normalized_matches": exact_mapped,
         "property_order_only_matches": order_only_matches,
@@ -327,6 +335,7 @@ def main() -> int:
         "missing_block_identifiers": {
             state: sorted(block_sources[state]) for state in missing_block_id
         },
+        "pnx_known_states_by_block": pnx_states_by_block,
         "pnx_mapping_registry": "src/main/resources/mappings/blocks.json",
     }
     output = {
