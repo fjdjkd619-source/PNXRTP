@@ -135,34 +135,25 @@ grep -q 'force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts" |
 # Publish the modified PNX API to Maven Local so the adapter compiles against the patched source, not a remote snapshot.
 (cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build publishToMavenLocal -x test --stacktrace)
 # mavenLocal() is first in the adapter's repositories; both dependencies above are now the patched exact-ref builds.
-# The adapter resolves the PNX Maven-local POM transitively. Mirror the upstream
-# snapshot and legacy native repositories here as well; repositories declared in
-# the PNX checkout do not carry over to this independent Gradle build.
+# Compile the adapter against the exact PNX shaded output produced above.
+# This avoids re-resolving the PNX POM's historical timestamped transitive snapshots
+# (RakNet/libdatachannel/immutable) in a second, independent Gradle build. The PNX
+# shaded JAR already contains those runtime classes; PNX remains compileOnly in adapter.
 ADAPTER_BUILD="$ADAPTER/build.gradle.kts"
+PNX_BUILT_JAR="$PNX/build/powernukkitx.jar"
+[[ -s "$PNX_BUILT_JAR" ]] || { echo "Missing compiled PNX shaded JAR: $PNX_BUILT_JAR" >&2; exit 1; }
 [[ -f "$ADAPTER_BUILD" ]] || { echo "Missing adapter build file" >&2; exit 1; }
 python3 - "$ADAPTER_BUILD" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 content = path.read_text()
-repos = [
-    'maven("https://maven-central.storage-download.googleapis.com/maven2/")',
-    'maven("https://repo.opencollab.dev/maven-snapshots/") { mavenContent { snapshotsOnly() } }',
-    'maven("https://repo.minebench.de/")',
-]
-anchor = "repositories {"
-if anchor not in content:
-    raise SystemExit("Adapter repositories block not found; refusing to rewrite")
-for repo in repos:
-    if repo not in content:
-        content = content.replace(anchor, anchor + "\n    " + repo, 1)
-force = """
-configurations.configureEach {
-    resolutionStrategy.force("org.cloudburstmc.math:immutable:2.0-20220327.162752-1")
-}
-"""
-if 'org.cloudburstmc.math:immutable:2.0-20220327.162752-1' not in content:
-    content += "\n" + force
+old = 'compileOnly("org.powernukkitx:server:nightly-SNAPSHOT")'
+new = 'compileOnly(files(providers.gradleProperty("pnxJar").get()))'
+if old in content:
+    content = content.replace(old, new, 1)
+elif new not in content:
+    raise SystemExit("Expected PNX compileOnly dependency not found; refusing unsafe rewrite")
 path.write_text(content)
 PY
-(cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test --stacktrace)
+(cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test -PpnxJar="$PNX_BUILT_JAR" --stacktrace)
 echo "UPSTREAM_BUILD=PASS"
