@@ -68,7 +68,7 @@ else
 fi
 # Build the exact Terra 6.6.1 Bukkit-common distribution consumed by the PNX adapter.
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
-(cd "$TERRA" && ./gradlew --build-cache --parallel --max-workers=2 build --configuration-cache --configuration-cache-problems=warn -x test --stacktrace)
+(cd "$TERRA" && ./gradlew --build-cache --parallel --max-workers=2 build -x test --stacktrace)
 mapfile -t TERRA_JARS < <(find "$TERRA/platforms/bukkit/common/build/libs" -maxdepth 1 -type f -name '*shaded.jar' | sort)
 [[ "${#TERRA_JARS[@]}" -eq 1 ]] || { echo "Expected exactly one Terra 6.6.1 shaded Bukkit-common jar, found ${#TERRA_JARS[@]}" >&2; printf '%s\n' "${TERRA_JARS[@]}" >&2; exit 1; }
 TERRA_M2="$HOME/.m2/repository/org/powernukkitx/Terra/6.6.1-BETA"
@@ -133,7 +133,7 @@ grep -q 'repo.minebench.de' "$PNX/settings.gradle.kts" || \
 grep -q 'force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts" || \
   sed -i '/cacheChangingModulesFor(10, TimeUnit.MINUTES)/a\        force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts"
 # Publish the modified PNX API to Maven Local so the adapter compiles against the patched source, not a remote snapshot.
-(cd "$PNX" && ./gradlew --build-cache --parallel --max-workers=2 build --configuration-cache --configuration-cache-problems=warn publishToMavenLocal -x test --stacktrace)
+(cd "$PNX" && ./gradlew --build-cache --parallel --max-workers=2 build publishToMavenLocal -x test --stacktrace)
 # mavenLocal() is first in the adapter's repositories; both dependencies above are now the patched exact-ref builds.
 # Compile the adapter against the exact PNX shaded output produced above.
 # This avoids re-resolving the PNX POM's historical timestamped transitive snapshots
@@ -143,6 +143,22 @@ ADAPTER_BUILD="$ADAPTER/build.gradle.kts"
 PNX_BUILT_JAR="$PNX/build/powernukkitx.jar"
 [[ -s "$PNX_BUILT_JAR" ]] || { echo "Missing compiled PNX shaded JAR: $PNX_BUILT_JAR" >&2; exit 1; }
 [[ -f "$ADAPTER_BUILD" ]] || { echo "Missing adapter build file" >&2; exit 1; }
+# The pinned adapter consumes Terra's manually staged shaded JAR with an intentionally
+# minimal POM. Its API signatures expose Seismic vector types, so add the exact Terra
+# 6.6.1 Seismic API as a compile-only dependency. The Terra shaded runtime JAR supplies
+# these classes at runtime; do not package a second copy in the adapter.
+python3 - "$ADAPTER_BUILD" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+content = path.read_text()
+dependency = '    compileOnly("com.dfsek:seismic:2.5.7")'
+if dependency not in content:
+    marker = '    implementation("org.powernukkitx:Terra:6.6.1-BETA")'
+    if marker not in content:
+        raise SystemExit("Expected Terra adapter dependency block not found; refusing unsafe rewrite")
+    content = content.replace(marker, dependency + "\\n" + marker, 1)
+path.write_text(content)
+PY
 python3 - "$ADAPTER_BUILD" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -155,5 +171,5 @@ elif new not in content:
     raise SystemExit("Expected PNX compileOnly dependency not found; refusing unsafe rewrite")
 path.write_text(content)
 PY
-(cd "$ADAPTER" && ./gradlew --build-cache --parallel --max-workers=2 build --configuration-cache --configuration-cache-problems=warn -x test -PpnxJar="$PNX_BUILT_JAR" --stacktrace)
+(cd "$ADAPTER" && ./gradlew --build-cache --parallel --max-workers=2 build -x test -PpnxJar="$PNX_BUILT_JAR" --stacktrace)
 echo "UPSTREAM_BUILD=PASS"
