@@ -138,6 +138,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifact-output/content-pack/terra-overworld-fantasy
           cp -a terra-config/. artifact-output/content-pack/terra-overworld-fantasy/
+          rm -rf artifact-output/content-pack/terra-overworld-fantasy/.git
           cp candidate/PNX-Terra-stages1-36-unified-candidate/content-pack/fantasy/manifest.json \
             artifact-output/content-pack/manifest.json
           cp "$RUNNER_TEMP/terra-configpack-inventory.json" artifact-output/content-pack/
@@ -146,7 +147,7 @@ jobs:
           cp "$RUNNER_TEMP/stage50-acceptance.log" artifact-output/content-pack/
           (
             cd artifact-output
-            find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            find . -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
           )
 
       - name: Upload JAR artifacts
@@ -155,4 +156,5 @@ jobs:
           name: pnx-terra-r15-jars
           path: artifact-output/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
