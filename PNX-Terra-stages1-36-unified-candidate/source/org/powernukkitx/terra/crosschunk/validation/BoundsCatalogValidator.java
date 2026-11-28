@@ -21,11 +21,12 @@ public final class BoundsCatalogValidator {
             if (profile.evidence().isBlank()) errors.add("missing evidence: " + key);
             if (profile.transitiveDependencies().stream().anyMatch(v -> v == null || v.isBlank()))
                 errors.add("invalid dependency entry: " + key);
-            // A wildcard is permitted only for an explicitly bounded emergency profile.
-            // Every nested operation still passes through the shared root PlacementRuntimeGuard.
-            if (profile.transitiveDependencies().contains("*")
-                    && !profile.evidence().contains("BOUNDED_FAIL_CLOSED radius=32"))
-                errors.add("wildcard dependency is only allowed for bounded fallback profiles: " + key);
+            // Wildcards and fallback evidence cannot certify a transitive call graph.
+            if (profile.transitiveDependencies().contains("*"))
+                errors.add("wildcard dependency is not an audited profile: " + key);
+            if (profile.evidence().contains("BOUNDED_FAIL_CLOSED")
+                    || profile.evidence().contains("UNVERIFIED_DENY_ALL"))
+                errors.add("unverified fallback cannot be admitted as a verified profile: " + key);
         }
         return new Validation(byId, errors);
     }
