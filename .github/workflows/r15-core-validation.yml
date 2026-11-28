@@ -9,6 +9,7 @@ on:
       - "PNX-Terra-stages1-36-unified-candidate/tests/**"
       - "PNX-Terra-stages1-36-unified-candidate/patches/**"
       - "PNX-Terra-stages1-36-unified-candidate/validation/**"
+      - "PNX-Terra-stages1-36-unified-candidate/apply-stages*.sh"
       - ".github/workflows/r15-core-validation.yml"
   workflow_dispatch:
 
