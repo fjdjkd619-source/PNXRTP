@@ -280,7 +280,7 @@ public class PNXServerWorld implements ServerWorld {
         try {
             var waterState = PNXProtoChunk.water;
             if (oldLayerOneFluid) {
-                waterState = level.getLevel().getBlockStateAt(x, y, z, 1);
+                waterState = tx.staged.getBlockStateAt(x, y, z, 1);
             } else if (oldBaseFluid) {
                 waterState = old.getBlockState();
             }
