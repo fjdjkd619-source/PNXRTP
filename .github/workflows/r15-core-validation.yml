@@ -1,4 +1,4 @@
-name: R15 core validation
+name: R15 full source-overlay validation
 
 on:
   push:
@@ -7,15 +7,16 @@ on:
     paths:
       - "PNX-Terra-stages1-36-unified-candidate/source/**"
       - "PNX-Terra-stages1-36-unified-candidate/tests/**"
-      - "PNX-Terra-stages1-36-unified-candidate/validation/run-core-tests.sh"
+      - "PNX-Terra-stages1-36-unified-candidate/patches/**"
+      - "PNX-Terra-stages1-36-unified-candidate/validation/**"
       - ".github/workflows/r15-core-validation.yml"
   workflow_dispatch:
 
 jobs:
-  core-tests:
+  java21-validation:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout R15
+      - name: Checkout exact R15 branch tip
         uses: actions/checkout@v4
         with:
           ref: R15
@@ -24,6 +25,32 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - name: Run independent core compile and regression tests
+      - name: Verify shell scripts
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: |
+          while IFS= read -r script; do bash -n "$script"; done < <(find . -name '*.sh' -type f | sort)
+      - name: Parse every active patch
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: |
+          while IFS= read -r patch; do
+            echo "Checking $patch"
+            git apply --stat "$patch" >/dev/null
+          done < <(find patches -maxdepth 1 -name '*.patch' -type f | sort)
+      - name: Compile and run platform-neutral regression suites
         working-directory: PNX-Terra-stages1-36-unified-candidate
         run: bash validation/run-core-tests.sh
+      - name: Compile and run PNX delegate contract
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/run-delegate-contract-compile.sh
+      - name: Compile and run PNX BlockEntity contract
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/run-pnx-be-contract-compile.sh
+      - name: Compile and run runtime contract
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/run-runtime-contract-compile.sh
+      - name: Compile and run entity-spawn contract
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/run-entity-spawn-contract-compile.sh
+      - name: Check Stage 36 PNX API patch fixture
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/run-stage36-pnx-api-patch-test.sh
