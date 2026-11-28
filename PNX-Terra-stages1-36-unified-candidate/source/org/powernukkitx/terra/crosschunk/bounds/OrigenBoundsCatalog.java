@@ -66,19 +66,18 @@ public final class OrigenBoundsCatalog {
     );
 
     /**
-     * Strict runtime-bounded fallback for scripts not yet statically certified. Every read/write
-     * is checked against this envelope; a single escape aborts the root placement. Unknown scripts
-     * have no entity budget and therefore cannot spawn entities.
+     * Fail-closed profile for a script absent from the audited manifest.
+     *
+     * A zero operation budget is intentional: the translated origin is representable, but the
+     * first read, write, or entity spawn is rejected by PlacementRuntimeGuard. Unknown scripts
+     * must never inherit a permissive generic envelope.
      */
-    private static final int FALLBACK_HORIZONTAL_REACH = 32;
-    private static final ScriptBoundsProfile BOUNDED_FALLBACK = new ScriptBoundsProfile(
-            PACK_ID, "<bounded-runtime-fallback>",
-            new Bounds3i(-FALLBACK_HORIZONTAL_REACH, -128, -FALLBACK_HORIZONTAL_REACH,
-                    FALLBACK_HORIZONTAL_REACH, 128, FALLBACK_HORIZONTAL_REACH),
-            new Bounds3i(-FALLBACK_HORIZONTAL_REACH, -128, -FALLBACK_HORIZONTAL_REACH,
-                    FALLBACK_HORIZONTAL_REACH, 128, FALLBACK_HORIZONTAL_REACH),
-            65_536, 65_536, 0, List.of("*"),
-            "Runtime-enforced fallback: x/z +/-32, y +/-128; 65,536 writes and reads; no entities; any out-of-envelope operation aborts placement");
+    private static final ScriptBoundsProfile DISABLED_UNVERIFIED = new ScriptBoundsProfile(
+            PACK_ID, "<unverified-disabled>",
+            new Bounds3i(0, 0, 0, 0, 0, 0),
+            new Bounds3i(0, 0, 0, 0, 0, 0),
+            0, 0, 0, List.of(),
+            "FAIL-CLOSED: no audited manifest entry; all reads, writes and entity spawns are denied");
 
     private OrigenBoundsCatalog() {}
 
@@ -105,17 +104,18 @@ public final class OrigenBoundsCatalog {
         return Optional.ofNullable(PROFILES.get(normalize(structureId)));
     }
 
-    /** Resolve an audited profile or a strict runtime-bounded fallback. */
+    /** Resolve an audited profile; unknown scripts receive a deny-all profile. */
     public static ScriptBoundsProfile resolveRuntimeProfile(String structureId) {
-        return PROFILES.getOrDefault(normalize(structureId), BOUNDED_FALLBACK);
+        return PROFILES.getOrDefault(normalize(structureId), DISABLED_UNVERIFIED);
     }
 
-    public static ScriptBoundsProfile boundedFallbackProfile() { return BOUNDED_FALLBACK; }
+    /** Compatibility name retained for callers; the returned profile denies every operation. */
+    public static ScriptBoundsProfile boundedFallbackProfile() { return DISABLED_UNVERIFIED; }
     public static Map<String, ScriptBoundsProfile> allVerified() { return PROFILES; }
 
     /** Maximum horizontal read/write reach used to prefetch every possible source anchor. */
     public static int maxHorizontalReach() {
-        return Math.max(FALLBACK_HORIZONTAL_REACH, PROFILES.values().stream()
+        return PROFILES.values().stream()
                 .mapToInt(profile -> Math.max(
                         Math.max(Math.max(Math.abs(profile.writeBounds().minX()), Math.abs(profile.writeBounds().maxX())),
                                 Math.max(Math.abs(profile.writeBounds().minZ()), Math.abs(profile.writeBounds().maxZ()))),
