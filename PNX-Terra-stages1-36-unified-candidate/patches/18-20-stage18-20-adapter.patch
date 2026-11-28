@@ -1,8 +1,7 @@
 diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
-index e78dcc4..8964a87 100644
 --- a/src/main/java/org/powernukkitx/terra/TerraGenerator.java
 +++ b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
-@@ -21,6 +21,7 @@ import org.powernukkitx.level.generator.stages.normal.NormalPopulatorStage;
+@@ -21,6 +21,7 @@
  import org.powernukkitx.terra.crosschunk.bounds.OrigenBoundsCatalog;
  import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
  import org.powernukkitx.terra.crosschunk.runtime.PnxGenerationJournalRuntime;
@@ -10,15 +9,7 @@ index e78dcc4..8964a87 100644
  import org.powernukkitx.terra.delegate.PNXProtoChunk;
  import org.powernukkitx.terra.delegate.PNXProtoWorld;
  import org.powernukkitx.terra.delegate.PNXServerWorld;
-@@ -32,6 +33,7 @@ import com.dfsek.terra.api.world.chunk.generation.util.GeneratorWrapper;
- import com.dfsek.terra.api.world.info.WorldProperties;
- import lombok.extern.slf4j.Slf4j;
- 
-+import java.io.IOException;
- import java.nio.file.Path;
- import java.util.List;
- import java.util.Locale;
-@@ -66,7 +68,9 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+@@ -66,7 +67,9 @@
          builder.next(Registries.GENERATE_STAGE.get(GeneratedStage.NAME));
          if ((boolean) options.getOrDefault("structures", true)) builder.next(new StructureStage());
          builder.next(new PopulateStage());
@@ -28,7 +19,7 @@ index e78dcc4..8964a87 100644
          builder.next(Registries.GENERATE_STAGE.get(FinishedStage.NAME));
      }
  
-@@ -121,6 +125,29 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+@@ -121,6 +124,29 @@
          @Override public String name(){return "terra_structure";}
      }
  
@@ -57,8 +48,8 @@ index e78dcc4..8964a87 100644
 +
      class PopulateStage extends GenerateStage {
          @Override public void apply(ChunkGenerateContext context) {
-             final IChunk chunk=context.getChunk();chunk.setChunkState(ChunkState.POPULATED);
-@@ -130,7 +157,12 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+             final IChunk chunk=context.getChunk();
+@@ -130,7 +156,15 @@
              // Source-anchor-only chunks do not recursively prefetch their own neighbours.
              boolean dependencyPrefetch = runtime.consumeDependencyPrefetch(anchor);
              // Player-demanded targets request missing source anchors; Stage18 activates prefetched targets on demand.
@@ -68,10 +59,14 @@ index e78dcc4..8964a87 100644
 +            }
 +            // A prior attempt may have durably completed population and then crashed before target
 +            // projection/save acknowledgement. Reuse its WAL; do not execute the feature graph twice.
-+            if (runtime.journal().isAnchorCompleted(runtime.worldKey(), anchor)) return;
++            if (runtime.journal().isAnchorCompleted(runtime.worldKey(), anchor)) {
++                chunk.setChunkState(ChunkState.POPULATED);
++                return;
++            }
              var anchorSession=runtime.openAnchor(anchor);
              var serverWorld=new PNXServerWorld(TerraGenerator.this,context.getLevel(),anchorSession,runtime.worldKey());
              var protoWorld=new PNXProtoWorld(serverWorld,chunkX,chunkZ);
+
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
 new file mode 100644
 index 0000000..dec606b
