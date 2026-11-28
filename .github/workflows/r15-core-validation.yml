@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: PolyhedralDev/Terra
-          ref: 05ddc8b8a66e17412670647cce78ef837b091256
+          ref: 016961c19c41c2501737599175937ae40699beb1
           path: terra
       - name: Checkout exact pinned PNX-Terra adapter
         uses: actions/checkout@v4
