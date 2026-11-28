@@ -42,6 +42,13 @@ jobs:
           ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
           path: adapter
 
+      - name: Checkout pinned TerraOverworldConfig
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/TerraOverworldConfig
+          ref: 445848bc9f9f28fab1d760f01f9a552d93944681
+          path: terra-config
+
       - name: Validate shell syntax and patch chain 1-48
         shell: bash
         run: |
@@ -60,3 +67,19 @@ jobs:
           git -C "$GITHUB_WORKSPACE/terra" diff --check
           git -C "$GITHUB_WORKSPACE/adapter" diff --check
           echo "STAGE_1_48_PATCH_CHAIN=PASS"
+
+      - name: Generate exact pinned ConfigPack inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate/validation/audit-terra-pack.py" \
+            --root "$GITHUB_WORKSPACE/terra-config" \
+            --output "$RUNNER_TEMP/terra-configpack-inventory.json"
+
+      - name: Upload Stage 48 source inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage48-terra-configpack-inventory
+          path: ${{ runner.temp }}/terra-configpack-inventory.json
+          if-no-files-found: error
+          retention-days: 14
