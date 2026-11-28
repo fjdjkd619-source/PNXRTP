@@ -61,14 +61,12 @@ public final class JournalCheckpoint {
             if (events.size() > MAX_EVENTS) throw new IllegalArgumentException("Checkpoint event count exceeds limit");
             long previous = 0;
             for (JournalEvent event : events) {
-                long sequence = sequenceOf(Objects.requireNonNull(event, "event"));
+                validateEvent(Objects.requireNonNull(event, "event"));
+                long sequence = sequenceOf(event);
                 if (sequence <= previous || sequence > lastSequence)
                     throw new IllegalArgumentException("Checkpoint event sequences must increase and not exceed watermark");
                 previous = sequence;
             }
-            if (!events.isEmpty() && events.get(events.size() - 1) instanceof JournalEvent.PlacementCommitted
-                    && previous > lastSequence)
-                throw new IllegalArgumentException("Checkpoint watermark precedes final event");
         }
     }
 
@@ -369,6 +367,27 @@ public final class JournalCheckpoint {
         byte[] result = input.readNBytes(length);
         if (result.length != length) throw new EOFException("Truncated checkpoint byte array");
         return result;
+    }
+
+    private static void validateEvent(JournalEvent event) {
+        if (event instanceof JournalEvent.PlacementCommitted placement) {
+            Objects.requireNonNull(placement.record(), "placement record");
+        } else if (event instanceof JournalEvent.AnchorCompleted anchor) {
+            if (anchor.worldKey() == null || anchor.worldKey().isBlank())
+                throw new IllegalArgumentException("Checkpoint anchor world key is blank");
+            Objects.requireNonNull(anchor.anchor(), "completed anchor");
+        } else if (event instanceof JournalEvent.AnchorStarted anchor) {
+            if (anchor.worldKey() == null || anchor.worldKey().isBlank())
+                throw new IllegalArgumentException("Checkpoint anchor world key is blank");
+            Objects.requireNonNull(anchor.anchor(), "started anchor");
+        } else if (event instanceof JournalEvent.ChunkApplied applied) {
+            if (applied.worldKey() == null || applied.worldKey().isBlank()
+                    || applied.digest() == null || !applied.digest().matches("[0-9a-f]{64}"))
+                throw new IllegalArgumentException("Invalid checkpoint applied-chunk identity");
+            Objects.requireNonNull(applied.target(), "applied target");
+        } else {
+            throw new IllegalArgumentException("Unknown journal event implementation");
+        }
     }
 
     private static long sequenceOf(JournalEvent event) {
