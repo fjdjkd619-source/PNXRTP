@@ -1,0 +1,713 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/diagnostics/GenerationStageGuard.java b/src/main/java/org/powernukkitx/terra/crosschunk/diagnostics/GenerationStageGuard.java
+new file mode 100644
+index 0000000..f45986b
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/diagnostics/GenerationStageGuard.java
+@@ -0,0 +1,35 @@
++package org.powernukkitx.terra.crosschunk.diagnostics;
++
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import java.util.Objects;
++import java.util.concurrent.Callable;
++
++/** Uniform stage boundary: report failures once, preserve the original throwable and fail the stage. */
++public final class GenerationStageGuard {
++    private GenerationStageGuard() { }
++
++    public static void run(String stage, String feature, String structure, ChunkPos anchor,
++                           int x, int y, int z, DiagnosticSink sink, CheckedRunnable action) {
++        call(stage, feature, structure, anchor, x, y, z, sink, () -> { action.run(); return null; });
++    }
++
++    public static <T> T call(String stage, String feature, String structure, ChunkPos anchor,
++                             int x, int y, int z, DiagnosticSink sink, Callable<T> action) {
++        Objects.requireNonNull(sink, "sink"); Objects.requireNonNull(action, "action");
++        try { return action.call(); }
++        catch (Throwable failure) {
++            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
++            try { sink.publish(GenerationDiagnostic.failure(stage, feature, structure, anchor, x, y, z, failure)); }
++            catch (Throwable diagnosticFailure) { failure.addSuppressed(diagnosticFailure); }
++            if (failure instanceof Error error) throw error;
++            if (failure instanceof RuntimeException runtime) throw runtime;
++            throw new StageExecutionException("Generation stage failed: " + stage, failure);
++        }
++    }
++
++    @FunctionalInterface public interface CheckedRunnable { void run() throws Exception; }
++    public static final class StageExecutionException extends RuntimeException {
++        private static final long serialVersionUID = 1L;
++        public StageExecutionException(String message, Throwable cause) { super(message, cause); }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+index ef7e70a..a07cce9 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+@@ -66,13 +66,18 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+                             PlacementProjection.resolveBlockEntities(pending.records, target);
+                     pending.chunk.applyBlockEntityIntents(blockEntities);
+                     pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
+-                    if (!blockEntities.isEmpty()) {
++                    List<org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent> entitySpawns =
++                            PlacementProjection.resolveEntitySpawns(pending.records, target);
++                    pending.chunk.applyEntitySpawnIntents(entitySpawns);
++                    if (!blockEntities.isEmpty() || !entitySpawns.isEmpty()) {
+                         // Some PNX BlockEntity constructors schedule their own tick immediately.
+                         // Persist in the same level-scheduler task before that heartbeat can run them.
+                         pending.chunk.saveDurably();
+                         pending.chunk.confirmBlockEntityIntents();
++                        pending.chunk.confirmEntitySpawnIntents();
+                     }
+                 } catch (Exception failure) {
++                    pending.chunk.rollbackEntitySpawnIntents();
+                     pending.chunk.rollbackBlockEntityIntents();
+                     throw new FinalizationException("Could not apply and durably save complete journal intents to " + target, failure);
+                 }
+@@ -119,6 +124,11 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+         }
+         default void rollbackBlockEntityIntents() { }
+         default void confirmBlockEntityIntents() { }
++        default void applyEntitySpawnIntents(List<org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent> intents) throws Exception {
++            if (!intents.isEmpty()) throw new UnsupportedOperationException("Entity spawn intents are not supported by this chunk adapter");
++        }
++        default void rollbackEntitySpawnIntents() { }
++        default void confirmEntitySpawnIntents() { }
+         default void applyPhysicsIntents(List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> intents) throws Exception {
+             if (intents.stream().anyMatch(org.powernukkitx.terra.crosschunk.journal.PhysicsIntent::applyPhysics))
+                 throw new UnsupportedOperationException("Physics intents are not supported by this chunk adapter");
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/EntitySpawnIntent.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/EntitySpawnIntent.java
+new file mode 100644
+index 0000000..a66d920
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/EntitySpawnIntent.java
+@@ -0,0 +1,66 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.Arrays;
++import java.util.Objects;
++import java.util.UUID;
++
++/** Durable, platform-neutral entity spawn request. Runtime entity IDs are never persisted. */
++public final class EntitySpawnIntent {
++    private final UUID stableUuid;
++    private final String type;
++    private final double x, y, z;
++    private final float yaw, pitch;
++    private final byte[] payload;
++
++    public EntitySpawnIntent(UUID stableUuid, String type, double x, double y, double z,
++                             float yaw, float pitch, byte[] payload) {
++        this.stableUuid = Objects.requireNonNull(stableUuid, "stableUuid");
++        if (type == null || !type.matches("[a-z0-9_.-]+:[a-z0-9_./-]+") || type.length() > 256)
++            throw new IllegalArgumentException("Entity type must be a canonical namespaced identifier");
++        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
++                || !Float.isFinite(yaw) || !Float.isFinite(pitch)
++                || x < Integer.MIN_VALUE || x > Integer.MAX_VALUE || z < Integer.MIN_VALUE || z > Integer.MAX_VALUE)
++            throw new IllegalArgumentException("Entity transform must be finite and horizontally representable by block coordinates");
++        this.type = type; this.x = x; this.y = y; this.z = z; this.yaw = yaw; this.pitch = pitch;
++        this.payload = Objects.requireNonNull(payload, "payload").clone();
++        if (this.payload.length > 1_048_576) throw new IllegalArgumentException("Entity payload exceeds 1 MiB");
++    }
++
++    /** Stable identity derived from the durable placement key and the feature-local spawn ordinal. */
++    public static UUID deterministicUuid(String placementStableId, int spawnOrdinal) {
++        if (placementStableId == null || !placementStableId.matches("[0-9a-f]{64}") || spawnOrdinal < 0)
++            throw new IllegalArgumentException("Invalid placement identity or spawn ordinal");
++        try {
++            byte[] digest = MessageDigest.getInstance("SHA-256")
++                    .digest((placementStableId + ":entity:" + spawnOrdinal).getBytes(StandardCharsets.UTF_8));
++            digest[6] = (byte)((digest[6] & 0x0f) | 0x50);
++            digest[8] = (byte)((digest[8] & 0x3f) | 0x80);
++            java.nio.ByteBuffer bytes = java.nio.ByteBuffer.wrap(digest);
++            return new UUID(bytes.getLong(), bytes.getLong());
++        } catch (NoSuchAlgorithmException impossible) {
++            throw new IllegalStateException("SHA-256 unavailable", impossible);
++        }
++    }
++
++    public UUID stableUuid() { return stableUuid; }
++    public String type() { return type; }
++    public double x() { return x; }
++    public double y() { return y; }
++    public double z() { return z; }
++    public float yaw() { return yaw; }
++    public float pitch() { return pitch; }
++    public byte[] payload() { return payload.clone(); }
++    public ChunkPos chunk() { return ChunkPos.fromBlock((int)Math.floor(x), (int)Math.floor(z)); }
++
++    @Override public boolean equals(Object other) {
++        return other instanceof EntitySpawnIntent e && stableUuid.equals(e.stableUuid) && type.equals(e.type)
++                && Double.compare(x,e.x)==0 && Double.compare(y,e.y)==0 && Double.compare(z,e.z)==0
++                && Float.compare(yaw,e.yaw)==0 && Float.compare(pitch,e.pitch)==0 && Arrays.equals(payload,e.payload);
++    }
++    @Override public int hashCode() {
++        return 31 * Objects.hash(stableUuid,type,x,y,z,yaw,pitch) + Arrays.hashCode(payload);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java
+index 6736aa8..bf2c5da 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java
+@@ -18,7 +18,7 @@ public final class PlacementDigest {
+         try {
+             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+             try (DataOutputStream out = new DataOutputStream(bytes)) {
+-                out.writeInt(2);
++                out.writeInt(3);
+                 out.writeInt(target.x());
+                 out.writeInt(target.z());
+                 List<PlacementRecord> ordered = records.stream()
+@@ -47,6 +47,14 @@ public final class PlacementDigest {
+                             .sorted(Comparator.comparingInt(PhysicsIntent::x).thenComparingInt(PhysicsIntent::y).thenComparingInt(PhysicsIntent::z)).toList();
+                     out.writeInt(physics.size());
+                     for (PhysicsIntent intent : physics) { out.writeInt(intent.x()); out.writeInt(intent.y()); out.writeInt(intent.z()); out.writeBoolean(intent.applyPhysics()); }
++                    List<EntitySpawnIntent> spawns = record.entitySpawns().stream().filter(e -> e.chunk().equals(target))
++                            .sorted(Comparator.comparing(e -> e.stableUuid().toString())).toList();
++                    out.writeInt(spawns.size());
++                    for (EntitySpawnIntent spawn : spawns) {
++                        out.writeLong(spawn.stableUuid().getMostSignificantBits()); out.writeLong(spawn.stableUuid().getLeastSignificantBits());
++                        out.writeUTF(spawn.type()); out.writeDouble(spawn.x()); out.writeDouble(spawn.y()); out.writeDouble(spawn.z());
++                        out.writeFloat(spawn.yaw()); out.writeFloat(spawn.pitch()); byte[] payload=spawn.payload(); out.writeInt(payload.length); out.write(payload);
++                    }
+                 }
+             }
+             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+index 12b4536..45fb9b9 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+@@ -19,7 +19,7 @@ import static java.nio.file.StandardOpenOption.*;
+  */
+ public final class PlacementJournal implements AutoCloseable {
+     private static final int MAGIC = 0x50584A31; // PXJ1
+-    private static final int VERSION = 3;
++    private static final int VERSION = 4;
+     private static final int HEADER_BYTES = 8;
+     private static final int TRAILER_BYTES = 4;
+     private static final int MAX_FRAME = 64 * 1024 * 1024;
+@@ -31,6 +31,7 @@ public final class PlacementJournal implements AutoCloseable {
+     private final ReentrantLock lock = new ReentrantLock();
+     private final List<JournalEvent> events = new ArrayList<>();
+     private final Map<String, PlacementRecord> placements = new HashMap<>();
++    private final Map<java.util.UUID, String> entitySpawnOwners = new HashMap<>();
+     private final Map<ChunkPos, Set<String>> placementsByTarget = new HashMap<>();
+     private final Set<AnchorId> completedAnchors = new HashSet<>();
+     private final Set<AnchorId> startedAnchors = new HashSet<>();
+@@ -71,11 +72,13 @@ public final class PlacementJournal implements AutoCloseable {
+                 if (sameRecord(old, record)) return sequenceOfPlacement(id);
+                 throw new IOException("Placement key collision with different payload: " + id);
+             }
++            validateEntitySpawnOwnership(id, record);
+             long sequence = nextSequence;
+             byte[] payload = encodePlacement(sequence, record);
+             appendFrame(payload); // durable before visible in memory / return
+             events.add(new JournalEvent.PlacementCommitted(sequence, record));
+             placements.put(id, record);
++            record.entitySpawns().forEach(spawn -> entitySpawnOwners.put(spawn.stableUuid(), id));
+             indexPlacement(record);
+             nextSequence++;
+             return sequence;
+@@ -179,6 +182,14 @@ public final class PlacementJournal implements AutoCloseable {
+                 .sorted(Comparator.comparing(p -> p.key().stableId())).toList();
+     }
+ 
++    private void validateEntitySpawnOwnership(String placementId, PlacementRecord record) throws IOException {
++        for (EntitySpawnIntent spawn : record.entitySpawns()) {
++            String owner = entitySpawnOwners.get(spawn.stableUuid());
++            if (owner != null && !owner.equals(placementId))
++                throw new IOException("Entity UUID is already owned by another placement: " + spawn.stableUuid());
++        }
++    }
++
+     private void indexPlacement(PlacementRecord record) {
+         String id = record.key().stableId();
+         for (ChunkPos target : record.targetChunks()) {
+@@ -239,7 +250,11 @@ public final class PlacementJournal implements AutoCloseable {
+             String id = p.record().key().stableId();
+             PlacementRecord previous = placements.putIfAbsent(id, p.record());
+             if (previous != null && !sameRecord(previous, p.record())) throw new IOException("Duplicate placement key collision in WAL");
+-            if (previous == null) indexPlacement(p.record());
++            if (previous == null) {
++                validateEntitySpawnOwnership(id, p.record());
++                p.record().entitySpawns().forEach(spawn -> entitySpawnOwners.put(spawn.stableUuid(), id));
++                indexPlacement(p.record());
++            }
+         } else if (event instanceof JournalEvent.AnchorStarted a) {
+             startedAnchors.add(new AnchorId(a.worldKey(), a.anchor()));
+         } else if (event instanceof JournalEvent.AnchorCompleted a) {
+@@ -284,8 +299,22 @@ public final class PlacementJournal implements AutoCloseable {
+                     if (physicsCount < 0 || physicsCount > 2_000_000) throw new IOException("Invalid physics intent count");
+                     for (int i=0;i<physicsCount;i++) physics.add(new PhysicsIntent(in.readInt(),in.readInt(),in.readInt(),in.readBoolean()));
+                 }
+-                if (writes.isEmpty() && blockEntities.isEmpty() && physics.isEmpty()) throw new IOException("Empty placement record");
+-                result = new JournalEvent.PlacementCommitted(seq, new PlacementRecord(key, writes, blockEntities, physics));
++                List<EntitySpawnIntent> entitySpawns = new ArrayList<>();
++                if (version >= 4) {
++                    int spawnCount = in.readInt();
++                    if (spawnCount < 0 || spawnCount > 65_536) throw new IOException("Invalid entity spawn intent count");
++                    for (int i=0;i<spawnCount;i++) {
++                        java.util.UUID uuid = new java.util.UUID(in.readLong(), in.readLong());
++                        String entityType = readString(in);
++                        double x=in.readDouble(), y=in.readDouble(), z=in.readDouble();
++                        float yaw=in.readFloat(), pitch=in.readFloat();
++                        int n=in.readInt(); if(n<0||n>1_048_576) throw new IOException("Invalid entity spawn payload size");
++                        byte[] entityPayload=in.readNBytes(n); if(entityPayload.length!=n) throw new EOFException();
++                        entitySpawns.add(new EntitySpawnIntent(uuid, entityType, x,y,z,yaw,pitch,entityPayload));
++                    }
++                }
++                if (writes.isEmpty() && blockEntities.isEmpty() && physics.isEmpty() && entitySpawns.isEmpty()) throw new IOException("Empty placement record");
++                result = new JournalEvent.PlacementCommitted(seq, new PlacementRecord(key, writes, blockEntities, physics, entitySpawns));
+             } else if (type == ANCHOR_COMPLETE) {
+                 result = new JournalEvent.AnchorCompleted(seq, readString(in), new ChunkPos(in.readInt(), in.readInt()));
+             } else if (type == ANCHOR_STARTED) {
+@@ -322,6 +351,13 @@ public final class PlacementJournal implements AutoCloseable {
+             for (PhysicsIntent intent : record.physics()) {
+                 out.writeInt(intent.x()); out.writeInt(intent.y()); out.writeInt(intent.z()); out.writeBoolean(intent.applyPhysics());
+             }
++            out.writeInt(record.entitySpawns().size());
++            for (EntitySpawnIntent intent : record.entitySpawns()) {
++                out.writeLong(intent.stableUuid().getMostSignificantBits()); out.writeLong(intent.stableUuid().getLeastSignificantBits());
++                writeString(out, intent.type()); out.writeDouble(intent.x()); out.writeDouble(intent.y()); out.writeDouble(intent.z());
++                out.writeFloat(intent.yaw()); out.writeFloat(intent.pitch()); byte[] payload=intent.payload();
++                out.writeInt(payload.length); out.write(payload);
++            }
+         }
+         return bytes.toByteArray();
+     }
+@@ -346,7 +382,7 @@ public final class PlacementJournal implements AutoCloseable {
+     private long sequenceOfAnchor(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorCompleted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+     private long sequenceOfAnchorStarted(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorStarted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+     private long sequenceOfApplied(ChunkId id,String digest){return events.stream().filter(e->e instanceof JournalEvent.ChunkApplied a&&a.worldKey().equals(id.worldKey)&&a.target().equals(id.target)&&a.digest().equals(digest)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+-    private static boolean sameRecord(PlacementRecord a,PlacementRecord b){return a.key().equals(b.key())&&a.writes().equals(b.writes())&&a.blockEntities().equals(b.blockEntities())&&a.physics().equals(b.physics());}
++    private static boolean sameRecord(PlacementRecord a,PlacementRecord b){return a.key().equals(b.key())&&a.writes().equals(b.writes())&&a.blockEntities().equals(b.blockEntities())&&a.physics().equals(b.physics())&&a.entitySpawns().equals(b.entitySpawns());}
+     private record AnchorId(String worldKey,ChunkPos anchor){}
+     private record ChunkId(String worldKey,ChunkPos target){}
+     @Override public void close() throws IOException { lock.lock();try{channel.force(true);processLock.release();channel.close();}finally{lock.unlock();} }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java
+index 7ba934a..006f00e 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java
+@@ -45,6 +45,21 @@ public final class PlacementProjection {
+         return Collections.unmodifiableNavigableMap(winners);
+     }
+ 
++    /** Stable entity spawn order and collision check; UUID is the durable idempotency key. */
++    public static List<EntitySpawnIntent> resolveEntitySpawns(Collection<PlacementRecord> records, ChunkPos target) {
++        TreeMap<String, EntitySpawnIntent> ordered = new TreeMap<>();
++        for (PlacementRecord record : records.stream().sorted(Comparator.comparing(r -> r.key().stableId())).toList()) {
++            for (EntitySpawnIntent intent : record.entitySpawns()) {
++                if (!intent.chunk().equals(target)) continue;
++                String id = intent.stableUuid().toString();
++                EntitySpawnIntent previous = ordered.putIfAbsent(id, intent);
++                if (previous != null && !previous.equals(intent))
++                    throw new IllegalStateException("Entity UUID collision with different spawn payload: " + id);
++            }
++        }
++        return List.copyOf(ordered.values());
++    }
++
+     /** Preserve all physics intents in stable order; duplicate coordinate requests collapse to OR. */
+     public static List<PhysicsIntent> resolvePhysics(Collection<PlacementRecord> records, ChunkPos target) {
+         TreeMap<String, PlacementRecord> stableOrder = new TreeMap<>();
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java
+index 4098117..4eaf838 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java
+@@ -4,19 +4,27 @@ import java.util.*;
+ 
+ /** Immutable root placement transaction. Duplicate coordinates within this placement are last-write-wins. */
+ public record PlacementRecord(PlacementKey key, List<BlockWrite> writes,
+-                              List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics) {
+-    public PlacementRecord(PlacementKey key, List<BlockWrite> writes) { this(key, writes, List.of(), List.of()); }
++                              List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics,
++                              List<EntitySpawnIntent> entitySpawns) {
++    public PlacementRecord(PlacementKey key, List<BlockWrite> writes) { this(key, writes, List.of(), List.of(), List.of()); }
++    public PlacementRecord(PlacementKey key, List<BlockWrite> writes, List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics) {
++        this(key, writes, blockEntities, physics, List.of());
++    }
+     public PlacementRecord {
+         Objects.requireNonNull(key, "key"); Objects.requireNonNull(writes, "writes");
+-        Objects.requireNonNull(blockEntities, "blockEntities"); Objects.requireNonNull(physics, "physics");
+-        if (writes.isEmpty() && blockEntities.isEmpty() && physics.isEmpty()) throw new IllegalArgumentException("A committed placement must contain at least one intent");
+-        if (writes.size() > 2_000_000 || blockEntities.size() > 65_536 || physics.size() > 2_000_000)
++        Objects.requireNonNull(blockEntities, "blockEntities"); Objects.requireNonNull(physics, "physics"); Objects.requireNonNull(entitySpawns, "entitySpawns");
++        if (writes.isEmpty() && blockEntities.isEmpty() && physics.isEmpty() && entitySpawns.isEmpty()) throw new IllegalArgumentException("A committed placement must contain at least one intent");
++        if (writes.size() > 2_000_000 || blockEntities.size() > 65_536 || physics.size() > 2_000_000 || entitySpawns.size() > 65_536)
+             throw new IllegalArgumentException("Placement exceeds intent limit");
+-        writes=List.copyOf(writes); blockEntities=List.copyOf(blockEntities); physics=List.copyOf(physics);
++        writes=List.copyOf(writes); blockEntities=List.copyOf(blockEntities); physics=List.copyOf(physics); entitySpawns=List.copyOf(entitySpawns);
++        Set<java.util.UUID> spawnIds = new HashSet<>();
++        for (EntitySpawnIntent spawn : entitySpawns) {
++            if (!spawnIds.add(spawn.stableUuid())) throw new IllegalArgumentException("Duplicate entity UUID inside one placement: " + spawn.stableUuid());
++        }
+     }
+     public Set<ChunkPos> targetChunks() {
+         TreeSet<ChunkPos> result = new TreeSet<>();
+-        writes.forEach(w -> result.add(w.chunk())); blockEntities.forEach(e -> result.add(e.chunk())); physics.forEach(p -> result.add(p.chunk()));
++        writes.forEach(w -> result.add(w.chunk())); blockEntities.forEach(e -> result.add(e.chunk())); physics.forEach(p -> result.add(p.chunk())); entitySpawns.forEach(e -> result.add(e.chunk()));
+         return Collections.unmodifiableSet(result);
+     }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/lifecycle/RuntimeCloseSequence.java b/src/main/java/org/powernukkitx/terra/crosschunk/lifecycle/RuntimeCloseSequence.java
+new file mode 100644
+index 0000000..3ff88aa
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/lifecycle/RuntimeCloseSequence.java
+@@ -0,0 +1,23 @@
++package org.powernukkitx.terra.crosschunk.lifecycle;
++
++import java.io.IOException;
++import java.util.List;
++import java.util.Objects;
++
++/** Closes every owned resource in order even if an earlier close operation fails. */
++public final class RuntimeCloseSequence {
++    private RuntimeCloseSequence() { }
++    public static void closeAll(List<? extends AutoCloseable> resources) throws IOException {
++        Objects.requireNonNull(resources, "resources");
++        IOException aggregate = null;
++        for (AutoCloseable resource : resources) {
++            if (resource == null) continue;
++            try { resource.close(); }
++            catch (Exception failure) {
++                IOException wrapped = failure instanceof IOException io ? io : new IOException("Runtime resource close failed", failure);
++                if (aggregate == null) aggregate = wrapped; else aggregate.addSuppressed(wrapped);
++            }
++        }
++        if (aggregate != null) throw aggregate;
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/physics/PhysicsIntentBatch.java b/src/main/java/org/powernukkitx/terra/crosschunk/physics/PhysicsIntentBatch.java
+new file mode 100644
+index 0000000..b4e1d1a
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/physics/PhysicsIntentBatch.java
+@@ -0,0 +1,42 @@
++package org.powernukkitx.terra.crosschunk.physics;
++
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
++import java.util.*;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.Executor;
++
++/** Deterministic Level-thread dispatch contract for durable physics intents. */
++public final class PhysicsIntentBatch {
++    private PhysicsIntentBatch() { }
++
++    public static CompletableFuture<Integer> dispatch(Collection<PhysicsIntent> intents, Executor levelExecutor,
++                                                       ChunkPos target, PhysicsApplier applier) {
++        Objects.requireNonNull(intents, "intents"); Objects.requireNonNull(levelExecutor, "levelExecutor");
++        Objects.requireNonNull(target, "target"); Objects.requireNonNull(applier, "applier");
++        TreeMap<Position, Boolean> deduplicated = new TreeMap<>();
++        for (PhysicsIntent intent : intents) {
++            if (!intent.chunk().equals(target)) throw new IllegalArgumentException("Physics intent belongs to another chunk");
++            if (intent.applyPhysics()) deduplicated.merge(new Position(intent.x(), intent.y(), intent.z()), true, Boolean::logicalOr);
++        }
++        List<Position> ordered = List.copyOf(deduplicated.keySet());
++        return CompletableFuture.supplyAsync(() -> {
++            int applied = 0;
++            try {
++                for (Position position : ordered) { applier.apply(position.x, position.y, position.z); applied++; }
++                return applied;
++            } catch (Exception failure) {
++                throw new PhysicsDispatchException("Physics batch failed after " + applied + " positions; caller must retry idempotently", failure);
++            }
++        }, levelExecutor);
++    }
++
++    @FunctionalInterface public interface PhysicsApplier { void apply(int x, int y, int z) throws Exception; }
++    private record Position(int x, int y, int z) implements Comparable<Position> {
++        @Override public int compareTo(Position p) { int c=Integer.compare(x,p.x); if(c==0)c=Integer.compare(y,p.y); return c==0?Integer.compare(z,p.z):c; }
++    }
++    public static final class PhysicsDispatchException extends RuntimeException {
++        private static final long serialVersionUID = 1L;
++        public PhysicsDispatchException(String message, Throwable cause) { super(message, cause); }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+index 0b030fc..455c749 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+@@ -6,6 +6,7 @@ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.journal.PlacementJournal;
+ import org.powernukkitx.terra.crosschunk.finalize.ChunkFinalizationCoordinator;
+ import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
++import org.powernukkitx.terra.crosschunk.lifecycle.RuntimeCloseSequence;
+ 
+ import java.io.IOException;
+ import java.nio.charset.StandardCharsets;
+@@ -92,5 +93,5 @@ public final class PnxGenerationJournalRuntime implements AutoCloseable {
+         try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}
+         catch(NoSuchAlgorithmException impossible){throw new IllegalStateException("SHA-256 unavailable",impossible);}
+     }
+-    @Override public void close()throws IOException{scheduler.close();journal.close();}
++    @Override public void close()throws IOException{RuntimeCloseSequence.closeAll(java.util.List.of(scheduler,journal));}
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java b/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java
+new file mode 100644
+index 0000000..337a9cc
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java
+@@ -0,0 +1,30 @@
++package org.powernukkitx.terra.crosschunk.validation;
++
++import org.powernukkitx.terra.crosschunk.bounds.ScriptBoundsProfile;
++import java.util.*;
++
++/** Startup validation for a supplied, audited structure-bounds manifest. */
++public final class BoundsCatalogValidator {
++    private BoundsCatalogValidator() { }
++    public static Validation validate(Collection<ScriptBoundsProfile> profiles) {
++        Objects.requireNonNull(profiles, "profiles");
++        TreeMap<String, ScriptBoundsProfile> byId = new TreeMap<>();
++        List<String> errors = new ArrayList<>();
++        for (ScriptBoundsProfile profile : profiles) {
++            if (profile == null) { errors.add("null profile"); continue; }
++            String key = profile.packId() + ":" + profile.structureId();
++            if (byId.putIfAbsent(key, profile) != null) errors.add("duplicate profile: " + key);
++            if (profile.maxBlockWrites() == 0 && profile.maxBlockReads() == 0 && profile.maxEntitySpawns() == 0)
++                errors.add("profile has no permitted operations: " + key);
++            if (profile.evidence().isBlank()) errors.add("missing evidence: " + key);
++            if (profile.transitiveDependencies().stream().anyMatch(v -> v == null || v.isBlank()))
++                errors.add("invalid dependency entry: " + key);
++        }
++        return new Validation(byId, errors);
++    }
++    public record Validation(Map<String, ScriptBoundsProfile> profiles, List<String> errors) {
++        public Validation { profiles = Collections.unmodifiableMap(new TreeMap<>(profiles)); errors = List.copyOf(errors); }
++        public boolean valid() { return errors.isEmpty(); }
++        public void requireValid() { if (!valid()) throw new IllegalStateException("Invalid bounds catalog: " + String.join("; ", errors)); }
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java
+new file mode 100644
+index 0000000..378ab38
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java
+@@ -0,0 +1,45 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.finalize.ChunkFinalizationCoordinator;
++import org.powernukkitx.terra.crosschunk.journal.*;
++import java.nio.file.Files;
++import java.util.*;
++import java.util.concurrent.*;
++
++public final class Stage27EntitySpawnFinalizationTest {
++    public static void main(String[] args) throws Exception {
++        var target=new ChunkPos(0,0); var key=new PlacementKey("world",3,target,"f","origen:bee_nest",0,64,0,0,0);
++        var spawn=new EntitySpawnIntent(EntitySpawnIntent.deterministicUuid(key.stableId(),0),"minecraft:bee",1.5,65,1.5,0,0,new byte[0]);
++        try(var journal=new PlacementJournal(Files.createTempDirectory("stage27-finalize").resolve("world.wal"))) {
++            journal.appendPlacement(new PlacementRecord(key,List.of(),List.of(),List.of(),List.of(spawn)));
++            var fake=new FakeChunk(); var tasks=new ArrayList<Runnable>();
++            var coordinator=new ChunkFinalizationCoordinator<FakeChunk>("world",journal,Runnable::run,tasks::add);
++            var future=coordinator.prepare(target,CompletableFuture.completedFuture(null),()->fake);
++            if(future.isDone() || tasks.size()!=1) throw new AssertionError("spawn work did not wait for Level executor");
++            tasks.remove(0).run(); var prepared=future.join();
++            if(fake.spawnCount!=1 || !fake.saved || fake.confirmCount!=1) throw new AssertionError("spawn was not saved and confirmed before executor returned");
++            coordinator.persist(prepared,()->fake);
++            if(!journal.isChunkApplied("world",target,prepared.digest())) throw new AssertionError("spawn digest not acknowledged after save");
++            var failTarget=new ChunkPos(1,0);
++            var failKey=new PlacementKey("world",3,failTarget,"f","origen:bee_nest",16,64,0,0,1);
++            var failSpawn=new EntitySpawnIntent(EntitySpawnIntent.deterministicUuid(failKey.stableId(),0),"minecraft:bee",17.5,65,1.5,0,0,new byte[0]);
++            journal.appendPlacement(new PlacementRecord(failKey,List.of(),List.of(),List.of(),List.of(failSpawn)));
++            var failedChunk=new FakeChunk(1,0); failedChunk.failSave=true;
++            var failedCoordinator=new ChunkFinalizationCoordinator<FakeChunk>("world",journal,Runnable::run);
++            try { failedCoordinator.prepare(failTarget,CompletableFuture.completedFuture(null),()->failedChunk).join(); throw new AssertionError("failed entity save accepted"); }
++            catch(CompletionException expected) { }
++            if(failedChunk.spawnCount!=0 || failedChunk.rollbackCount!=1) throw new AssertionError("failed durable save did not roll back entity registrations");
++        }
++        System.out.println("Stage27EntitySpawnFinalizationTest: PASS");
++    }
++    private static final class FakeChunk implements ChunkFinalizationCoordinator.ChunkHandle {
++        int spawnCount,rollbackCount,confirmCount; boolean saved,failSave; final int chunkX,chunkZ;
++        FakeChunk(){this(0,0);} FakeChunk(int chunkX,int chunkZ){this.chunkX=chunkX;this.chunkZ=chunkZ;}
++        public ChunkPos position(){return new ChunkPos(chunkX,chunkZ);} public boolean isLoaded(){return true;} public boolean isGenerated(){return true;} public boolean isInitiated(){return true;}
++        public void applyProjection(NavigableMap<PlacementProjection.Position,PlacementProjection.Winner> p) { }
++        public void applyEntitySpawnIntents(List<EntitySpawnIntent> intents) { spawnCount=intents.size(); }
++        public void rollbackEntitySpawnIntents(){rollbackCount++;spawnCount=0;}
++        public void confirmEntitySpawnIntents(){confirmCount++;}
++        public void saveDurably() throws java.io.IOException {if(failSave)throw new java.io.IOException("simulated save failure");saved=true;}
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnJournalTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnJournalTest.java
+new file mode 100644
+index 0000000..67cc8e6
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnJournalTest.java
+@@ -0,0 +1,59 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.journal.*;
++import java.nio.file.Files;
++import java.util.List;
++
++public final class Stage27EntitySpawnJournalTest {
++    public static void main(String[] args) throws Exception {
++        var dir=Files.createTempDirectory("pnx-stage27-"); var wal=dir.resolve("world.wal");
++        var key=new PlacementKey("world",7,new ChunkPos(-1,2),"feature","origen:bee_nest",-1,64,32,0,0);
++        var spawn=new EntitySpawnIntent(EntitySpawnIntent.deterministicUuid(key.stableId(),0),"minecraft:bee",-0.5,65,32.25,90,0,new byte[]{1,2,3});
++        var record=new PlacementRecord(key,List.of(),List.of(),List.of(),List.of(spawn));
++        try(var journal=new PlacementJournal(wal)) {
++            journal.appendPlacement(record);
++            if(!journal.placementsFor(spawn.chunk()).get(0).entitySpawns().get(0).equals(spawn)) throw new AssertionError("spawn intent not indexed");
++            if(!PlacementProjection.resolveEntitySpawns(journal.placementsFor(spawn.chunk()),spawn.chunk()).equals(List.of(spawn))) throw new AssertionError("spawn projection differs");
++            journal.appendPlacement(record); // same-key retry must be idempotent
++        }
++        try(var recovered=new PlacementJournal(wal)) {
++            var actual=recovered.placementsFor(spawn.chunk()).get(0).entitySpawns().get(0);
++            if(!actual.equals(spawn)) throw new AssertionError("WAL v4 replay changed spawn intent");
++            if(!PlacementDigest.compute(recovered.placementsFor(spawn.chunk()),spawn.chunk()).matches("[0-9a-f]{64}")) throw new AssertionError("invalid digest");
++        }
++        // Version-3 WAL frames remain readable after the v4 extension.
++        var legacyWal=dir.resolve("legacy-v3.wal");
++        writeLegacyV3Frame(legacyWal);
++        try(var legacy=new PlacementJournal(legacyWal)) {
++            var legacyRecord=legacy.placementsFor(new ChunkPos(0,0)).get(0);
++            if(legacyRecord.writes().size()!=1 || !legacyRecord.entitySpawns().isEmpty()) throw new AssertionError("v3 WAL compatibility broken");
++        }
++        var collision=new EntitySpawnIntent(spawn.stableUuid(),"minecraft:bee",16.5,65,32.25,90,0,new byte[]{9});
++        try(var journal=new PlacementJournal(dir.resolve("collision.wal"))) {
++            journal.appendPlacement(record);
++            try { journal.appendPlacement(new PlacementRecord(
++                    new PlacementKey("world",7,new ChunkPos(0,2),"feature2","origen:bee_nest",16,64,32,0,0),List.of(),List.of(),List.of(),List.of(collision)));
++                throw new AssertionError("global UUID collision accepted");
++            } catch(java.io.IOException expected) { }
++        }
++        System.out.println("Stage27EntitySpawnJournalTest: PASS");
++    }
++    private static void writeLegacyV3Frame(java.nio.file.Path path) throws Exception {
++        var bytes=new java.io.ByteArrayOutputStream();
++        try(var out=new java.io.DataOutputStream(bytes)) {
++            out.writeByte(3); out.writeByte(1); out.writeLong(1);
++            writeString(out,"legacy-world"); out.writeLong(1); out.writeInt(0); out.writeInt(0);
++            writeString(out,"legacy-feature"); writeString(out,"legacy:structure");
++            out.writeInt(1); out.writeInt(64); out.writeInt(1); out.writeInt(0); out.writeLong(0);
++            out.writeInt(1); out.writeInt(1); out.writeInt(64); out.writeInt(1); out.writeByte(0); out.writeInt(1); out.writeByte(7);
++            out.writeInt(0); out.writeInt(0);
++        }
++        byte[] payload=bytes.toByteArray(); var crc=new java.util.zip.CRC32C(); crc.update(payload,0,payload.length);
++        var frame=java.nio.ByteBuffer.allocate(8+payload.length+4);
++        frame.putInt(0x50584A31).putInt(payload.length).put(payload).putInt((int)crc.getValue());
++        java.nio.file.Files.write(path,frame.array());
++    }
++    private static void writeString(java.io.DataOutputStream out,String value) throws java.io.IOException {
++        byte[] data=value.getBytes(java.nio.charset.StandardCharsets.UTF_8); out.writeInt(data.length); out.write(data);
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage29PropertyAliasTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage29PropertyAliasTest.java
+new file mode 100644
+index 0000000..8be2941
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage29PropertyAliasTest.java
+@@ -0,0 +1,19 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.state.*;
++import java.util.Map;
++import java.util.Set;
++
++public final class Stage29PropertyAliasTest {
++    public static void main(String[] args) {
++        var bridge=new BlockStatePropertyBridge();
++        bridge.mapIdentifier("minecraft:old_log","minecraft:oak_log");
++        bridge.mapPropertyValue("minecraft:old_log","axis","vertical","pillar_axis","y");
++        var translated=bridge.translate(new CanonicalBlockState("minecraft:old_log",new java.util.TreeMap<>(Map.of("axis","vertical"))),
++                Set.of("pillar_axis"),Map.of("pillar_axis",Set.of("x","y","z")));
++        if(!translated.identifier().equals("minecraft:oak_log") || !translated.properties().equals(Map.of("pillar_axis","y"))) throw new AssertionError("alias translation incorrect");
++        try { bridge.translate(new CanonicalBlockState("minecraft:old_log",new java.util.TreeMap<>(Map.of("axis","sideways"))),Set.of("axis"),Map.of("axis",Set.of("x","y","z"))); throw new AssertionError("unknown value coerced"); }
++        catch(IllegalArgumentException expected) { }
++        System.out.println("Stage29PropertyAliasTest: PASS");
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/diagnostics/Stage30StageGuardTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/diagnostics/Stage30StageGuardTest.java
+new file mode 100644
+index 0000000..e425835
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/diagnostics/Stage30StageGuardTest.java
+@@ -0,0 +1,14 @@
++package org.powernukkitx.terra.crosschunk.diagnostics;
++
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import java.util.concurrent.atomic.AtomicInteger;
++
++public final class Stage30StageGuardTest {
++    public static void main(String[] args) {
++        var calls=new AtomicInteger(); var sink=(DiagnosticSink)d->{ if(d.severity()!=GenerationDiagnostic.Severity.ERROR || !d.stage().equals("features")) throw new AssertionError(); calls.incrementAndGet(); };
++        try { GenerationStageGuard.run("features","f","s",new ChunkPos(1,2),3,4,5,sink,()->{throw new IllegalStateException("boom");}); throw new AssertionError("stage failure swallowed"); }
++        catch(IllegalStateException expected) { if(!expected.getMessage().equals("boom")) throw expected; }
++        if(calls.get()!=1) throw new AssertionError("diagnostic not published exactly once");
++        System.out.println("Stage30StageGuardTest: PASS");
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/lifecycle/Stage32CloseSequenceTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/lifecycle/Stage32CloseSequenceTest.java
+new file mode 100644
+index 0000000..3efcd9c
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/lifecycle/Stage32CloseSequenceTest.java
+@@ -0,0 +1,17 @@
++package org.powernukkitx.terra.crosschunk.lifecycle;
++
++import java.io.IOException;
++import java.util.*;
++
++public final class Stage32CloseSequenceTest {
++    public static void main(String[] args) throws Exception {
++        var order=new ArrayList<Integer>();
++        AutoCloseable a=()->{order.add(1);throw new IOException("first");};
++        AutoCloseable b=()->order.add(2);
++        AutoCloseable c=()->{order.add(3);throw new IOException("third");};
++        try { RuntimeCloseSequence.closeAll(List.of(a,b,c)); throw new AssertionError("close failures swallowed"); }
++        catch(IOException expected) { if(expected.getSuppressed().length!=1) throw new AssertionError("suppressed close failure missing"); }
++        if(!order.equals(List.of(1,2,3))) throw new AssertionError("resources not all closed: "+order);
++        System.out.println("Stage32CloseSequenceTest: PASS");
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/physics/Stage28PhysicsBatchTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/physics/Stage28PhysicsBatchTest.java
+new file mode 100644
+index 0000000..36aa766
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/physics/Stage28PhysicsBatchTest.java
+@@ -0,0 +1,18 @@
++package org.powernukkitx.terra.crosschunk.physics;
++
++import org.powernukkitx.terra.crosschunk.journal.*;
++import java.util.*;
++import java.util.concurrent.*;
++
++public final class Stage28PhysicsBatchTest {
++    public static void main(String[] args) throws Exception {
++        var seen=new ArrayList<String>(); java.util.concurrent.Executor executor=Runnable::run;
++        int count=PhysicsIntentBatch.dispatch(List.of(new PhysicsIntent(2,1,1,true),new PhysicsIntent(1,1,1,true),
++                new PhysicsIntent(2,1,1,true),new PhysicsIntent(3,1,1,false)),executor,new ChunkPos(0,0),
++                (x,y,z)->seen.add(x+":"+y+":"+z)).get();
++        if(count!=2 || !seen.equals(List.of("1:1:1","2:1:1"))) throw new AssertionError("physics order/dedup incorrect: "+seen);
++        try { PhysicsIntentBatch.dispatch(List.of(new PhysicsIntent(16,0,0,true)),executor,new ChunkPos(0,0),(x,y,z)->{}); throw new AssertionError("cross-chunk physics accepted"); }
++        catch(IllegalArgumentException expected) { }
++        System.out.println("Stage28PhysicsBatchTest: PASS");
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/validation/Stage31BoundsCatalogValidatorTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/validation/Stage31BoundsCatalogValidatorTest.java
+new file mode 100644
+index 0000000..73d531b
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/validation/Stage31BoundsCatalogValidatorTest.java
+@@ -0,0 +1,14 @@
++package org.powernukkitx.terra.crosschunk.validation;
++
++import org.powernukkitx.terra.crosschunk.bounds.*;
++import java.util.List;
++
++public final class Stage31BoundsCatalogValidatorTest {
++    public static void main(String[] args) {
++        var good=new ScriptBoundsProfile("origen","tree",new Bounds3i(-2,-4,-2,2,8,2),new Bounds3i(-3,-4,-3,3,8,3),100,100,0,List.of("leaf"),"audited script closure");
++        if(!BoundsCatalogValidator.validate(List.of(good)).valid()) throw new AssertionError("valid profile rejected");
++        var duplicate=BoundsCatalogValidator.validate(List.of(good,good));
++        if(duplicate.valid() || duplicate.errors().isEmpty()) throw new AssertionError("duplicate profile accepted");
++        System.out.println("Stage31BoundsCatalogValidatorTest: PASS");
++    }
++}

@@ -1,0 +1,228 @@
+diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScope.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScope.java
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScope.java
+@@ -0,0 +1,38 @@
++package com.dfsek.terra.api.world;
++
++/**
++ * A savepoint for one structure placement. Implementations must make close()
++ * abort an uncommitted scope. Nested commits must merge into the parent scope,
++ * not publish writes independently.
++ */
++public interface PlacementScope extends AutoCloseable {
++    void commit();
++
++    void abort();
++
++    @Override
++    void close();
++
++    static PlacementScope noop() {
++        return new PlacementScope() {
++            private boolean closed;
++
++            @Override
++            public void commit() {
++                closed = true;
++            }
++
++            @Override
++            public void abort() {
++                closed = true;
++            }
++
++            @Override
++            public void close() {
++                if(!closed) {
++                    abort();
++                }
++            }
++        };
++    }
++}
+diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java
+@@ -0,0 +1,9 @@
++package com.dfsek.terra.api.world;
++
++/**
++ * Optional platform hook for transactional structure placement.
++ * Worlds which do not implement this interface retain Terra's existing behavior.
++ */
++public interface PlacementScopeProvider {
++    PlacementScope beginPlacement(PlacementDescriptor descriptor);
++}
+diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java
+@@ -0,0 +1,32 @@
++package com.dfsek.terra.api.world;
++
++import com.dfsek.seismic.type.Rotation;
++import com.dfsek.seismic.type.vector.Vector3Int;
++
++/**
++ * Stable identity inputs for a placement. The platform adapter combines these
++ * with the world seed to create its deterministic placement key.
++ */
++public record PlacementDescriptor(
++    String featureId,
++    String structureId,
++    Vector3Int origin,
++    Rotation rotation
++) {
++    public PlacementDescriptor {
++        if(featureId == null || featureId.isBlank()) {
++            throw new IllegalArgumentException("featureId must not be blank");
++        }
++        if(structureId == null || structureId.isBlank()) {
++            throw new IllegalArgumentException("structureId must not be blank");
++        }
++        if(origin == null || rotation == null) {
++            throw new NullPointerException("origin and rotation are required");
++        }
++    }
++
++    public PlacementDescriptor offset(int x, int y, int z) {
++        return new PlacementDescriptor(featureId, structureId,
++            Vector3Int.of(origin.getX() + x, origin.getY() + y, origin.getZ() + z), rotation);
++    }
++}
+diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
+index 0000000..2222222 100644
+--- a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
++++ b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
+@@ -13,3 +13,6 @@
+ import com.dfsek.terra.api.world.util.Interceptors;
+ import com.dfsek.terra.api.world.util.ReadInterceptor;
+ import com.dfsek.terra.api.world.util.WriteInterceptor;
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+@@ -23,1 +26,1 @@
+-public class BufferedWorld implements WritableWorld {
++public class BufferedWorld implements WritableWorld, PlacementScopeProvider {
+@@ -105,3 +108,11 @@
+     public WritableWorld getDelegate() {
+         return delegate;
+     }
++
++    @Override
++    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++        if(delegate instanceof PlacementScopeProvider provider) {
++            return provider.beginPlacement(descriptor.offset(offsetX, offsetY, offsetZ));
++        }
++        return PlacementScope.noop();
++    }
+diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
+index 0000000..3333333 100644
+--- a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
++++ b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
+@@ -18,2 +18,5 @@ import com.dfsek.terra.api.registry.key.StringIdentifiable;
+ import com.dfsek.terra.api.world.WritableWorld;
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+ import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
+@@ -67,9 +70,28 @@ public class FeatureGenerationStage implements GenerationStage, StringIdentifiable {
+                                             .getSuitableCoordinates(column.clamp(min, max))
+-                                                .forEach(y -> feature.getStructure(world, x, y, z)
+-                                                    .generate(Vector3Int.of(x, y, z),
+-                                                        world,
+-                                                        RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
+-                                                                "Xoroshiro128PlusPlus")
+-                                                            .create(coordinateSeed * 31 + y),
+-                                                        Rotation.NONE)
+-                                                );
++                                                .forEach(y -> {
++                                                    var structure = feature.getStructure(world, x, y, z);
++                                                    var descriptor = new PlacementDescriptor(
++                                                        feature.getID(),
++                                                        structure instanceof StringIdentifiable identifiable
++                                                            ? identifiable.getID()
++                                                            : structure.getClass().getName(),
++                                                        Vector3Int.of(x, y, z),
++                                                        Rotation.NONE
++                                                    );
++                                                    PlacementScope placement = world instanceof PlacementScopeProvider provider
++                                                        ? provider.beginPlacement(descriptor)
++                                                        : PlacementScope.noop();
++                                                    try(placement) {
++                                                        boolean generated = structure.generate(Vector3Int.of(x, y, z),
++                                                            world,
++                                                            RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
++                                                                    "Xoroshiro128PlusPlus")
++                                                                .create(coordinateSeed * 31 + y),
++                                                            Rotation.NONE);
++                                                        if(generated) {
++                                                            placement.commit();
++                                                        } else {
++                                                            placement.abort();
++                                                        }
++                                                    }
++                                                });
+diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
+index 0000000..4444444 100644
+--- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
++++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
+@@ -23,1 +23,4 @@ import com.dfsek.terra.api.registry.Registry;
+ import com.dfsek.terra.api.structure.Structure;
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+@@ -68,16 +71,32 @@ public class StructureFunction implements Function<Boolean> {
+-            if(script instanceof StructureScript structureScript) {
+-                return structureScript.generate(arguments.getOrigin(),
+-                    arguments.getWorld()
+-                        .buffer(FloatingPointFunctions.round(xz.getX()),
+-                            y.apply(implementationArguments, scope).intValue(),
+-                            FloatingPointFunctions.round(xz.getZ())),
+-                    arguments.getRandom(),
+-                    arguments.getRotation().rotate(rotation1), arguments.getRecursions() + 1);
+-            }
+-            return script.generate(arguments.getOrigin(),
+-                arguments.getWorld()
+-                    .buffer(FloatingPointFunctions.round(xz.getX()),
+-                        y.apply(implementationArguments, scope).intValue(),
+-                        FloatingPointFunctions.round(xz.getZ())),
+-                arguments.getRandom(),
+-                arguments.getRotation().rotate(rotation1));
++            int offsetX = FloatingPointFunctions.round(xz.getX());
++            int offsetY = y.apply(implementationArguments, scope).intValue();
++            int offsetZ = FloatingPointFunctions.round(xz.getZ());
++            var nestedWorld = arguments.getWorld().buffer(offsetX, offsetY, offsetZ);
++            var nestedRotation = arguments.getRotation().rotate(rotation1);
++            var descriptor = new PlacementDescriptor(
++                "terrascript:nested",
++                script instanceof com.dfsek.terra.api.registry.key.StringIdentifiable identifiable
++                    ? identifiable.getID()
++                    : script.getClass().getName(),
++                arguments.getOrigin(),
++                nestedRotation
++            );
++            PlacementScope placement = nestedWorld instanceof PlacementScopeProvider provider
++                ? provider.beginPlacement(descriptor)
++                : PlacementScope.noop();
++            try(placement) {
++                boolean generated;
++                if(script instanceof StructureScript structureScript) {
++                    generated = structureScript.generate(arguments.getOrigin(), nestedWorld,
++                        arguments.getRandom(), nestedRotation, arguments.getRecursions() + 1);
++                } else {
++                    generated = script.generate(arguments.getOrigin(), nestedWorld,
++                        arguments.getRandom(), nestedRotation);
++                }
++                if(generated) {
++                    placement.commit();
++                } else {
++                    placement.abort();
++                }
++                return generated;
++            }

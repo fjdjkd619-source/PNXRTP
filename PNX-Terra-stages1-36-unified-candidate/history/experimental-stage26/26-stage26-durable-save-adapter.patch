@@ -1,0 +1,33 @@
+--- a/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
++++ b/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+@@ -2,6 +2,7 @@
+ 
+ import org.powernukkitx.block.BlockState;
+ import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.level.format.leveldb.LevelDBProvider;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
+ import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
+@@ -60,9 +61,20 @@
+     @Override
+     public void saveDurably() throws IOException {
+         if (chunk.getProvider() == null) throw new IOException("Target chunk has no storage provider");
+-        chunk.setChanged();
+-        chunk.getProvider().saveChunk(chunk.getX(), chunk.getZ(), chunk);
++        if (!(chunk.getProvider() instanceof LevelDBProvider provider)) {
++            throw new IOException("Durable Terra finalization requires the pinned LevelDBProvider; refusing a non-durable fallback");
++        }
++        // Match PNX's save-race discipline: clear before serialization so a concurrent
++        // mutation can re-mark the chunk dirty instead of being erased after the write.
+         chunk.setChanged(false);
++        try {
++            // Bypass LevelDBProvider.saveChunk(): it deliberately uses sync(false) for autosaves.
++            // The WAL acknowledgement must never precede a synchronous LevelDB write.
++            provider.getStorage().writeChunkDurable(chunk);
++        } catch (IOException failure) {
++            chunk.setChanged(true);
++            throw failure;
++        }
+     }
+ 
+     private record DecodedWrite(int localX, int y, int localZ, int layer, BlockState state) {}

@@ -1,0 +1,607 @@
+diff --git a/src/main/java/org/powernukkitx/terra/TerraPlugin.java b/src/main/java/org/powernukkitx/terra/TerraPlugin.java
+index ef97710..e50a482 100644
+--- a/src/main/java/org/powernukkitx/terra/TerraPlugin.java
++++ b/src/main/java/org/powernukkitx/terra/TerraPlugin.java
+@@ -1,6 +1,10 @@
+ package org.powernukkitx.terra;
+ 
+ import org.powernukkitx.plugin.PluginBase;
++import org.powernukkitx.terra.crosschunk.runtime.TerraCrossChunkRuntime;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
+ 
+ public class TerraPlugin extends PluginBase {
+ 
+@@ -20,4 +24,15 @@ public class TerraPlugin extends PluginBase {
+         PNXPlatform.getInstance();
+         getLogger().info("Terra world generator registered, use \"terra\" as generator name");
+     }
++
++    @Override
++    public void onDisable() {
++        try {
++            TerraCrossChunkRuntime.closeAll();
++        } catch (IOException failure) {
++            throw new UncheckedIOException("Failed to close Terra cross-chunk journals", failure);
++        } finally {
++            instance = null;
++        }
++    }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java b/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java
+index 8a6a430..d9f4a1c 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java
+@@ -166,6 +166,61 @@ public final class PnxJournalChunkApplier {
+         }
+     }
+ 
++    /**
++     * Applies the currently committed journal snapshot directly to the supplied
++     * chunk. This is the generation-stage path: it never loads neighbouring
++     * chunks and deliberately does not acknowledge persistence. The ordinary
++     * PNX chunk-save lifecycle must finish before AppliedChunkLedger is updated
++     * by the later persistence integration stage.
++     */
++    public int applyAvailableToChunk(IChunk chunk) throws IOException {
++        Objects.requireNonNull(chunk, "chunk");
++        ChunkPos target = new ChunkPos(chunk.getX(), chunk.getZ());
++        List<CrossChunkOperation> snapshot = journal.operationsForChunk(target.x(), target.z());
++        if (snapshot.isEmpty()) return 0;
++
++        Map<BlockLayer, List<CrossChunkOperation>> candidates = new HashMap<>();
++        for (CrossChunkOperation operation : snapshot) {
++            if (operation.targetChunkX() != target.x() || operation.targetChunkZ() != target.z()) {
++                throw new IOException("Journal returned operation for the wrong target chunk");
++            }
++            if (operation.y() < chunk.getDimensionData().getMinHeight()
++                    || operation.y() > chunk.getDimensionData().getMaxHeight()) {
++                throw new IOException("Journal operation is outside dimension height: " + operation.y());
++            }
++            candidates.computeIfAbsent(new BlockLayer(operation.x(), operation.y(), operation.z(), operation.layer()),
++                    ignored -> new ArrayList<>()).add(operation);
++        }
++
++        synchronized (chunk) {
++            if (level.getChunkIfLoaded(target.x(), target.z()) != chunk) {
++                throw new IOException("Target chunk is no longer loaded: " + target);
++            }
++            int applied = 0;
++            List<Map.Entry<BlockLayer, List<CrossChunkOperation>>> ordered = new ArrayList<>(candidates.entrySet());
++            ordered.sort(Map.Entry.comparingByKey(Comparator.comparingInt(BlockLayer::x)
++                    .thenComparingInt(BlockLayer::y).thenComparingInt(BlockLayer::z)
++                    .thenComparingInt(BlockLayer::layer)));
++            for (var entry : ordered) {
++                BlockLayer position = entry.getKey();
++                int localX = position.x() & 15;
++                int localZ = position.z() & 15;
++                BlockState baseState = chunk.getBlockState(localX, position.y(), localZ, position.layer());
++                Block baseBlock = Block.get(baseState, level, position.x(), position.y(), position.z(), position.layer());
++                var winner = CrossChunkPlacementJournal.resolveWinner(entry.getValue(), replaceable.test(baseBlock));
++                if (winner.isEmpty()) continue;
++                BlockState targetState = PnxBlockStatePayloadCodec.decode(winner.get().statePayload());
++                chunk.setBlockState(localX, position.y(), localZ, targetState, position.layer());
++                applied++;
++            }
++            if (applied > 0) {
++                chunk.recalculateHeightMap();
++                chunk.setChanged();
++            }
++            return applied;
++        }
++    }
++
+     /** Remove an idle tail after the caller has completed chunk unload. */
+     public boolean forget(ChunkPos chunk) {
+         CompletableFuture<Void> tail = tails.get(chunk);
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java
+new file mode 100644
+index 0000000..4e53255
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java
+@@ -0,0 +1,85 @@
++package org.powernukkitx.terra.crosschunk.runtime;
++
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.LevelProvider;
++import org.powernukkitx.block.BlockState;
++import org.powernukkitx.terra.crosschunk.AppliedChunkLedger;
++import org.powernukkitx.terra.crosschunk.CrossChunkPlacementJournal;
++import org.powernukkitx.terra.crosschunk.pnx.PnxBlockStatePayloadCodec;
++import org.powernukkitx.terra.crosschunk.transaction.PlacementTransactionCoordinator;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
++import java.nio.file.Path;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.Objects;
++
++/**
++ * Owns one durable placement journal per PNX world dimension. Files live next
++ * to the world provider, not in a process-temporary directory. Instances are
++ * shared by concurrent chunk-generation workers and closed by TerraPlugin.
++ */
++public final class TerraCrossChunkRuntime implements AutoCloseable {
++    private static final Map<Path, TerraCrossChunkRuntime> INSTANCES = new HashMap<>();
++
++    private final Path directory;
++    private final CrossChunkPlacementJournal journal;
++    private final AppliedChunkLedger ledger;
++    private final PlacementTransactionCoordinator<BlockState> transactions;
++
++    private TerraCrossChunkRuntime(Path directory) throws IOException {
++        this.directory = directory;
++        this.journal = new CrossChunkPlacementJournal(directory.resolve("placements.wal"));
++        this.ledger = new AppliedChunkLedger(directory.resolve("applied-chunks.wal"));
++        this.transactions = new PlacementTransactionCoordinator<>(journal, PnxBlockStatePayloadCodec::encode);
++    }
++
++    public static synchronized TerraCrossChunkRuntime forLevel(Level level) {
++        Objects.requireNonNull(level, "level");
++        LevelProvider provider = Objects.requireNonNull(level.getProvider(), "level provider");
++        int dimension = provider.getDimensionData().getDimensionId();
++        Path directory = Path.of(provider.getPath()).toAbsolutePath().normalize()
++                .resolve("terra-crosschunk").resolve("dimension-" + dimension);
++        try {
++            TerraCrossChunkRuntime runtime = INSTANCES.get(directory);
++            if (runtime == null) {
++                runtime = new TerraCrossChunkRuntime(directory);
++                INSTANCES.put(directory, runtime);
++            }
++            return runtime;
++        } catch (IOException failure) {
++            throw new UncheckedIOException("Cannot open Terra placement journal at " + directory, failure);
++        }
++    }
++
++    public CrossChunkPlacementJournal journal() { return journal; }
++    public AppliedChunkLedger ledger() { return ledger; }
++    public PlacementTransactionCoordinator<BlockState> transactions() { return transactions; }
++    public Path directory() { return directory; }
++
++    public static synchronized void closeAll() throws IOException {
++        IOException failure = null;
++        for (TerraCrossChunkRuntime runtime : INSTANCES.values()) {
++            try {
++                runtime.close();
++            } catch (IOException closeFailure) {
++                if (failure == null) failure = closeFailure;
++                else failure.addSuppressed(closeFailure);
++            }
++        }
++        INSTANCES.clear();
++        if (failure != null) throw failure;
++    }
++
++    @Override
++    public void close() throws IOException {
++        IOException failure = null;
++        try { journal.close(); } catch (IOException e) { failure = e; }
++        try { ledger.close(); } catch (IOException e) {
++            if (failure == null) failure = e;
++            else failure.addSuppressed(e);
++        }
++        if (failure != null) throw failure;
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
+index 1178ab7..10ed17f 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
+@@ -10,6 +10,7 @@ import java.util.ArrayList;
+ import java.util.Deque;
+ import java.util.List;
+ import java.util.Objects;
++import java.util.Optional;
+ 
+ /**
+  * Bridges Terra's nested placement scopes to the durable cross-chunk journal.
+@@ -56,6 +57,35 @@ public final class PlacementTransactionCoordinator<S> {
+         return !scopes.get().isEmpty();
+     }
+ 
++    /**
++     * Adds a block-layer write to the current placement on this generation
++     * thread. Returns false when no placement scope is active, allowing the
++     * platform adapter to retain its legacy non-transactional path.
++     */
++    public boolean writeCurrent(int x, int y, int z, int layer, S state) {
++        Scope current = scopes.get().peek();
++        if (current == null) {
++            scopes.remove();
++            return false;
++        }
++        current.write(x, y, z, layer, state);
++        return true;
++    }
++
++    /** Reads the most recent uncommitted write in the current scope or a parent savepoint. */
++    public Optional<S> readCurrent(int x, int y, int z, int layer) {
++        Deque<Scope> stack = scopes.get();
++        if (stack.isEmpty()) {
++            scopes.remove();
++            return Optional.empty();
++        }
++        for (Scope scope : stack) {
++            Optional<S> value = scope.readLocal(x, y, z, layer);
++            if (value.isPresent()) return value;
++        }
++        return Optional.empty();
++    }
++
+     /** Fails closed if a generator stage exits while a scope remains open. */
+     public void assertNoOpenScopes() {
+         Deque<Scope> stack = scopes.get();
+@@ -87,6 +117,16 @@ public final class PlacementTransactionCoordinator<S> {
+             writes.add(new PendingWrite<>(x, y, z, layer, Objects.requireNonNull(state, "state")));
+         }
+ 
++        private Optional<S> readLocal(int x, int y, int z, int layer) {
++            for (int i = writes.size() - 1; i >= 0; i--) {
++                PendingWrite<S> write = writes.get(i);
++                if (write.x() == x && write.y() == y && write.z() == z && write.layer() == layer) {
++                    return Optional.of(write.state());
++                }
++            }
++            return Optional.empty();
++        }
++
+         /** Commits this savepoint; only the root commit reaches durable storage. */
+         public void commit() throws IOException {
+             requireTopAndOpen();
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
+index 5349720..1c1d7f7 100644
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
+@@ -1,94 +1,53 @@
+ package org.powernukkitx.terra.delegate;
+ 
+-import lombok.extern.slf4j.Slf4j;
+ import org.powernukkitx.level.Position;
+ import com.dfsek.terra.api.block.entity.BlockEntity;
+ import com.dfsek.terra.api.block.state.BlockState;
+ import com.dfsek.terra.api.config.ConfigPack;
+ import com.dfsek.terra.api.entity.Entity;
+ import com.dfsek.terra.api.entity.EntityType;
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+ import com.dfsek.terra.api.world.ServerWorld;
+ import com.dfsek.terra.api.world.biome.generation.BiomeProvider;
+ import com.dfsek.terra.api.world.chunk.generation.ChunkGenerator;
+ import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
+ 
+-@Slf4j
+-public record PNXProtoWorld(ServerWorld serverWorld, int centerChunkX, int centerChunkZ) implements ProtoWorld {
++public record PNXProtoWorld(ServerWorld serverWorld, int centerChunkX, int centerChunkZ)
++        implements ProtoWorld, PlacementScopeProvider {
+ 
+-    @Override
+-    public int centerChunkX() {
+-        return centerChunkX;
+-    }
+-
+-    @Override
+-    public int centerChunkZ() {
+-        return centerChunkZ;
+-    }
++    private static final java.util.logging.Logger LOGGER = java.util.logging.Logger.getLogger(PNXProtoWorld.class.getName());
+ 
+-    @Override
+-    public ServerWorld getWorld() {
+-        return serverWorld;
+-    }
++    @Override public int centerChunkX() { return centerChunkX; }
++    @Override public int centerChunkZ() { return centerChunkZ; }
++    @Override public ServerWorld getWorld() { return serverWorld; }
+ 
+     @Override
+-    public void setBlockState(int x, int y, int z, BlockState blockState, boolean b) {
+-        serverWorld.setBlockState(x, y, z, blockState, b);
+-    }
+-
+-    @Override
+-    public Entity spawnEntity(double v, double v1, double v2, EntityType entityType) {
+-        String identifier = (String) entityType.getHandle();
+-        try {
+-            org.powernukkitx.entity.Entity nukkitEntity = org.powernukkitx.entity.Entity.createEntity(identifier, new Position(v, v1, v2, ((PNXServerWorld) serverWorld).generatorWrapper().getLevel()));
+-            return new PNXEntity(nukkitEntity, serverWorld);
+-        } catch (Exception e) {
+-            log.error("Failed to spawn entity {} in {}", identifier, serverWorld);
+-            throw e;
++    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++        if (serverWorld instanceof PlacementScopeProvider provider) {
++            return provider.beginPlacement(descriptor);
+         }
++        return PlacementScope.noop();
+     }
+ 
+     @Override
+-    public BlockState getBlockState(int i, int i1, int i2) {
+-        return serverWorld.getBlockState(i, i1, i2);
+-    }
+-
+-    @Override
+-    public BlockEntity getBlockEntity(int i, int i1, int i2) {
+-        return null;
+-    }
+-
+-    @Override
+-    public ChunkGenerator getGenerator() {
+-        return serverWorld.getGenerator();
+-    }
+-
+-    @Override
+-    public BiomeProvider getBiomeProvider() {
+-        return serverWorld.getBiomeProvider();
++    public void setBlockState(int x, int y, int z, BlockState blockState, boolean physics) {
++        serverWorld.setBlockState(x, y, z, blockState, physics);
+     }
+ 
+     @Override
+-    public ConfigPack getPack() {
+-        return serverWorld.getPack();
++    public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
++        return serverWorld.spawnEntity(x, y, z, entityType);
+     }
+ 
+-    @Override
+-    public long getSeed() {
+-        return getHandle().getSeed();
+-    }
+-
+-    @Override
+-    public int getMaxHeight() {
+-        return serverWorld.getMaxHeight();
+-    }
+-
+-    @Override
+-    public int getMinHeight() {
+-        return serverWorld.getMinHeight();
+-    }
+-
+-    @Override
+-    public ServerWorld getHandle() {
+-        return serverWorld;
+-    }
++    @Override public BlockState getBlockState(int x, int y, int z) { return serverWorld.getBlockState(x, y, z); }
++    @Override public BlockEntity getBlockEntity(int x, int y, int z) { return null; }
++    @Override public ChunkGenerator getGenerator() { return serverWorld.getGenerator(); }
++    @Override public BiomeProvider getBiomeProvider() { return serverWorld.getBiomeProvider(); }
++    @Override public ConfigPack getPack() { return serverWorld.getPack(); }
++    @Override public long getSeed() { return getHandle().getSeed(); }
++    @Override public int getMaxHeight() { return serverWorld.getMaxHeight(); }
++    @Override public int getMinHeight() { return serverWorld.getMinHeight(); }
++    @Override public ServerWorld getHandle() { return serverWorld; }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+index fadbcca..a9dcfbd 100644
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -8,27 +8,44 @@ import org.powernukkitx.level.format.IChunk;
+ import org.powernukkitx.level.generator.object.BlockManager;
+ import org.powernukkitx.terra.PNXAdapter;
+ import org.powernukkitx.terra.TerraGenerator;
++import org.powernukkitx.terra.crosschunk.ChunkPos;
++import org.powernukkitx.terra.crosschunk.CrossChunkOperation;
++import org.powernukkitx.terra.crosschunk.pnx.PnxJournalChunkApplier;
++import org.powernukkitx.terra.crosschunk.runtime.TerraCrossChunkRuntime;
+ import org.powernukkitx.math.BlockVector3;
+ import com.dfsek.terra.api.block.entity.BlockEntity;
+ import com.dfsek.terra.api.block.state.BlockState;
+ import com.dfsek.terra.api.config.ConfigPack;
+ import com.dfsek.terra.api.entity.Entity;
+ import com.dfsek.terra.api.entity.EntityType;
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+ import com.dfsek.terra.api.world.ServerWorld;
+ import com.dfsek.terra.api.world.biome.generation.BiomeProvider;
+ import com.dfsek.terra.api.world.chunk.Chunk;
+ import com.dfsek.terra.api.world.chunk.generation.ChunkGenerator;
+ 
++import java.io.IOException;
++import java.io.UncheckedIOException;
+ import java.util.Objects;
+ 
+-public class PNXServerWorld implements ServerWorld {
++public class PNXServerWorld implements ServerWorld, PlacementScopeProvider {
+ 
+     private final TerraGenerator generatorWrapper;
+     private final BlockManager level;
++    private final Level handle;
++    private final TerraCrossChunkRuntime crossChunkRuntime;
++    private final PnxJournalChunkApplier journalApplier;
+ 
+     public PNXServerWorld(TerraGenerator generatorWrapper, Level level) {
+-        this.generatorWrapper = generatorWrapper;
++        this.generatorWrapper = Objects.requireNonNull(generatorWrapper, "generatorWrapper");
++        this.handle = Objects.requireNonNull(level, "level");
+         this.level = new BlockManager(level);
++        this.crossChunkRuntime = TerraCrossChunkRuntime.forLevel(level);
++        this.journalApplier = new PnxJournalChunkApplier(level,
++                crossChunkRuntime.journal(), crossChunkRuntime.ledger(),
++                Block::canBeReplaced, Runnable::run);
+     }
+ 
+     public TerraGenerator generatorWrapper() {
+@@ -36,22 +53,94 @@ public class PNXServerWorld implements ServerWorld {
+     }
+ 
+     public Level level() {
+-        return level.getLevel();
++        return handle;
+     }
+ 
+-    public void apply(IChunk chunk) {
+-        for(Block b : level.getBlocks()) {
+-            if(b.getChunk() != chunk) {
+-                level.getChunk(b.getChunkX(), b.getChunkZ());
++    /**
++     * Root Terra placements become durable journal frames. Nested placement
++     * scopes are savepoints and inherit the root identity in the coordinator.
++     */
++    @Override
++    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++        Objects.requireNonNull(descriptor, "descriptor");
++        var origin = descriptor.origin();
++        var rotation = descriptor.rotation();
++        var dimension = Integer.toString(handle.getProvider().getDimensionData().getDimensionId());
++        var key = org.powernukkitx.terra.crosschunk.PlacementKey.create(
++                handle.getSeed(), dimension, descriptor.featureId(), descriptor.structureId(),
++                origin.getX(), origin.getY(), origin.getZ(), rotation.ordinal(), "root");
++        var scope = crossChunkRuntime.transactions().begin(key, 0, CrossChunkOperation.ConflictPolicy.ALLOW);
++        return new PlacementScope() {
++            private boolean closed;
++
++            @Override
++            public void commit() {
++                ensureOpen();
++                try {
++                    scope.commit();
++                    closed = true;
++                } catch (IOException failure) {
++                    throw new UncheckedIOException("Could not durably commit Terra placement " + key, failure);
++                }
+             }
+-        }
++
++            @Override
++            public void abort() {
++                ensureOpen();
++                scope.abort();
++                closed = true;
++            }
++
++            @Override
++            public void close() {
++                if (!closed) {
++                    scope.close();
++                    closed = true;
++                }
++            }
++
++            private void ensureOpen() {
++                if (closed) throw new IllegalStateException("Terra placement scope is already closed");
++            }
++        };
++    }
++
++    /**
++     * Applies ordinary adapter writes and then the committed journal snapshot
++     * for this chunk only. Journal application never asks PNX to load a
++     * neighbouring chunk. Late arrivals for an already-populated chunk are
++     * retained in the WAL and handled by the subsequent finalization stage.
++     */
++    public void apply(IChunk chunk) {
++        crossChunkRuntime.transactions().assertNoOpenScopes();
+         level.applySubChunkUpdate();
++        try {
++            journalApplier.applyAvailableToChunk(chunk);
++        } catch (IOException failure) {
++            throw new UncheckedIOException("Could not apply Terra journal to chunk "
++                    + chunk.getX() + "," + chunk.getZ(), failure);
++        }
+     }
+ 
+     @Override
+-    public void setBlockState(int x, int y, int z, BlockState blockState, boolean b) {
++    public void setBlockState(int x, int y, int z, BlockState blockState, boolean physics) {
+         var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
+ 
++        // Placement writes are staged, not published into BlockManager. This
++        // prevents BlockManager.applySubChunkUpdate() from force-loading target
++        // chunks while a large structure crosses chunk boundaries.
++        if (crossChunkRuntime.transactions().writeCurrent(x, y, z, 0, innerBlockState)) {
++            Block old = level.getBlockIfCachedOrLoaded(x, y, z);
++            if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)
++                    || Objects.equals(old.getId(), BlockID.WATERLILY)
++                    || Objects.equals(old.getId(), BlockID.WATER)
++                    || Objects.equals(old.getId(), BlockID.FLOWING_WATER)) {
++                crossChunkRuntime.transactions().writeCurrent(x, y, z, 1, PNXProtoChunk.water);
++            }
++            return;
++        }
++
++        // Legacy non-placement writes retain the original adapter behavior.
+         if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)) {
+             level.setBlockStateAt(x, y, z, innerBlockState);
+             level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+@@ -62,7 +151,6 @@ public class PNXServerWorld implements ServerWorld {
+         if (Objects.equals(ob.getId(), BlockID.WATERLILY)
+                 || Objects.equals(ob.getId(), BlockID.WATER)
+                 || Objects.equals(ob.getId(), BlockID.FLOWING_WATER)) {
+-
+             level.setBlockStateAt(x, y, z, innerBlockState);
+             level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+         } else {
+@@ -72,24 +160,30 @@ public class PNXServerWorld implements ServerWorld {
+ 
+     @Override
+     public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
++        if (crossChunkRuntime.transactions().hasOpenScope()) {
++            throw new UnsupportedOperationException("Entity spawning inside a transactional Terra placement "
++                    + "is not supported yet; placement aborted to avoid partial structures");
++        }
+         String identifier = (String) entityType.getHandle();
+         org.powernukkitx.entity.Entity nukkitEntity =
+                 org.powernukkitx.entity.Entity.createEntity(
+                         identifier,
+-                        new Position(x, y, z, level.getLevel())
++                        new Position(x, y, z, handle)
+                 );
+         return new PNXEntity(nukkitEntity, this);
+     }
+ 
+     @Override
+     public BlockState getBlockState(int x, int y, int z) {
++        var staged = crossChunkRuntime.transactions().readCurrent(x, y, z, 0);
++        if (staged.isPresent()) return PNXAdapter.adapt(staged.get());
+         return PNXAdapter.adapt(level.getBlockAt(x, y, z).getBlockState());
+     }
+ 
+     @Override
+     public BlockEntity getBlockEntity(int x, int y, int z) {
+         org.powernukkitx.blockentity.BlockEntity blockEntity =
+-                level.getLevel().getBlockEntity(new BlockVector3(x, y, z));
++                handle.getBlockEntity(new BlockVector3(x, y, z));
+         return null;
+     }
+ 
+@@ -125,7 +219,7 @@ public class PNXServerWorld implements ServerWorld {
+ 
+     @Override
+     public Level getHandle() {
+-        return level.getLevel();
++        return handle;
+     }
+ 
+     @Override
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java
+index ee6de33..43b9ca4 100644
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java
+@@ -16,11 +16,20 @@ public final class PlacementTransactionCoordinatorTest {
+         try (CrossChunkPlacementJournal journal = new CrossChunkPlacementJournal(wal)) {
+             PlacementTransactionCoordinator<String> coordinator = new PlacementTransactionCoordinator<>(journal,
+                     value -> value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
++            check(!coordinator.writeCurrent(31, 70, -9, 0, "outside"),
++                    "writeCurrent must leave non-placement writes to the adapter fallback");
+             try (var root = coordinator.begin(key, 40, CrossChunkOperation.ConflictPolicy.EXCLUSIVE)) {
+-                root.write(31, 70, -9, 0, "stone");
++                check(coordinator.writeCurrent(31, 70, -9, 0, "stone"),
++                        "writeCurrent must stage writes inside an active root scope");
++                check(coordinator.readCurrent(31, 70, -9, 0).orElseThrow().equals("stone"),
++                        "read overlay must expose a staged root write");
+                 PlacementKey nestedDescriptorKey = PlacementKey.create(77L, "overworld", "castle_feature", "inner_tower", 32, 70, -9, 1, "root/inner");
+                 try (var nested = coordinator.begin(nestedDescriptorKey, 999, CrossChunkOperation.ConflictPolicy.ALLOW)) {
+                     nested.write(32, 70, -9, 0, "brick");
++                    check(coordinator.readCurrent(31, 70, -9, 0).orElseThrow().equals("stone"),
++                            "nested scope must read parent savepoint writes");
++                    check(coordinator.readCurrent(32, 70, -9, 0).orElseThrow().equals("brick"),
++                            "nested scope must read its own writes");
+                     nested.commit();
+                 }
+                 try (var aborted = coordinator.begin(key, 40, CrossChunkOperation.ConflictPolicy.EXCLUSIVE)) {

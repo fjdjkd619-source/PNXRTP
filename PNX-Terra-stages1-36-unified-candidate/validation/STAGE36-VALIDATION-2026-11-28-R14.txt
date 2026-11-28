@@ -1,0 +1,14 @@
+Stage 36 — deferred PNX entity lifecycle — 2026-11-28 R14
+
+PASS: Java 21 entity-applier contract suite; pre-save construction is absent from chunk entity map; save staging adds the entity to the chunk only; post-save confirmation activates Level ticking and client publication.
+PASS: Stage 27 finalization-order regression; order is apply -> chunk save staging -> synchronous durable save -> activation.
+PASS: Java 21 core compile/tests with -Xlint:all -Werror (18 suites).
+PASS: PNX BlockEntity contract compile/behavior tests.
+PASS: PNX generation journal runtime contract compile.
+PASS: PNX delegate contract compile/behavior tests.
+PASS: Stage 36 PNX API patch synthetic context application after the Stage 35 rollback seam.
+PASS: Stage 36 adapter patch synthetic application and byte comparison against the candidate overlay.
+PASS: all 27 patch files parse with git apply --stat.
+PASS: all shell scripts pass bash -n.
+
+IMPORTANT: these are core/contract/synthetic-patch checks. The complete Stage 1-36 patch chain has NOT been applied to clean exact-ref PNX, Terra, and PNX-Terra checkouts and has NOT passed the full upstream Gradle build. No live server test, crash/restart replay test, or client visibility test has been performed. Terra ServerWorld.spawnEntity remains fail-closed; entity-bearing Origen structures remain disabled. Physics callback remains fail-closed. Do not deploy.

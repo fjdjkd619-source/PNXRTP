@@ -1,0 +1,4 @@
+Stage 1–26 candidate core regression suite — R10
+OpenJDK 21; javac --release 21 -Xlint:all -Werror
+11/11 test suites PASS in 10 complete runs (110/110 suite executions).
+New checks: ticket/record ordinal mismatch rejection; abortability after rejected commit; replay ordinal resets to zero and preserves idempotent journal identity.

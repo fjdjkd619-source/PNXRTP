@@ -1,0 +1,14 @@
+PASS apply-stages1-25.sh
+PASS apply-stages1-26.sh
+PASS apply-stages1-34.sh
+PASS apply-stages1-35.sh
+PASS apply-stages1-36.sh
+PASS apply-stages27-34-overlay.sh
+PASS validation/package-release.sh
+PASS validation/run-core-tests.sh
+PASS validation/run-delegate-contract-compile.sh
+PASS validation/run-entity-spawn-contract-compile.sh
+PASS validation/run-pnx-be-contract-compile.sh
+PASS validation/run-runtime-contract-compile.sh
+PASS validation/run-stage36-pnx-api-patch-test.sh
+PASS validation/verify-upstream-build.sh

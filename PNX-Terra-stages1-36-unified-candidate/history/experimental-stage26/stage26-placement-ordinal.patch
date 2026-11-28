@@ -1,0 +1,40 @@
+--- a/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
++++ b/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+@@ -172,11 +172,11 @@
+     }
+ 
+     public final class AnchorSession implements AutoCloseable{
+-        private final ChunkPos anchor;private int inFlight;private boolean populationFinished;private boolean completed;private boolean failed;
++        private final ChunkPos anchor;private int inFlight;private long nextPlacementOrdinal;private boolean populationFinished;private boolean completed;private boolean failed;
+         private AnchorSession(ChunkPos anchor){this.anchor=anchor;}
+         public ChunkPos anchor(){return anchor;}
+         public PlacementTicket beginPlacement(){
+-            lock.lock();try{ensureOpen();if(populationFinished)throw new IllegalStateException("Population already marked finished");inFlight++;return new PlacementTicket(this);}finally{lock.unlock();}
++            lock.lock();try{ensureOpen();if(populationFinished)throw new IllegalStateException("Population already marked finished");inFlight++;return new PlacementTicket(this, nextPlacementOrdinal++);}finally{lock.unlock();}
+         }
+         /** Called only after Terra PopulateStage has finished selecting/running all features for this anchor. */
+         public void finishPopulation() throws IOException{
+@@ -191,8 +191,10 @@
+     }
+ 
+     public final class PlacementTicket implements AutoCloseable{
+-        private final AnchorSession session;private boolean finished;
+-        private PlacementTicket(AnchorSession session){this.session=session;}
++        private final AnchorSession session;private final long ordinal;private boolean finished;
++        private PlacementTicket(AnchorSession session, long ordinal){this.session=session;this.ordinal=ordinal;}
++        /** Deterministic per-anchor root-placement ordinal, replayed from zero with the anchor. */
++        public long ordinal(){return ordinal;}
+         /** WAL append is fsynced before the ticket is released and before the anchor can complete. */
+         public long commit(PlacementRecord record) throws IOException{
+             if(finished)throw new IllegalStateException("Ticket already finished");
+--- a/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -115,7 +115,7 @@
+         CrossChunkDependencyScheduler.PlacementTicket journalTicket = anchorSession == null ? null : anchorSession.beginPlacement();
+         PlacementKey journalKey = anchorSession == null ? null : new PlacementKey(worldKey, level.getSeed(),
+                 anchorSession.anchor(), featureId, structureId,
+-                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), 0L);
++                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
+         PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
+                 guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), guardScope, Thread.currentThread(), journalTicket, journalKey);
+         activePlacement = root;

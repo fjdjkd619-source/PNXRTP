@@ -1,0 +1,3 @@
+Stage 1-36 production release gate: BLOCKED (expected)
+
+Reason: STATUS.md still contains BLOCKED for production; no UPSTREAM-BUILD-PASS marker exists; no RUNTIME-CERTIFICATION-PASS marker exists. package-release.sh must refuse to create an integrated production JAR.

@@ -1,0 +1,793 @@
+diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
+index e78dcc4..8964a87 100644
+--- a/src/main/java/org/powernukkitx/terra/TerraGenerator.java
++++ b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
+@@ -21,6 +21,7 @@ import org.powernukkitx.level.generator.stages.normal.NormalPopulatorStage;
+ import org.powernukkitx.terra.crosschunk.bounds.OrigenBoundsCatalog;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.runtime.PnxGenerationJournalRuntime;
++import org.powernukkitx.terra.crosschunk.finalize.PnxCrossChunkFinalizer;
+ import org.powernukkitx.terra.delegate.PNXProtoChunk;
+ import org.powernukkitx.terra.delegate.PNXProtoWorld;
+ import org.powernukkitx.terra.delegate.PNXServerWorld;
+@@ -32,6 +33,7 @@ import com.dfsek.terra.api.world.chunk.generation.util.GeneratorWrapper;
+ import com.dfsek.terra.api.world.info.WorldProperties;
+ import lombok.extern.slf4j.Slf4j;
+ 
++import java.io.IOException;
+ import java.nio.file.Path;
+ import java.util.List;
+ import java.util.Locale;
+@@ -66,7 +68,9 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+         builder.next(Registries.GENERATE_STAGE.get(GeneratedStage.NAME));
+         if ((boolean) options.getOrDefault("structures", true)) builder.next(new StructureStage());
+         builder.next(new PopulateStage());
++        builder.next(new CrossChunkApplyStage());
+         builder.next(Registries.GENERATE_STAGE.get(LightPopulationStage.NAME));
++        builder.next(new CrossChunkPersistStage());
+         builder.next(Registries.GENERATE_STAGE.get(FinishedStage.NAME));
+     }
+ 
+@@ -121,6 +125,29 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+         @Override public String name(){return "terra_structure";}
+     }
+ 
++    /** Async barrier + WAL projection. Runs before lighting so cross-chunk blocks are lit correctly. */
++    class CrossChunkApplyStage extends GenerateStage {
++        @Override public void apply(ChunkGenerateContext context) {
++            throw new IllegalStateException("Cross-chunk finalization requires the async PNX generation pipeline");
++        }
++        @Override public java.util.concurrent.CompletableFuture<Void> applyAsync(ChunkGenerateContext context) {
++            return PnxCrossChunkFinalizer.applyTarget(getJournalRuntime(context.getLevel()), context.getLevel(), context.getChunk());
++        }
++        @Override public String name() { return "terra_cross_chunk_apply"; }
++    }
++
++    /** Saves the fully lit target before acknowledging its projection digest in the WAL. */
++    class CrossChunkPersistStage extends GenerateStage {
++        @Override public void apply(ChunkGenerateContext context) {
++            try {
++                PnxCrossChunkFinalizer.persistTarget(getJournalRuntime(context.getLevel()), context.getLevel(), context.getChunk());
++            } catch (java.io.IOException failure) {
++                throw new IllegalStateException("Could not durably finalize Terra target chunk", failure);
++            }
++        }
++        @Override public String name() { return "terra_cross_chunk_persist"; }
++    }
++
+     class PopulateStage extends GenerateStage {
+         @Override public void apply(ChunkGenerateContext context) {
+             final IChunk chunk=context.getChunk();chunk.setChunkState(ChunkState.POPULATED);
+@@ -130,7 +157,12 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+             // Source-anchor-only chunks do not recursively prefetch their own neighbours.
+             boolean dependencyPrefetch = runtime.consumeDependencyPrefetch(anchor);
+             // Player-demanded targets request missing source anchors; Stage18 activates prefetched targets on demand.
+-            runtime.registerTarget(anchor,OrigenBoundsCatalog.maxHorizontalReach(),!dependencyPrefetch);
++            if (!dependencyPrefetch) {
++                runtime.registerTarget(anchor, OrigenBoundsCatalog.maxHorizontalReach(), true);
++            }
++            // A prior attempt may have durably completed population and then crashed before target
++            // projection/save acknowledgement. Reuse its WAL; do not execute the feature graph twice.
++            if (runtime.journal().isAnchorCompleted(runtime.worldKey(), anchor)) return;
+             var anchorSession=runtime.openAnchor(anchor);
+             var serverWorld=new PNXServerWorld(TerraGenerator.this,context.getLevel(),anchorSession,runtime.worldKey());
+             var protoWorld=new PNXProtoWorld(serverWorld,chunkX,chunkZ);
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+new file mode 100644
+index 0000000..dec606b
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+@@ -0,0 +1,113 @@
++package org.powernukkitx.terra.crosschunk.finalize;
++
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PlacementDigest;
++import org.powernukkitx.terra.crosschunk.journal.PlacementJournal;
++import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
++import org.powernukkitx.terra.crosschunk.journal.PlacementRecord;
++
++import java.io.IOException;
++import java.util.List;
++import java.util.NavigableMap;
++import java.util.Objects;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.Executor;
++import java.util.function.Supplier;
++
++/**
++ * Two-phase target finalization. prepare() applies a deterministic projection after the dependency
++ * barrier; persist() saves the chunk before writing the durable applied-digest acknowledgement.
++ */
++public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoordinator.ChunkHandle> {
++    private final String worldKey;
++    private final PlacementJournal journal;
++    private final Executor executor;
++
++    public ChunkFinalizationCoordinator(String worldKey, PlacementJournal journal, Executor executor) {
++        if (worldKey == null || worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
++        this.worldKey = worldKey;
++        this.journal = Objects.requireNonNull(journal, "journal");
++        this.executor = Objects.requireNonNull(executor, "executor");
++    }
++
++    public CompletableFuture<Prepared<C>> prepare(ChunkPos target, CompletableFuture<Void> dependencyBarrier,
++                                                   Supplier<C> loadedOnlyLookup) {
++        Objects.requireNonNull(target, "target");
++        Objects.requireNonNull(dependencyBarrier, "dependencyBarrier");
++        Objects.requireNonNull(loadedOnlyLookup, "loadedOnlyLookup");
++        return dependencyBarrier.thenApplyAsync(ignored -> {
++            C chunk = loadedOnlyLookup.get();
++            validate(target, chunk);
++            List<PlacementRecord> records = journal.placementsFor(target);
++            String digest = PlacementDigest.compute(records, target);
++            boolean alreadyApplied = journal.isChunkApplied(worldKey, target, digest);
++            if (!alreadyApplied) {
++                NavigableMap<PlacementProjection.Position, PlacementProjection.Winner> projection =
++                        PlacementProjection.resolve(records, target);
++                try {
++                    chunk.applyProjection(projection);
++                } catch (Exception failure) {
++                    throw new FinalizationException("Could not apply journal projection to " + target, failure);
++                }
++            }
++            return new Prepared<>(worldKey, target, digest, chunk, alreadyApplied);
++        }, executor);
++    }
++
++    public void persist(Prepared<C> prepared, Supplier<C> loadedOnlyLookup) throws IOException {
++        Objects.requireNonNull(prepared, "prepared");
++        Objects.requireNonNull(loadedOnlyLookup, "loadedOnlyLookup");
++        if (!worldKey.equals(prepared.worldKey)) throw new IllegalArgumentException("Prepared target belongs to another world");
++        C current = loadedOnlyLookup.get();
++        validate(prepared.target, current);
++        if (current != prepared.chunk) throw new IOException("Target chunk instance changed before persistence: " + prepared.target);
++        String currentDigest = PlacementDigest.compute(journal.placementsFor(prepared.target), prepared.target);
++        if (!currentDigest.equals(prepared.digest))
++            throw new IOException("Projection changed after prepare; refusing to publish stale target " + prepared.target);
++        if (journal.isChunkApplied(worldKey, prepared.target, prepared.digest)) return;
++        try {
++            current.saveDurably();
++        } catch (Exception failure) {
++            throw new IOException("Target chunk save failed; applied acknowledgement withheld for " + prepared.target, failure);
++        }
++        // This method rechecks the digest under the journal lock to close the apply/save/ack race.
++        journal.appendChunkApplied(worldKey, prepared.target, prepared.digest);
++    }
++
++    private static void validate(ChunkPos target, ChunkHandle chunk) {
++        if (chunk == null) throw new FinalizationException("Target chunk is not loaded; refusing to force-load " + target);
++        if (!target.equals(chunk.position())) throw new FinalizationException("Loaded chunk lookup returned the wrong coordinates");
++        if (!chunk.isLoaded() || !chunk.isGenerated() || !chunk.isInitiated())
++            throw new FinalizationException("Target chunk is not loaded/generated/initiated: " + target);
++    }
++
++    public interface ChunkHandle {
++        ChunkPos position();
++        boolean isLoaded();
++        boolean isGenerated();
++        boolean isInitiated();
++        void applyProjection(NavigableMap<PlacementProjection.Position, PlacementProjection.Winner> projection) throws Exception;
++        void saveDurably() throws Exception;
++    }
++
++    public static final class Prepared<C extends ChunkHandle> {
++        private final String worldKey;
++        private final ChunkPos target;
++        private final String digest;
++        private final C chunk;
++        private final boolean alreadyApplied;
++        private Prepared(String worldKey, ChunkPos target, String digest, C chunk, boolean alreadyApplied) {
++            this.worldKey = worldKey; this.target = target; this.digest = digest;
++            this.chunk = chunk; this.alreadyApplied = alreadyApplied;
++        }
++        public ChunkPos target() { return target; }
++        public String digest() { return digest; }
++        public boolean alreadyApplied() { return alreadyApplied; }
++    }
++
++    public static final class FinalizationException extends RuntimeException {
++        private static final long serialVersionUID = 1L;
++        public FinalizationException(String message) { super(message); }
++        public FinalizationException(String message, Throwable cause) { super(message, cause); }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+new file mode 100644
+index 0000000..ad5526b
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+@@ -0,0 +1,69 @@
++package org.powernukkitx.terra.crosschunk.finalize;
++
++import org.powernukkitx.block.BlockState;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
++import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
++
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.NavigableMap;
++
++/** PNX 3.0.6 chunk adapter. It only ever mutates the already-loaded target chunk instance. */
++public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkHandle {
++    private final IChunk chunk;
++
++    public PnxChunkHandle(IChunk chunk) {
++        this.chunk = java.util.Objects.requireNonNull(chunk, "chunk");
++    }
++
++    public IChunk chunk() { return chunk; }
++    @Override public ChunkPos position() { return new ChunkPos(chunk.getX(), chunk.getZ()); }
++    @Override public boolean isLoaded() { return chunk.isLoaded(); }
++    @Override public boolean isGenerated() { return chunk.isGenerated(); }
++    @Override public boolean isInitiated() { return chunk.isInitiated(); }
++
++    @Override
++    public void applyProjection(NavigableMap<PlacementProjection.Position, PlacementProjection.Winner> projection) throws IOException {
++        List<DecodedWrite> decoded = new ArrayList<>(projection.size());
++        for (var entry : projection.entrySet()) {
++            PlacementProjection.Position pos = entry.getKey();
++            if (!position().equals(ChunkPos.fromBlock(pos.x(), pos.z())))
++                throw new IOException("Projection contains a write outside target chunk: " + pos);
++            if (pos.y() < chunk.getDimensionData().getMinHeight() || pos.y() >= chunk.getDimensionData().getMaxHeight())
++                throw new IOException("Projection write is outside world height: " + pos);
++            BlockState state = PnxBlockStateCodec.decode(entry.getValue().write().canonicalState());
++            decoded.add(new DecodedWrite(pos.x() & 15, pos.y(), pos.z() & 15, pos.layer(), state));
++        }
++        // Decode and validate the entire projection before taking the chunk write lock.
++        chunk.batchProcess(unsafe -> {
++            for (DecodedWrite write : decoded) {
++                unsafe.setBlockState(write.localX, write.y, write.localZ, write.state, write.layer);
++            }
++        });
++        // PNX 3.0.6 batchProcess logs and swallows callback exceptions. Verify every write so a
++        // partial batch can never receive a durable journal acknowledgement.
++        for (DecodedWrite write : decoded) {
++            if (!chunk.getBlockState(write.localX, write.y, write.localZ, write.layer).equals(write.state)) {
++                throw new IOException("PNX chunk batch did not apply expected block state at "
++                        + (chunk.getX() * 16 + write.localX) + "," + write.y + "," + (chunk.getZ() * 16 + write.localZ));
++            }
++        }
++        chunk.recalculateHeightMap();
++        chunk.setLightPopulated(false);
++        chunk.setChanged();
++        chunk.reObfuscateChunk();
++    }
++
++    @Override
++    public void saveDurably() throws IOException {
++        if (chunk.getProvider() == null) throw new IOException("Target chunk has no storage provider");
++        chunk.setChanged();
++        chunk.getProvider().saveChunk(chunk.getX(), chunk.getZ(), chunk);
++        chunk.setChanged(false);
++    }
++
++    private record DecodedWrite(int localX, int y, int localZ, int layer, BlockState state) {}
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java
+new file mode 100644
+index 0000000..fbc2e0b
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java
+@@ -0,0 +1,41 @@
++package org.powernukkitx.terra.crosschunk.finalize;
++
++import org.powernukkitx.Server;
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.terra.crosschunk.finalize.ChunkFinalizationCoordinator.Prepared;
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.runtime.PnxGenerationJournalRuntime;
++
++import java.io.IOException;
++import java.util.concurrent.CompletableFuture;
++
++/** PNX-facing async two-phase finalization. No blocking wait and no force-loading. */
++public final class PnxCrossChunkFinalizer {
++    private PnxCrossChunkFinalizer() {}
++
++    public static CompletableFuture<Void> applyTarget(PnxGenerationJournalRuntime runtime, Level level, IChunk generatingChunk) {
++        ChunkPos target = new ChunkPos(generatingChunk.getX(), generatingChunk.getZ());
++        ChunkFinalizationCoordinator<PnxChunkHandle> coordinator = new ChunkFinalizationCoordinator<>(
++                runtime.worldKey(), runtime.journal(), Server.getInstance().getComputeThreadPool());
++        return coordinator.prepare(target, runtime.activateTarget(target),
++                        () -> loadedHandle(level, target, generatingChunk))
++                .thenAccept(prepared -> runtime.putPendingFinalization(target, prepared));
++    }
++
++    public static void persistTarget(PnxGenerationJournalRuntime runtime, Level level, IChunk generatingChunk) throws IOException {
++        ChunkPos target = new ChunkPos(generatingChunk.getX(), generatingChunk.getZ());
++        Prepared<PnxChunkHandle> prepared = runtime.takePendingFinalization(target);
++        if (prepared == null) throw new IOException("Missing prepared cross-chunk finalization for " + target);
++        ChunkFinalizationCoordinator<PnxChunkHandle> coordinator = new ChunkFinalizationCoordinator<>(
++                runtime.worldKey(), runtime.journal(), Runnable::run);
++        coordinator.persist(prepared, () -> loadedHandle(level, target, generatingChunk));
++    }
++
++    private static PnxChunkHandle loadedHandle(Level level, ChunkPos target, IChunk expected) {
++        IChunk loaded = level.getChunkIfLoaded(target.x(), target.z());
++        if (loaded == null || loaded != expected) return null;
++        return new PnxChunkHandle(loaded);
++    }
++
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java
+index ddaa28f..dbd38d8 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java
+@@ -1,6 +1,9 @@
+ package org.powernukkitx.terra.crosschunk.journal;
+ 
+-public sealed interface JournalEvent permits JournalEvent.PlacementCommitted, JournalEvent.AnchorCompleted {
++public sealed interface JournalEvent permits JournalEvent.PlacementCommitted, JournalEvent.AnchorStarted,
++        JournalEvent.AnchorCompleted, JournalEvent.ChunkApplied {
+     record PlacementCommitted(long sequence, PlacementRecord record) implements JournalEvent {}
++    record AnchorStarted(long sequence, String worldKey, ChunkPos anchor) implements JournalEvent {}
+     record AnchorCompleted(long sequence, String worldKey, ChunkPos anchor) implements JournalEvent {}
++    record ChunkApplied(long sequence, String worldKey, ChunkPos target, String digest) implements JournalEvent {}
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java
+new file mode 100644
+index 0000000..f7bcf25
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementDigest.java
+@@ -0,0 +1,48 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.io.ByteArrayOutputStream;
++import java.io.DataOutputStream;
++import java.io.IOException;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.Collection;
++import java.util.Comparator;
++import java.util.HexFormat;
++import java.util.List;
++
++/** Stable digest of every durable placement affecting one target, independent of append/completion order. */
++public final class PlacementDigest {
++    private PlacementDigest() {}
++
++    public static String compute(Collection<PlacementRecord> records, ChunkPos target) {
++        try {
++            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++            try (DataOutputStream out = new DataOutputStream(bytes)) {
++                out.writeInt(1);
++                out.writeInt(target.x());
++                out.writeInt(target.z());
++                List<PlacementRecord> ordered = records.stream()
++                        .filter(record -> record.targetChunks().contains(target))
++                        .sorted(Comparator.comparing(record -> record.key().stableId())).toList();
++                out.writeInt(ordered.size());
++                for (PlacementRecord record : ordered) {
++                    out.writeUTF(record.key().stableId());
++                    List<BlockWrite> writes = record.writes().stream()
++                            .filter(write -> write.chunk().equals(target)).toList();
++                    out.writeInt(writes.size());
++                    for (BlockWrite write : writes) {
++                        out.writeInt(write.x()); out.writeInt(write.y()); out.writeInt(write.z());
++                        out.writeByte(write.layer());
++                        byte[] payload = write.canonicalState();
++                        out.writeInt(payload.length); out.write(payload);
++                    }
++                }
++            }
++            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
++        } catch (IOException impossible) {
++            throw new IllegalStateException("In-memory digest encoding failed", impossible);
++        } catch (NoSuchAlgorithmException impossible) {
++            throw new IllegalStateException("SHA-256 unavailable", impossible);
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+index 68042e1..ac351e4 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+@@ -19,11 +19,11 @@ import static java.nio.file.StandardOpenOption.*;
+  */
+ public final class PlacementJournal implements AutoCloseable {
+     private static final int MAGIC = 0x50584A31; // PXJ1
+-    private static final int VERSION = 1;
++    private static final int VERSION = 2;
+     private static final int HEADER_BYTES = 8;
+     private static final int TRAILER_BYTES = 4;
+     private static final int MAX_FRAME = 64 * 1024 * 1024;
+-    private static final byte PLACEMENT = 1, ANCHOR_COMPLETE = 2;
++    private static final byte PLACEMENT = 1, ANCHOR_COMPLETE = 2, ANCHOR_STARTED = 3, CHUNK_APPLIED = 4;
+ 
+     private final Path path;
+     private final FileChannel channel;
+@@ -31,7 +31,10 @@ public final class PlacementJournal implements AutoCloseable {
+     private final ReentrantLock lock = new ReentrantLock();
+     private final List<JournalEvent> events = new ArrayList<>();
+     private final Map<String, PlacementRecord> placements = new HashMap<>();
++    private final Map<ChunkPos, Set<String>> placementsByTarget = new HashMap<>();
+     private final Set<AnchorId> completedAnchors = new HashSet<>();
++    private final Set<AnchorId> startedAnchors = new HashSet<>();
++    private final Map<ChunkId, String> appliedDigests = new HashMap<>();
+     private long nextSequence = 1;
+ 
+     public PlacementJournal(Path path) throws IOException {
+@@ -73,11 +76,74 @@ public final class PlacementJournal implements AutoCloseable {
+             appendFrame(payload); // durable before visible in memory / return
+             events.add(new JournalEvent.PlacementCommitted(sequence, record));
+             placements.put(id, record);
++            indexPlacement(record);
+             nextSequence++;
+             return sequence;
+         } finally { lock.unlock(); }
+     }
+ 
++    public long appendAnchorStarted(String worldKey, ChunkPos anchor) throws IOException {
++        Objects.requireNonNull(worldKey, "worldKey"); Objects.requireNonNull(anchor, "anchor");
++        if (worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
++        lock.lock();
++        try {
++            AnchorId id = new AnchorId(worldKey, anchor);
++            if (startedAnchors.contains(id)) return sequenceOfAnchorStarted(id);
++            long sequence = nextSequence;
++            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++            try (DataOutputStream out = new DataOutputStream(bytes)) {
++                out.writeByte(VERSION); out.writeByte(ANCHOR_STARTED); out.writeLong(sequence);
++                writeString(out, worldKey); out.writeInt(anchor.x()); out.writeInt(anchor.z());
++            }
++            appendFrame(bytes.toByteArray());
++            events.add(new JournalEvent.AnchorStarted(sequence, worldKey, anchor));
++            startedAnchors.add(id); nextSequence++;
++            return sequence;
++        } finally { lock.unlock(); }
++    }
++
++    /** Append a durable target acknowledgement only if the projection is still current. */
++    public long appendChunkApplied(String worldKey, ChunkPos target, String digest) throws IOException {
++        Objects.requireNonNull(worldKey, "worldKey"); Objects.requireNonNull(target, "target");
++        if (worldKey.isBlank() || digest == null || !digest.matches("[0-9a-f]{64}"))
++            throw new IllegalArgumentException("Invalid applied-chunk identity/digest");
++        lock.lock();
++        try {
++            String current = PlacementDigest.compute(placementsForUnsafe(target), target);
++            if (!current.equals(digest)) throw new IOException("Projection changed before applied acknowledgement for " + target);
++            ChunkId id = new ChunkId(worldKey, target);
++            if (digest.equals(appliedDigests.get(id))) return sequenceOfApplied(id, digest);
++            long sequence = nextSequence;
++            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++            try (DataOutputStream out = new DataOutputStream(bytes)) {
++                out.writeByte(VERSION); out.writeByte(CHUNK_APPLIED); out.writeLong(sequence);
++                writeString(out, worldKey); out.writeInt(target.x()); out.writeInt(target.z()); writeString(out, digest);
++            }
++            appendFrame(bytes.toByteArray());
++            events.add(new JournalEvent.ChunkApplied(sequence, worldKey, target, digest));
++            appliedDigests.put(id, digest); nextSequence++;
++            return sequence;
++        } finally { lock.unlock(); }
++    }
++
++    public boolean isAnchorStarted(String worldKey, ChunkPos anchor) {
++        lock.lock(); try { return startedAnchors.contains(new AnchorId(worldKey, anchor)); }
++        finally { lock.unlock(); }
++    }
++
++    public boolean isChunkApplied(String worldKey, ChunkPos target, String digest) {
++        lock.lock(); try { return digest.equals(appliedDigests.get(new ChunkId(worldKey, target))); }
++        finally { lock.unlock(); }
++    }
++
++    public Set<ChunkPos> incompleteAnchors(String worldKey) {
++        lock.lock(); try {
++            TreeSet<ChunkPos> result = new TreeSet<>();
++            for (AnchorId id : startedAnchors) if (id.worldKey.equals(worldKey) && !completedAnchors.contains(id)) result.add(id.anchor);
++            return Collections.unmodifiableSet(result);
++        } finally { lock.unlock(); }
++    }
++
+     public long appendAnchorCompleted(String worldKey, ChunkPos anchor) throws IOException {
+         Objects.requireNonNull(worldKey, "worldKey"); Objects.requireNonNull(anchor, "anchor");
+         if (worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
+@@ -102,10 +168,22 @@ public final class PlacementJournal implements AutoCloseable {
+         lock.lock(); try { return List.copyOf(events); } finally { lock.unlock(); }
+     }
+     public List<PlacementRecord> placementsFor(ChunkPos target) {
+-        lock.lock(); try {
+-            return placements.values().stream().filter(p -> p.targetChunks().contains(target))
+-                    .sorted(Comparator.comparing(p -> p.key().stableId())).toList();
+-        } finally { lock.unlock(); }
++        lock.lock(); try { return placementsForUnsafe(target); }
++        finally { lock.unlock(); }
++    }
++
++    private List<PlacementRecord> placementsForUnsafe(ChunkPos target) {
++        Set<String> ids = placementsByTarget.get(target);
++        if (ids == null || ids.isEmpty()) return List.of();
++        return ids.stream().map(placements::get).filter(Objects::nonNull)
++                .sorted(Comparator.comparing(p -> p.key().stableId())).toList();
++    }
++
++    private void indexPlacement(PlacementRecord record) {
++        String id = record.key().stableId();
++        for (ChunkPos target : record.targetChunks()) {
++            placementsByTarget.computeIfAbsent(target, ignored -> new HashSet<>()).add(id);
++        }
+     }
+     public boolean isAnchorCompleted(String worldKey, ChunkPos anchor) {
+         lock.lock(); try { return completedAnchors.contains(new AnchorId(worldKey, anchor)); }
+@@ -161,8 +239,15 @@ public final class PlacementJournal implements AutoCloseable {
+             String id = p.record().key().stableId();
+             PlacementRecord previous = placements.putIfAbsent(id, p.record());
+             if (previous != null && !sameRecord(previous, p.record())) throw new IOException("Duplicate placement key collision in WAL");
++            if (previous == null) indexPlacement(p.record());
++        } else if (event instanceof JournalEvent.AnchorStarted a) {
++            startedAnchors.add(new AnchorId(a.worldKey(), a.anchor()));
+         } else if (event instanceof JournalEvent.AnchorCompleted a) {
+-            completedAnchors.add(new AnchorId(a.worldKey(), a.anchor()));
++            AnchorId id = new AnchorId(a.worldKey(), a.anchor());
++            startedAnchors.add(id);
++            completedAnchors.add(id);
++        } else if (event instanceof JournalEvent.ChunkApplied a) {
++            appliedDigests.put(new ChunkId(a.worldKey(), a.target()), a.digest());
+         }
+         events.add(event);
+     }
+@@ -170,7 +255,7 @@ public final class PlacementJournal implements AutoCloseable {
+     private JournalEvent decode(byte[] payload) throws IOException {
+         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
+             int version = in.readUnsignedByte(), type = in.readUnsignedByte(); long seq = in.readLong();
+-            if (version != VERSION) throw new IOException("Unsupported journal version " + version);
++            if (version < 1 || version > VERSION) throw new IOException("Unsupported journal version " + version);
+             JournalEvent result;
+             if (type == PLACEMENT) {
+                 PlacementKey key = new PlacementKey(readString(in), in.readLong(),
+@@ -187,6 +272,12 @@ public final class PlacementJournal implements AutoCloseable {
+                 result = new JournalEvent.PlacementCommitted(seq, new PlacementRecord(key, writes));
+             } else if (type == ANCHOR_COMPLETE) {
+                 result = new JournalEvent.AnchorCompleted(seq, readString(in), new ChunkPos(in.readInt(), in.readInt()));
++            } else if (type == ANCHOR_STARTED) {
++                if (version < 2) throw new IOException("Anchor-start event requires journal version 2");
++                result = new JournalEvent.AnchorStarted(seq, readString(in), new ChunkPos(in.readInt(), in.readInt()));
++            } else if (type == CHUNK_APPLIED) {
++                if (version < 2) throw new IOException("Chunk-applied event requires journal version 2");
++                result = new JournalEvent.ChunkApplied(seq, readString(in), new ChunkPos(in.readInt(), in.readInt()), readString(in));
+             } else throw new IOException("Unknown journal event type " + type);
+             if (in.available() != 0) throw new IOException("Trailing bytes in journal event");
+             return result;
+@@ -220,10 +311,18 @@ public final class PlacementJournal implements AutoCloseable {
+     private static String readString(DataInput in)throws IOException{
+         int n=in.readInt();if(n<0||n>1_048_576)throw new IOException("Invalid string length");byte[] b=new byte[n];in.readFully(b);return new String(b,StandardCharsets.UTF_8);
+     }
+-    private static long eventSequence(JournalEvent e){return e instanceof JournalEvent.PlacementCommitted p?p.sequence():((JournalEvent.AnchorCompleted)e).sequence();}
++    private static long eventSequence(JournalEvent e){
++        if(e instanceof JournalEvent.PlacementCommitted p)return p.sequence();
++        if(e instanceof JournalEvent.AnchorStarted a)return a.sequence();
++        if(e instanceof JournalEvent.AnchorCompleted a)return a.sequence();
++        return ((JournalEvent.ChunkApplied)e).sequence();
++    }
+     private long sequenceOfPlacement(String id){return events.stream().filter(e->e instanceof JournalEvent.PlacementCommitted p&&p.record().key().stableId().equals(id)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+     private long sequenceOfAnchor(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorCompleted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
++    private long sequenceOfAnchorStarted(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorStarted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
++    private long sequenceOfApplied(ChunkId id,String digest){return events.stream().filter(e->e instanceof JournalEvent.ChunkApplied a&&a.worldKey().equals(id.worldKey)&&a.target().equals(id.target)&&a.digest().equals(digest)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+     private static boolean sameRecord(PlacementRecord a,PlacementRecord b){return a.key().equals(b.key())&&a.writes().equals(b.writes());}
+     private record AnchorId(String worldKey,ChunkPos anchor){}
++    private record ChunkId(String worldKey,ChunkPos target){}
+     @Override public void close() throws IOException { lock.lock();try{channel.force(true);processLock.release();channel.close();}finally{lock.unlock();} }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+index e76b70e..a820723 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+@@ -4,6 +4,7 @@ import org.powernukkitx.level.Level;
+ import org.powernukkitx.level.format.IChunk;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.journal.PlacementJournal;
++import org.powernukkitx.terra.crosschunk.finalize.ChunkFinalizationCoordinator;
+ import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
+ 
+ import java.io.IOException;
+@@ -24,6 +25,7 @@ public final class PnxGenerationJournalRuntime implements AutoCloseable {
+     private final PlacementJournal journal;
+     private final CrossChunkDependencyScheduler scheduler;
+     private final Set<ChunkPos> dependencyPrefetch = ConcurrentHashMap.newKeySet();
++    private final ConcurrentHashMap<ChunkPos, ChunkFinalizationCoordinator.Prepared<?>> pendingFinalizations = new ConcurrentHashMap<>();
+ 
+     private PnxGenerationJournalRuntime(String worldKey, Level level, PlacementJournal journal) {
+         this.worldKey=worldKey;this.level=level;this.journal=journal;
+@@ -44,6 +46,14 @@ public final class PnxGenerationJournalRuntime implements AutoCloseable {
+     public CompletableFuture<Void> activateTarget(ChunkPos target){return scheduler.activateTarget(target);}
+     public CrossChunkDependencyScheduler.AnchorSession openAnchor(ChunkPos anchor){return scheduler.openAnchor(anchor);}
+     public PlacementJournal journal(){return journal;}
++    public <T extends ChunkFinalizationCoordinator.ChunkHandle> void putPendingFinalization(
++            ChunkPos target, ChunkFinalizationCoordinator.Prepared<T> prepared) {
++        pendingFinalizations.put(target, prepared);
++    }
++    @SuppressWarnings("unchecked")
++    public <T extends ChunkFinalizationCoordinator.ChunkHandle> ChunkFinalizationCoordinator.Prepared<T> takePendingFinalization(ChunkPos target) {
++        return (ChunkFinalizationCoordinator.Prepared<T>) pendingFinalizations.remove(target);
++    }
+ 
+     /** True once for chunks queued only as source anchors; prevents infinite recursive prefetch. */
+     public boolean consumeDependencyPrefetch(ChunkPos anchor){return dependencyPrefetch.remove(anchor);}
+@@ -51,15 +61,24 @@ public final class PnxGenerationJournalRuntime implements AutoCloseable {
+     /** Non-blocking, queue-aware source-anchor request. False means PNX's generation queue was full. */
+     private boolean requestAnchor(ChunkPos anchor){
+         if(journal.isAnchorCompleted(worldKey,anchor))return true;
+-        if(level.isChunkGenerating(anchor.x(),anchor.z()))return true;
+         IChunk loaded=level.getChunkIfLoaded(anchor.x(),anchor.z());
+         if(loaded!=null&&loaded.getChunkState().canSend()){
+-            throw new IllegalStateException("Existing finished chunk has no Terra anchor WAL marker: "+anchor+
+-                    ". Refusing to treat an unjournaled chunk as a complete dependency.");
++            if (journal.isAnchorStarted(worldKey, anchor) && !journal.isAnchorCompleted(worldKey, anchor)) {
++                // Crash recovery: this exact anchor had entered Terra population but never committed
++                // its completion marker. Re-run only the population tail from GENERATED.
++                loaded.setChunkState(org.powernukkitx.level.format.ChunkState.GENERATED);
++                loaded.setChanged();
++            } else {
++                throw new IllegalStateException("Existing finished chunk has no Terra anchor WAL marker: "+anchor+
++                        ". Refusing to treat an unjournaled chunk as a complete dependency.");
++            }
+         }
+         dependencyPrefetch.add(anchor);
+-        level.generateChunk(anchor.x(),anchor.z());
+-        if(level.isChunkGenerating(anchor.x(),anchor.z())||journal.isAnchorCompleted(worldKey,anchor))return true;
++        // Request only the Terra PopulateStage. Prefetched anchors must write their root placements
++        // durably but must not recursively activate their own target barriers until player demand.
++        boolean accepted = level.generateChunkToStage(anchor.x(), anchor.z(), "terra_populate",
++                journal.isAnchorStarted(worldKey, anchor));
++        if (accepted || journal.isAnchorCompleted(worldKey, anchor)) return true;
+         dependencyPrefetch.remove(anchor);
+         return false;
+     }
+@@ -68,5 +87,5 @@ public final class PnxGenerationJournalRuntime implements AutoCloseable {
+         try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}
+         catch(NoSuchAlgorithmException impossible){throw new IllegalStateException("SHA-256 unavailable",impossible);}
+     }
+-    @Override public void close()throws IOException{journal.close();}
++    @Override public void close()throws IOException{scheduler.close();journal.close();}
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+index b94147f..c37b767 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+@@ -5,18 +5,20 @@ import org.powernukkitx.terra.crosschunk.journal.*;
+ import java.io.IOException;
+ import java.util.*;
+ import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.locks.ReentrantLock;
+ 
+ /**
+  * Durable anchor-population barrier. A target waits for every anchor whose possible feature
+  * footprint can overlap it. No method loads or generates a chunk.
+  */
+-public final class CrossChunkDependencyScheduler {
++public final class CrossChunkDependencyScheduler implements AutoCloseable {
+     private static final int MAX_REACH_BLOCKS = 4096;
+     private final String worldKey;
+     private final PlacementJournal journal;
+     private final AnchorRequester requester;
+     private final ReentrantLock lock = new ReentrantLock();
++    private volatile boolean closed;
+     private final Map<ChunkPos, AnchorSession> sessions = new HashMap<>();
+     private final Map<ChunkPos, TargetBarrier> targets = new HashMap<>();
+ 
+@@ -41,6 +43,7 @@ public final class CrossChunkDependencyScheduler {
+ 
+     public CompletableFuture<Void> registerTarget(ChunkPos target, int maxReachX, int maxReachZ, boolean requestDependencies) {
+         Objects.requireNonNull(target,"target");
++        ensureOpen();
+         if(maxReachX<0||maxReachZ<0)throw new IllegalArgumentException("reach cannot be negative");
+         if(maxReachX>MAX_REACH_BLOCKS||maxReachZ>MAX_REACH_BLOCKS)throw new IllegalArgumentException("reach exceeds safety limit");
+         Set<ChunkPos> expected=expectedAnchors(target,maxReachX,maxReachZ);
+@@ -64,6 +67,7 @@ public final class CrossChunkDependencyScheduler {
+                 }
+             } catch(RuntimeException failure){barrier.ready.completeExceptionally(failure);break;}
+         }
++        if (requestDependencies && !barrier.ready.isDone()) scheduleRetry(barrier);
+         return barrier.ready;
+     }
+ 
+@@ -72,15 +76,27 @@ public final class CrossChunkDependencyScheduler {
+         TargetBarrier barrier;
+         lock.lock();try{barrier=targets.get(target);}finally{lock.unlock();}
+         if(barrier==null)throw new IllegalStateException("Target has not been registered: "+target);
+-        return registerTarget(target,barrier.maxReachX,barrier.maxReachZ,true);
++        CompletableFuture<Void> ready = registerTarget(target,barrier.maxReachX,barrier.maxReachZ,true);
++        ready.whenComplete((ignored, failure) -> {
++            lock.lock();
++            try { targets.remove(target, barrier); }
++            finally { lock.unlock(); }
++        });
++        return ready;
+     }
+ 
+     /** Starts one anchor's Terra population lifecycle. Recovered incomplete anchors may be replayed. */
+     public AnchorSession openAnchor(ChunkPos anchor) {
+         Objects.requireNonNull(anchor,"anchor");
++        ensureOpen();
+         lock.lock();try{
+             if(journal.isAnchorCompleted(worldKey,anchor))throw new IllegalStateException("Anchor already durably completed: "+anchor);
+             if(sessions.containsKey(anchor))throw new IllegalStateException("Anchor session already active: "+anchor);
++            try {
++                journal.appendAnchorStarted(worldKey, anchor);
++            } catch (IOException failure) {
++                throw new JournalCommitException(failure);
++            }
+             AnchorSession session=new AnchorSession(anchor);sessions.put(anchor,session);return session;
+         }finally{lock.unlock();}
+     }
+@@ -101,6 +117,42 @@ public final class CrossChunkDependencyScheduler {
+     private static int floorDiv(long a,long b){return Math.toIntExact(Math.floorDiv(a,b));}
+     private static int ceilDiv(long a,long b){return Math.toIntExact(-Math.floorDiv(-a,b));}
+ 
++    /** Queue-full and interrupted generation requests are retried without blocking any generation worker. */
++    private void scheduleRetry(TargetBarrier barrier) {
++        lock.lock();
++        try {
++            if (closed || barrier.ready.isDone() || barrier.retryScheduled) return;
++            barrier.retryScheduled = true;
++        } finally { lock.unlock(); }
++        CompletableFuture.delayedExecutor(250, TimeUnit.MILLISECONDS).execute(() -> retryMissingAnchors(barrier));
++    }
++
++    private void retryMissingAnchors(TargetBarrier barrier) {
++        List<ChunkPos> missing = new ArrayList<>();
++        lock.lock();
++        try {
++            barrier.retryScheduled = false;
++            if (closed || barrier.ready.isDone()) return;
++            for (ChunkPos anchor : barrier.expected) {
++                if (!journal.isAnchorCompleted(worldKey, anchor)) missing.add(anchor);
++            }
++        } finally { lock.unlock(); }
++        for (ChunkPos anchor : missing) {
++            try {
++                boolean accepted = requester.request(anchor);
++                lock.lock();
++                try {
++                    if (accepted) barrier.requested.add(anchor);
++                    else barrier.requested.remove(anchor);
++                } finally { lock.unlock(); }
++            } catch (RuntimeException failure) {
++                barrier.ready.completeExceptionally(failure);
++                return;
++            }
++        }
++        if (!barrier.ready.isDone()) scheduleRetry(barrier);
++    }
++
+     private void refresh(TargetBarrier barrier){
+         if(barrier.ready.isDone())return;
+         for(ChunkPos anchor:barrier.expected)if(!journal.isAnchorCompleted(worldKey,anchor))return;
+@@ -115,6 +167,7 @@ public final class CrossChunkDependencyScheduler {
+         final Set<ChunkPos> expected;final int maxReachX,maxReachZ;
+         final Set<ChunkPos> requested=new HashSet<>();
+         final CompletableFuture<Void> ready=new CompletableFuture<>();
++        boolean retryScheduled;
+         TargetBarrier(Set<ChunkPos> expected,int maxReachX,int maxReachZ){this.expected=expected;this.maxReachX=maxReachX;this.maxReachZ=maxReachZ;}
+     }
+ 
+@@ -153,6 +206,24 @@ public final class CrossChunkDependencyScheduler {
+         @Override public void close(){abort();}
+     }
+ 
++    private void ensureOpen() {
++        if (closed) throw new IllegalStateException("Cross-chunk dependency scheduler is closed");
++    }
++
++    @Override public void close() {
++        lock.lock();
++        try {
++            if (closed) return;
++            closed = true;
++            for (TargetBarrier barrier : targets.values()) {
++                if (!barrier.ready.isDone()) barrier.ready.completeExceptionally(
++                        new IllegalStateException("Cross-chunk dependency scheduler closed"));
++            }
++            for (AnchorSession session : sessions.values()) session.failed = true;
++            sessions.clear();
++        } finally { lock.unlock(); }
++    }
++
+     public static final class JournalCommitException extends RuntimeException{
+         private static final long serialVersionUID = 1L;
+         public JournalCommitException(IOException cause){super("Failed to durably complete anchor population",cause);}

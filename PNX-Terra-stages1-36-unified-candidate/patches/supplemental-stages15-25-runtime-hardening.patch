@@ -1,0 +1,672 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java
+@@ -24,20 +24,56 @@
+                     java.util.List.of("mangrove_leaves_clump", "propagule", "place_vines", "is_leaf", "spore_blossom", "bee_nest"),
+                     "mangrove_tree_procedural.tesf: root path length<=30 gives |x|,|z|<=30; branch/leaf/vine closures fit inside that horizontal envelope; y lower bound conservatively -30, top branch/leaf closure envelope <=28; root neighbor reads add one block; bee_nest spawns three entities"));
+ 
++    /**
++     * Runtime-enforced fallback for scripts not yet statically certified. This is not a claim
++     * that the script's theoretical bounds are known: every read/write is checked against this
++     * hard envelope, and a single escape aborts the whole root placement. The 32-block horizontal
++     * limit matches the current scheduler horizon and covers the already audited 31-block read
++     * halo of the largest verified Origen root. Entity spawning remains disabled until it can be
++     * journaled and committed atomically.
++     */
++    private static final int FALLBACK_HORIZONTAL_REACH = 32;
++    private static final ScriptBoundsProfile BOUNDED_FALLBACK = new ScriptBoundsProfile(
++            PACK_ID, "<bounded-runtime-fallback>",
++            new Bounds3i(-FALLBACK_HORIZONTAL_REACH, -128, -FALLBACK_HORIZONTAL_REACH,
++                    FALLBACK_HORIZONTAL_REACH, 128, FALLBACK_HORIZONTAL_REACH),
++            new Bounds3i(-FALLBACK_HORIZONTAL_REACH, -128, -FALLBACK_HORIZONTAL_REACH,
++                    FALLBACK_HORIZONTAL_REACH, 128, FALLBACK_HORIZONTAL_REACH),
++            65_536, 65_536, 0, java.util.List.of("*"),
++            "Runtime-enforced fallback envelope: x/z +/-32, y +/-128; 65,536 writes and reads; no entities; any out-of-envelope operation aborts placement");
++
+     private OrigenBoundsCatalog() {}
+ 
++    /** Returns only statically audited profiles. */
+     public static Optional<ScriptBoundsProfile> find(String structureId) {
+         return Optional.ofNullable(PROFILES.get(structureId));
+     }
+ 
++    /**
++     * Resolve an audited profile or a strict runtime-bounded fallback. Unknown scripts are no
++     * longer silently disabled, but they are never allowed to write/read outside the hard pack
++     * envelope or spawn entities.
++     */
++    public static ScriptBoundsProfile resolveRuntimeProfile(String structureId) {
++        if (structureId == null || structureId.isBlank())
++            throw new IllegalArgumentException("Structure ID is required");
++        String normalized = structureId.startsWith(PACK_ID + ":")
++                ? structureId.substring(PACK_ID.length() + 1) : structureId;
++        return PROFILES.getOrDefault(normalized, BOUNDED_FALLBACK);
++    }
++
++    public static ScriptBoundsProfile boundedFallbackProfile() { return BOUNDED_FALLBACK; }
++
+     public static Map<String, ScriptBoundsProfile> allVerified() { return PROFILES; }
+ 
+-    /** Maximum horizontal write reach across profiles currently accepted by the fail-closed adapter. */
++    /** Maximum horizontal write/read reach used to prefetch all possible source anchors. */
+     public static int maxHorizontalReach() {
+-        return PROFILES.values().stream().filter(profile -> profile.maxEntitySpawns() == 0).mapToInt(profile -> Math.max(
+-                Math.max(Math.abs(profile.writeBounds().minX()), Math.abs(profile.writeBounds().maxX())),
+-                Math.max(Math.abs(profile.writeBounds().minZ()), Math.abs(profile.writeBounds().maxZ()))
+-        )).max().orElse(0);
++        return Math.max(FALLBACK_HORIZONTAL_REACH, PROFILES.values().stream()
++                .filter(profile -> profile.maxEntitySpawns() == 0)
++                .mapToInt(profile -> Math.max(
++                        Math.max(Math.abs(profile.writeBounds().minX()), Math.abs(profile.writeBounds().maxX())),
++                        Math.max(Math.abs(profile.writeBounds().minZ()), Math.abs(profile.writeBounds().maxZ()))))
++                .max().orElse(0));
+     }
+ 
+     /** Unknown scripts remain unbounded and must not be scheduled for finalization. */
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -38,7 +38,6 @@
+ import java.util.ArrayList;
+ import java.util.List;
+ import java.util.Objects;
+-import java.util.Optional;
+ 
+ public class PNXServerWorld implements ServerWorld {
+ 
+@@ -91,12 +90,13 @@
+         if (activePlacement != null) {
+             throw new IllegalStateException("A root Terra placement is already active on this world adapter");
+         }
+-        Optional<ScriptBoundsProfile> found = OrigenBoundsCatalog.find(structureId);
+-        if (found.isEmpty()) {
+-            publishUnsupported(featureId, structureId, origin, "Structure has no verified bounds profile; placement skipped");
++        ScriptBoundsProfile profile;
++        try {
++            profile = OrigenBoundsCatalog.resolveRuntimeProfile(structureId);
++        } catch (IllegalArgumentException invalidId) {
++            publishUnsupported(featureId, structureId, origin, "Structure has no usable identifier; placement skipped");
+             return PlacementGuardHost.PlacementScope.rejected();
+         }
+-        ScriptBoundsProfile profile = found.get();
+         // Entity intents are not yet deferred/committed atomically by this adapter.
+         if (profile.maxEntitySpawns() != 0) {
+             publishUnsupported(featureId, structureId, origin, "Structure entity intents are not enabled in this adapter build");
+@@ -115,7 +115,7 @@
+         CrossChunkDependencyScheduler.PlacementTicket journalTicket = anchorSession == null ? null : anchorSession.beginPlacement();
+         PlacementKey journalKey = anchorSession == null ? null : new PlacementKey(worldKey, level.getSeed(),
+                 anchorSession.anchor(), featureId, structureId,
+-                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), 0L);
++                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
+         PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
+                 guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), guardScope, Thread.currentThread(), journalTicket, journalKey);
+         activePlacement = root;
+@@ -133,7 +133,7 @@
+     /** Nested TerraScript structures are savepoints under the same root guard and envelope. */
+     public PlacementGuardHost.PlacementScope beginNestedPlacement(String structureId) {
+         PlacementTransaction parent = requirePlacement();
+-        if (structureId == null || !parent.guard.profile().transitiveDependencies().contains(structureId)) {
++        if (structureId == null || !parent.guard.profile().allowsNestedStructure(structureId)) {
+             return PlacementGuardHost.PlacementScope.rejected();
+         }
+         PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
+@@ -299,8 +299,21 @@
+ 
+     @Override
+     public BlockEntity getBlockEntity(int x, int y, int z) {
+-        // Block-entity adapters are a separate integration task; do not force-load chunks here.
+-        return null;
++        PlacementTransaction transaction = activePlacement;
++        if (transaction != null) {
++            if (Thread.currentThread() != transaction.owner)
++                throw new IllegalStateException("Block entity read from another thread during placement");
++            transaction.guard.beforeRead(x, y, z, false);
++        }
++        if (y < getMinHeight() || y >= getMaxHeight())
++            throw new IllegalArgumentException("Block entity read outside world height: " + y);
++        IChunk chunk = level.getLevel().getChunkIfLoaded(x >> 4, z >> 4);
++        if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
++            throw new IllegalStateException("Terra requested a block entity from an unloaded/uninitiated chunk; refusing force-load at "
++                    + x + "," + y + "," + z);
++        }
++        org.powernukkitx.blockentity.BlockEntity blockEntity = chunk.getTile(x & 15, y, z & 15);
++        return blockEntity == null ? null : new PNXBlockEntityDelegate(blockEntity);
+     }
+ 
+     @Override public ChunkGenerator getGenerator() { return generatorWrapper.getHandle(); }
+@@ -310,7 +323,16 @@
+     @Override public int getMaxHeight() { return generatorWrapper.getDimensionData().getMaxHeight(); }
+     @Override public int getMinHeight() { return generatorWrapper.getDimensionData().getMinHeight(); }
+     @Override public Level getHandle() { return level.getLevel(); }
+-    @Override public Chunk getChunkAt(int x, int z) { return new PNXChunkDelegate(this, level.getChunk(x, z)); }
++    @Override public Chunk getChunkAt(int x, int z) {
++        // Level.getChunk(x,z) calls forceLoadChunk when the chunk is absent, even with create=false.
++        // Terra's guarded placement path must never synchronously load a neighbour from a worker.
++        IChunk chunk = level.getLevel().getChunkIfLoaded(x, z);
++        if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
++            throw new IllegalStateException("Terra requested an unloaded/uninitiated chunk; refusing force-load at "
++                    + x + "," + z);
++        }
++        return new PNXChunkDelegate(this, chunk);
++    }
+ 
+     private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
+                                         PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+@@ -55,7 +55,10 @@
+             if(barrier==null){barrier=new TargetBarrier(expected,maxReachX,maxReachZ);targets.put(target,barrier);}
+             if(requestDependencies){
+                 for(ChunkPos anchor:expected){
+-                    if(!journal.isAnchorCompleted(worldKey,anchor)&&barrier.requested.add(anchor))toRequest.add(anchor);
++                    // A source anchor already being populated in this runtime will publish its own
++                    // completion marker. Re-requesting it can recursively queue/reset its stage.
++                    if(!journal.isAnchorCompleted(worldKey,anchor)&&!sessions.containsKey(anchor)
++                            &&barrier.requested.add(anchor))toRequest.add(anchor);
+                 }
+             }
+             refresh(barrier);
+@@ -134,7 +137,20 @@
+             barrier.retryScheduled = false;
+             if (closed || barrier.ready.isDone()) return;
+             for (ChunkPos anchor : barrier.expected) {
+-                if (!journal.isAnchorCompleted(worldKey, anchor)) missing.add(anchor);
++                // An accepted generation request is already in PNX's queue or running. Reissuing
++                // it can reset a live anchor back to GENERATED in the runtime requester, causing
++                // duplicate population and invalidating its active AnchorSession. Retry only
++                // requests that were rejected (queue full) or never accepted.
++                if (journal.isAnchorCompleted(worldKey, anchor) || sessions.containsKey(anchor)) continue;
++                if (barrier.requested.contains(anchor)) {
++                    // A previously accepted request is not retried while PNX still owns its
++                    // generation-queue slot. If PNX released the slot without an anchor WAL
++                    // completion marker, the generation attempt failed before/inside PopulateStage
++                    // and must be submitted again instead of leaving this barrier pending forever.
++                    if (requester.isInFlight(anchor)) continue;
++                    barrier.requested.remove(anchor);
++                }
++                missing.add(anchor);
+             }
+         } finally { lock.unlock(); }
+         for (ChunkPos anchor : missing) {
+@@ -161,7 +177,15 @@
+     private void refreshAll(){for(TargetBarrier barrier:targets.values())refresh(barrier);}
+ 
+     @FunctionalInterface
+-    public interface AnchorRequester { boolean request(ChunkPos anchor); }
++    public interface AnchorRequester {
++        boolean request(ChunkPos anchor);
++
++        /**
++         * True while PNX still owns an accepted generation request for this anchor. The default
++         * preserves conservative behavior for requesters that cannot observe their queue state.
++         */
++        default boolean isInFlight(ChunkPos anchor) { return true; }
++    }
+ 
+     private final class TargetBarrier{
+         final Set<ChunkPos> expected;final int maxReachX,maxReachZ;
+@@ -172,11 +196,19 @@
+     }
+ 
+     public final class AnchorSession implements AutoCloseable{
+-        private final ChunkPos anchor;private int inFlight;private boolean populationFinished;private boolean completed;private boolean failed;
++        private final ChunkPos anchor;private int inFlight;private long nextPlacementOrdinal;private boolean populationFinished;private boolean completed;private boolean failed;
+         private AnchorSession(ChunkPos anchor){this.anchor=anchor;}
+         public ChunkPos anchor(){return anchor;}
+         public PlacementTicket beginPlacement(){
+-            lock.lock();try{ensureOpen();if(populationFinished)throw new IllegalStateException("Population already marked finished");inFlight++;return new PlacementTicket(this);}finally{lock.unlock();}
++            lock.lock();try{
++                ensureOpen();
++                if(populationFinished)throw new IllegalStateException("Population already marked finished");
++                if(nextPlacementOrdinal==Long.MAX_VALUE)throw new IllegalStateException("Per-anchor placement ordinal exhausted");
++                long ordinal=nextPlacementOrdinal;
++                nextPlacementOrdinal=Math.incrementExact(nextPlacementOrdinal);
++                inFlight++;
++                return new PlacementTicket(this, ordinal);
++            }finally{lock.unlock();}
+         }
+         /** Called only after Terra PopulateStage has finished selecting/running all features for this anchor. */
+         public void finishPopulation() throws IOException{
+@@ -191,8 +223,10 @@
+     }
+ 
+     public final class PlacementTicket implements AutoCloseable{
+-        private final AnchorSession session;private boolean finished;
+-        private PlacementTicket(AnchorSession session){this.session=session;}
++        private final AnchorSession session;private final long ordinal;private boolean finished;
++        private PlacementTicket(AnchorSession session, long ordinal){this.session=session;this.ordinal=ordinal;}
++        /** Deterministic per-anchor root-placement ordinal, replayed from zero with the anchor. */
++        public long ordinal(){return ordinal;}
+         /** WAL append is fsynced before the ticket is released and before the anchor can complete. */
+         public long commit(PlacementRecord record) throws IOException{
+             if(finished)throw new IllegalStateException("Ticket already finished");
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+@@ -29,7 +29,12 @@
+ 
+     private PnxGenerationJournalRuntime(String worldKey, Level level, PlacementJournal journal) {
+         this.worldKey=worldKey;this.level=level;this.journal=journal;
+-        this.scheduler=new CrossChunkDependencyScheduler(worldKey,journal,this::requestAnchor);
++        this.scheduler=new CrossChunkDependencyScheduler(worldKey,journal,new CrossChunkDependencyScheduler.AnchorRequester() {
++            @Override public boolean request(ChunkPos anchor) { return requestAnchor(anchor); }
++            @Override public boolean isInFlight(ChunkPos anchor) {
++                return level.isChunkGenerating(anchor.x(), anchor.z());
++            }
++        });
+     }
+ 
+     public static PnxGenerationJournalRuntime open(Path directory,Level level,int dimensionId)throws IOException{
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+@@ -2,6 +2,7 @@
+ 
+ import org.powernukkitx.block.BlockState;
+ import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.level.format.leveldb.LevelDBProvider;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
+ import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
+@@ -60,9 +61,20 @@
+     @Override
+     public void saveDurably() throws IOException {
+         if (chunk.getProvider() == null) throw new IOException("Target chunk has no storage provider");
+-        chunk.setChanged();
+-        chunk.getProvider().saveChunk(chunk.getX(), chunk.getZ(), chunk);
++        if (!(chunk.getProvider() instanceof LevelDBProvider provider)) {
++            throw new IOException("Durable Terra finalization requires the pinned LevelDBProvider; refusing a non-durable fallback");
++        }
++        // Match PNX's save-race discipline: clear before serialization so a concurrent
++        // mutation can re-mark the chunk dirty instead of being erased after the write.
+         chunk.setChanged(false);
++        try {
++            // Bypass LevelDBProvider.saveChunk(): it deliberately uses sync(false) for autosaves.
++            // The WAL acknowledgement must never precede a synchronous LevelDB write.
++            provider.getStorage().writeChunkDurable(chunk);
++        } catch (IOException failure) {
++            chunk.setChanged(true);
++            throw failure;
++        }
+     }
+ 
+     private record DecodedWrite(int localX, int y, int localZ, int layer, BlockState state) {}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
+@@ -7,6 +7,7 @@
+ import java.util.*;
+ import java.util.concurrent.*;
+ import java.util.concurrent.atomic.AtomicInteger;
++import java.util.concurrent.atomic.AtomicBoolean;
+ 
+ public final class Stage17DependencySchedulerTest {
+     public static void main(String[] args) throws Exception {
+@@ -22,6 +23,9 @@
+             check(!ready.isDone(),"target initially blocked");
+             CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
+             var ticket=session.beginPlacement();
++            var secondTicket=session.beginPlacement();
++            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
++            secondTicket.abort();
+             session.finishPopulation();
+             check(!ready.isDone(),"population cannot complete with in-flight root placement");
+             PlacementKey key=new PlacementKey("world",1,new ChunkPos(0,0),"feature","structure",1,64,1,0,0);
+@@ -58,6 +62,63 @@
+             check(attempts.get()==2,"queue-rejected anchor can be requested again");
+         }
+ 
++        Path activeWal=Files.createTempDirectory("pnx-stage17-active-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(activeWal)){
++            AtomicInteger requests=new AtomicInteger();
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    anchor -> { requests.incrementAndGet(); return true; });
++            var activeSession=scheduler.openAnchor(new ChunkPos(0,0));
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
++            check(requests.get()==0,"currently populating target anchor is not recursively requested");
++            check(!ready.isDone(),"target barrier waits for its active anchor session");
++            activeSession.finishPopulation();
++            check(ready.isDone(),"active anchor completion releases its own target barrier");
++            scheduler.close();
++        }
++
++        Path acceptedWal=Files.createTempDirectory("pnx-stage17-accepted-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(acceptedWal)){
++            AtomicInteger acceptedCalls=new AtomicInteger();
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    anchor -> { acceptedCalls.incrementAndGet(); return true; });
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
++            check(acceptedCalls.get()==1,"accepted anchor request is submitted once");
++            Thread.sleep(650L); // allow multiple 250 ms retry windows to elapse
++            check(acceptedCalls.get()==1,"accepted in-flight anchor is not resubmitted by retry loop");
++            var session=scheduler.openAnchor(new ChunkPos(0,0));
++            session.finishPopulation();
++            check(ready.isDone(),"accepted anchor completion releases target");
++            scheduler.close();
++        }
++
++
++        Path failedAcceptedWal=Files.createTempDirectory("pnx-stage17-failed-accepted-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(failedAcceptedWal)){
++            AtomicInteger acceptedAttempts=new AtomicInteger();
++            AtomicBoolean pnxQueueOwnsRequest=new AtomicBoolean(true);
++            CountDownLatch retried=new CountDownLatch(1);
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    new CrossChunkDependencyScheduler.AnchorRequester() {
++                        @Override public boolean request(ChunkPos anchor) {
++                            int attempt=acceptedAttempts.incrementAndGet();
++                            if(attempt==2) retried.countDown();
++                            pnxQueueOwnsRequest.set(true);
++                            return true;
++                        }
++                        @Override public boolean isInFlight(ChunkPos anchor) { return pnxQueueOwnsRequest.get(); }
++                    });
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
++            check(acceptedAttempts.get()==1,"first accepted request is submitted once");
++            Thread.sleep(350L);
++            check(acceptedAttempts.get()==1,"accepted request is not duplicated while PNX queue owns it");
++            pnxQueueOwnsRequest.set(false); // PNX released the slot after a failed generation attempt.
++            check(retried.await(2,TimeUnit.SECONDS),"accepted-but-failed request is retried after PNX releases its queue slot");
++            var recoveredSession=scheduler.openAnchor(new ChunkPos(0,0));
++            recoveredSession.finishPopulation();
++            check(ready.isDone(),"retried anchor completion releases target barrier");
++            scheduler.close();
++        }
++
+         Path abortWal=Files.createTempDirectory("pnx-stage17-abort-").resolve("world.wal");
+         try(PlacementJournal journal=new PlacementJournal(abortWal)){
+             CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal);
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
+@@ -29,18 +29,31 @@
+             coordinator.persist(prepared,()->supported);
+             check(supported.saved,"chunk persisted after complete intent application");
+             check(journal.isChunkApplied("world",target,prepared.digest()),"acknowledgement follows durable save");
++            check(supported.saved, "save completed before acknowledgement is visible");
++            ChunkPos failureTarget = new ChunkPos(1,0);
++            PlacementKey failureKey = new PlacementKey("world",1,failureTarget,"feature-failure","structure",16,64,0,0,1);
++            journal.appendPlacement(new PlacementRecord(failureKey,List.of(new BlockWrite(16,64,0,0,new byte[]{3}))));
++            ChunkFinalizationCoordinator<FakeChunk> failureCoordinator = new ChunkFinalizationCoordinator<>("world",journal,Runnable::run);
++            FakeChunk saveFailure = new FakeChunk(true,1,0);
++            saveFailure.failSave = true;
++            var failedPrepared = failureCoordinator.prepare(failureTarget,CompletableFuture.completedFuture(null),()->saveFailure).join();
++            boolean saveRejected=false;
++            try { failureCoordinator.persist(failedPrepared,()->saveFailure); } catch (java.io.IOException expected) { saveRejected=true; }
++            check(saveRejected, "durable save failure propagates");
++            check(!journal.isChunkApplied("world",failureTarget,failedPrepared.digest()), "failed durable save cannot publish digest acknowledgement");
+         }
+         System.out.println("Stage25IntentFinalizationTest: PASS");
+     }
+     private static final class FakeChunk implements ChunkFinalizationCoordinator.ChunkHandle {
+-        private final boolean supports; int blocks,entities,physics; boolean saved;
+-        FakeChunk(boolean supports){this.supports=supports;}
+-        public ChunkPos position(){return new ChunkPos(0,0);} public boolean isLoaded(){return true;}
++        private final boolean supports; private final int chunkX,chunkZ; int blocks,entities,physics; boolean saved; boolean failSave;
++        FakeChunk(boolean supports){this(supports,0,0);}
++        FakeChunk(boolean supports,int chunkX,int chunkZ){this.supports=supports;this.chunkX=chunkX;this.chunkZ=chunkZ;}
++        public ChunkPos position(){return new ChunkPos(chunkX,chunkZ);} public boolean isLoaded(){return true;}
+         public boolean isGenerated(){return true;} public boolean isInitiated(){return true;}
+         public void applyProjection(NavigableMap<PlacementProjection.Position,PlacementProjection.Winner> p){blocks=p.size();}
+         public void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position,PlacementProjection.EntityWinner> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();entities=p.size();}
+         public void applyPhysicsIntents(List<PhysicsIntent> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();physics=p.size();}
+-        public void saveDurably(){saved=true;}
++        public void saveDurably() throws java.io.IOException {if(failSave)throw new java.io.IOException("simulated durable write failure");saved=true;}
+     }
+     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
+@@ -1,30 +1,68 @@
+ package org.powernukkitx.terra.delegate;
+ 
+ import org.powernukkitx.block.BlockAir;
++import org.powernukkitx.block.BlockProperties;
++import org.powernukkitx.block.property.type.BlockPropertyType;
++import org.powernukkitx.registry.Registries;
+ import com.dfsek.terra.api.block.BlockType;
+ import com.dfsek.terra.api.block.state.BlockState;
+ import com.dfsek.terra.api.block.state.properties.Property;
+-import lombok.extern.slf4j.Slf4j;
+ 
+-@Slf4j
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Objects;
++
++/** Terra state view over a canonical PNX state. Only exactly matching property schemas are exposed. */
+ public record PNXBlockStateDelegate(org.powernukkitx.block.BlockState innerBlockState) implements BlockState {
+     @Override
+     public boolean matches(BlockState blockState) {
+-        return ((PNXBlockStateDelegate) blockState).innerBlockState.equals(this.innerBlockState);
++        return blockState instanceof PNXBlockStateDelegate other
++                && other.innerBlockState.equals(this.innerBlockState);
+     }
+ 
+     @Override
+     public <T extends Comparable<T>> boolean has(Property<T> property) {
+-        return false;
++        return resolveProperty(property) != null;
+     }
+ 
+     @Override
+     public <T extends Comparable<T>> T get(Property<T> property) {
+-        return null;
++        BlockPropertyType<T> pnxProperty = requireProperty(property);
++        return innerBlockState.getPropertyValue(pnxProperty);
+     }
+ 
+     @Override
+-    public <T extends Comparable<T>> BlockState set(Property<T> property, T t) {
++    public <T extends Comparable<T>> BlockState set(Property<T> property, T value) {
++        BlockPropertyType<T> pnxProperty = requireProperty(property);
++        if (!pnxProperty.getValidValues().contains(value)) {
++            throw new IllegalArgumentException("Unsupported value " + value + " for PNX property " + pnxProperty.getName());
++        }
++        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
++        return new PNXBlockStateDelegate(innerBlockState.setPropertyValue(properties, pnxProperty, value));
++    }
++
++    private <T extends Comparable<T>> BlockPropertyType<T> requireProperty(Property<T> property) {
++        BlockPropertyType<T> result = resolveProperty(property);
++        if (result == null) {
++            throw new IllegalArgumentException("PNX block " + innerBlockState.getIdentifier()
++                    + " does not expose a compatible Terra property " + property.getID());
++        }
++        return result;
++    }
++
++    @SuppressWarnings("unchecked")
++    private <T extends Comparable<T>> BlockPropertyType<T> resolveProperty(Property<T> property) {
++        Objects.requireNonNull(property, "property");
++        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
++        if (properties == null) return null;
++        for (BlockPropertyType<?> candidate : properties.getPropertyTypeSet()) {
++            if (!candidate.getName().equals(property.getID())) continue;
++            Object defaultValue = candidate.getDefaultValue();
++            if (defaultValue == null || !property.getType().equals(defaultValue.getClass())) continue;
++            if (!new HashSet<>(candidate.getValidValues()).equals(new HashSet<>(property.values()))) continue;
++            return (BlockPropertyType<T>) candidate;
++        }
+         return null;
+     }
+ 
+@@ -35,17 +73,22 @@
+ 
+     @Override
+     public String getAsString(boolean properties) {
+-        var name = innerBlockState.getIdentifier();
+-        return switch (name) {
++        String name = switch (innerBlockState.getIdentifier()) {
+             case "minecraft:snow_layer" -> "minecraft:snow";
+             case "minecraft:snow" -> "minecraft:snow_block";
+-            default -> name;
++            default -> innerBlockState.getIdentifier();
+         };
++        if (!properties || innerBlockState.getBlockPropertyValues().isEmpty()) return name;
++        List<String> encoded = innerBlockState.getBlockPropertyValues().stream()
++                .sorted(Comparator.comparing(value -> value.getPropertyType().getName()))
++                .map(value -> value.getPropertyType().getName() + "=" + value.getSerializedValue())
++                .toList();
++        return name + "[" + String.join(",", encoded) + "]";
+     }
+ 
+     @Override
+     public boolean isAir() {
+-        return innerBlockState == BlockAir.STATE;
++        return innerBlockState == BlockAir.STATE || innerBlockState.equals(BlockAir.STATE);
+     }
+ 
+     @Override
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
+@@ -9,22 +9,22 @@
+ 
+ public record PNXChunkDelegate(ServerWorld world, IChunk chunk) implements Chunk {
+     @Override
+-    public void setBlock(int i, int i1, int i2, BlockState blockState, boolean b) {
+-        setBlock(i, i1, i2, blockState);
++    public void setBlock(int x, int y, int z, BlockState blockState, boolean physics) {
++        setBlock(x, y, z, blockState);
+     }
+ 
+     @Override
+-    public void setBlock(int i, int i1, int i2, @NotNull BlockState blockState) {
+-        chunk.setBlockState(i, i1, i2, ((PNXBlockStateDelegate) blockState).getHandle());
++    public void setBlock(int x, int y, int z, @NotNull BlockState blockState) {
++        chunk.setBlockState(x, y, z, ((PNXBlockStateDelegate) blockState).getHandle());
+     }
+ 
+     @Override
+-    public @NotNull BlockState getBlock(int i, int i1, int i2) {
+-        return PNXAdapter.adapt(chunk.getBlockState(i, i1, i2));
++    public @NotNull BlockState getBlock(int x, int y, int z) {
++        return PNXAdapter.adapt(chunk.getBlockState(x, y, z));
+     }
+ 
+-    @Override public int getX() { return 0; }
+-    @Override public int getZ() { return 0; }
++    @Override public int getX() { return chunk.getX(); }
++    @Override public int getZ() { return chunk.getZ(); }
+     @Override public ServerWorld getWorld() { return world; }
+     @Override public Object getHandle() { return chunk; }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java
+@@ -24,4 +24,9 @@ public record ScriptBoundsProfile(
+         transitiveDependencies = List.copyOf(transitiveDependencies);
+         if (evidence == null || evidence.isBlank()) throw new IllegalArgumentException("Evidence is required");
+     }
++
++    /** Wildcard is reserved for the runtime-bounded fallback, whose root guard covers all nesting. */
++    public boolean allowsNestedStructure(String structureId) {
++        return transitiveDependencies.contains("*") || transitiveDependencies.contains(structureId);
++    }
+ }
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/bounds/Stage15AdapterGuardContractTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/bounds/Stage15AdapterGuardContractTest.java
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/bounds/Stage15AdapterGuardContractTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/bounds/Stage15AdapterGuardContractTest.java
+@@ -4,7 +4,7 @@
+     public static void main(String[] args) {
+         waterfallReadEnvelopeIncludesWritePreflightReads();
+         implicitWriteInspectionUsesWriteEnvelopeAndDoesNotConsumeScriptReadBudget();
+-        unknownAndEntityBearingProfilesRemainFailClosed();
++        unknownProfilesUseStrictRuntimeEnvelope();
+         nestedDependenciesAreExplicit();
+         System.out.println("Stage15AdapterGuardContractTest: PASS");
+     }
+@@ -32,10 +32,29 @@
+                 "unloaded implicit read poisons the root placement");
+     }
+ 
+-    private static void unknownAndEntityBearingProfilesRemainFailClosed() {
+-        check(OrigenBoundsCatalog.find("castle").isEmpty(), "unknown structures stay disabled");
++    private static void unknownProfilesUseStrictRuntimeEnvelope() {
++        check(OrigenBoundsCatalog.find("castle").isEmpty(), "unknown structures are not misreported as statically certified");
++        check(OrigenBoundsCatalog.resolveRuntimeProfile("origen:waterfall")
++                        == OrigenBoundsCatalog.requireVerified("waterfall"),
++                "namespaced Origen IDs resolve to the statically audited profile");
++        ScriptBoundsProfile fallback = OrigenBoundsCatalog.resolveRuntimeProfile("castle");
++        check(fallback == OrigenBoundsCatalog.boundedFallbackProfile(), "unknown structures resolve to bounded fallback");
++        check(fallback.writeBounds().minX() == -32 && fallback.writeBounds().maxX() == 32,
++                "fallback enforces a finite horizontal envelope");
++        check(fallback.maxEntitySpawns() == 0, "fallback does not enable unjournaled entities");
++        check(fallback.allowsNestedStructure("dynamic_nested_structure"),
++                "nested structures share the same root guard under the hard envelope");
++        check(OrigenBoundsCatalog.maxHorizontalReach() == 32,
++                "scheduler prefetch horizon covers the fallback envelope");
++
++        PlacementRuntimeGuard guard = new PlacementRuntimeGuard(fallback, 0, 64, 0, Bounds3i.QuarterTurn.NONE);
++        guard.beforeWrite(32, 64, -32);
++        expect(BoundsViolationException.class, () -> guard.beforeWrite(33, 64, 0));
++        check(guard.snapshot().state() == PlacementRuntimeGuard.State.FAILED,
++                "one out-of-envelope nested write poisons the entire root placement");
++
+         check(OrigenBoundsCatalog.requireVerified("mangrove_tree_procedural").maxEntitySpawns() > 0,
+-                "mangrove profile requires entity intents and must be withheld by adapter");
++                "mangrove remains blocked until entity intents are transactionally supported");
+     }
+ 
+     private static void nestedDependenciesAreExplicit() {
+@@ -44,8 +63,8 @@
+         ScriptBoundsProfile mangrove = OrigenBoundsCatalog.requireVerified("mangrove_tree_procedural");
+         check(mangrove.transitiveDependencies().contains("mangrove_leaves_clump"),
+                 "mangrove nested dependency is explicitly allow-listed");
+-        check(!mangrove.transitiveDependencies().contains("unlisted_structure"),
+-                "unlisted nested structure is not allowed by the root profile");
++        check(!mangrove.allowsNestedStructure("unlisted_structure"),
++                "unlisted nested structure is not allowed by the audited root profile");
+     }
+ 
+     private static void check(boolean value, String message) {
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java
+new file mode 100644
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java
+@@ -0,0 +1,41 @@
++package org.powernukkitx.terra.delegate;
++
++import com.dfsek.seismic.type.vector.Vector3;
++import com.dfsek.terra.api.block.state.BlockState;
++import com.dfsek.terra.api.block.entity.BlockEntity;
++import org.powernukkitx.terra.PNXAdapter;
++
++import java.util.Objects;
++
++/** Read/update view over an already-loaded PNX block entity; it never creates or force-loads one. */
++public final class PNXBlockEntityDelegate implements BlockEntity {
++    private final org.powernukkitx.blockentity.BlockEntity handle;
++
++    public PNXBlockEntityDelegate(org.powernukkitx.blockentity.BlockEntity handle) {
++        this.handle = Objects.requireNonNull(handle, "handle");
++    }
++
++    @Override
++    public boolean update(boolean applyPhysics) {
++        throw new UnsupportedOperationException("PNX block-entity updates are not transactionally journaled");
++    }
++
++    @Override
++    public void applyState(String state) {
++        if (state != null && !state.isBlank()) {
++            throw new UnsupportedOperationException("Terra block-entity state mutation has no verified PNX NBT schema");
++        }
++    }
++
++    @Override public Vector3 getPosition() { return Vector3.of(getX(), getY(), getZ()); }
++    @Override public int getX() { return (int) handle.getX(); }
++    @Override public int getY() { return (int) handle.getY(); }
++    @Override public int getZ() { return (int) handle.getZ(); }
++
++    @Override
++    public BlockState getBlockState() {
++        return PNXAdapter.adapt(handle.getBlock().getBlockState());
++    }
++
++    @Override public Object getHandle() { return handle; }
++}

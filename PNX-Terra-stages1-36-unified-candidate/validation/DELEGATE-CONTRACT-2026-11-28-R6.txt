@@ -1,0 +1,2 @@
+PNXDelegateContractTest: PASS
+PNX block-state/chunk/block-entity read delegates Java 21 contract compile: PASS

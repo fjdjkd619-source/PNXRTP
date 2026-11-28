@@ -1,0 +1,296 @@
+diff --git a/README.md b/README.md
+index 41b628c..ce08834 100644
+--- a/README.md
++++ b/README.md
+@@ -1,25 +1,47 @@
+-# Stage 8 — PNX journal/block-state adapter
++# Stage 9 — transactional placement to durable journal bridge
+ 
+ Target PNX commit: `c57499365737654eca32df008751ef6bca5af142`.
+ 
+-This stage adds the first adapter that understands actual PNX `BlockState`, `Level`, `IChunk`, and `BlockManager` APIs.
++This stage adds a platform-neutral transaction coordinator that turns nested Terra placement scopes into one durable write-ahead-journal frame per root placement.
+ 
+-## Included
++## Semantics
+ 
+-- `PnxBlockStatePayloadCodec`: durable payload is `(format magic, version, block identifier, specialValue)`. It deliberately does not persist `blockStateHash`, because that is an internal registry hash. Decode resolves the state through `Registries.BLOCK` and rejects unknown/noncanonical states.
+-- `PnxJournalChunkApplier`: reads journal operations for one target chunk, resolves deterministic winners per coordinate+layer, applies them through PNX `BlockManager`, and refuses to load missing chunks. `REPLACEABLE_ONLY` is evaluated against the pre-apply block through an injected predicate.
+-- Per-target asynchronous serialization and repeat-until-stable behavior. A later journal append invalidates the digest and triggers another pass.
+-- Durable acknowledgement is written only after an injected chunk persistence future succeeds. Failure leaves the ledger unacknowledged and safe to replay.
++- Root scope owns the stable `PlacementKey`, priority, and conflict policy.
++- Nested Terra structure scopes are savepoints. Their descriptor may differ, but they inherit the root identity and policy.
++- Nested commit merges writes into its parent only; it never appends independently.
++- Nested abort discards only that savepoint's writes.
++- Root abort discards the entire placement.
++- Root commit encodes all staged block states first, then appends one complete placement frame through `CrossChunkPlacementJournal.append()`.
++- Encoding or WAL failure leaves the root scope open, so the caller can retry or explicitly abort. No partial journal frame is published by the coordinator.
++- Each committed write receives a deterministic ordinal based on the root placement's write order; the journal rejects duplicate ordinals.
++- Scopes are thread-confined and must close in LIFO order.
+ 
+-## Exact PNX source observations
++## API integration point
+ 
+-- `Level.getChunkIfLoaded(int,int)` exists and does not request generation.
+-- `IChunk` exposes `getBlockState`, `isGenerated`, `isInitiated`, and dimension height.
+-- `BlockManager.setBlockStateAt(x,y,z,layer,state)` and `applySubChunkUpdate()` provide the platform write path, including block-entity holder creation and chunk dirty marking.
+-- `BlockProperties.getBlockState(short)` and `containBlockState(BlockState)` allow registry-validated identifier/special-value payloads.
++`PlacementTransactionCoordinator<S>` accepts a `StateEncoder<S>`. In PNX-Terra, instantiate it with `PnxBlockStatePayloadCodec::encode` and stage the actual `org.powernukkitx.block.BlockState` from `PNXServerWorld.setBlockState()` in the active scope. The Terra `PlacementScopeProvider` adapter must derive the root `PlacementKey` from the root `PlacementDescriptor` plus world seed/dimension and pass nested descriptors through `begin()`; nested descriptors are intentionally mapped to the inherited root identity.
+ 
+-## Important integration boundary
++The PNX adapter must still preserve the current transactional read overlay for `getBlockState()` and must route both block layers through the same root transaction. This stage does not silently replace or modify the existing `PNXServerWorld` implementation.
+ 
+-The adapter intentionally does not invent a `LevelProvider` persistence call. The PNX integration must supply `ChunkPersister` using the pinned provider's actual save contract. The caller must also keep the target chunk non-publishable until this future completes and the digest is acknowledged. Do not mark the ledger before persistence.
++## Validation
+ 
+-This is not yet a complete PNX/Terra runtime integration. It does not patch `Level.generateChunk`, does not install a concrete generation-stage driver, and does not gate all packet publication paths. It is the PNX-facing journal application layer required before those hooks can safely be wired.
++Standalone core compiled with `javac --release 21 -Xlint:all -Werror`.
++
++Passed:
++- journal durability, duplicate identity, conflict selection, negative chunk coordinates, torn-tail recovery;
++- dependency bounds/barriers and late digest invalidation;
++- generation request coalescing/retry;
++- dependency scheduler failure propagation;
++- nested savepoint commit and abort isolation;
++- atomic cross-chunk root publication;
++- root identity inheritance for nested descriptors;
++- encoder failure leaves scope open and publishes no operations;
++- WAL recovery of cross-chunk placement.
++
++## Not yet complete
++
++- No concrete `PNXServerWorld` wiring yet; this is the tested transaction bridge core.
++- No exact descriptor-to-key adapter (world seed, dimension ID, rotation encoding and root path must be bound in the PNX-Terra integration).
++- No PNX/Terra Gradle build or runtime test.
++- No concrete chunk persister or publication gate; these remain separate integration work.
++- No entity or block-entity transaction journal.
++- No production server files, world data, player data, configuration, plugins, or JARs were modified.
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
+new file mode 100644
+index 0000000..1178ab7
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
+@@ -0,0 +1,142 @@
++package org.powernukkitx.terra.crosschunk.transaction;
++
++import org.powernukkitx.terra.crosschunk.CrossChunkOperation;
++import org.powernukkitx.terra.crosschunk.CrossChunkPlacementJournal;
++import org.powernukkitx.terra.crosschunk.PlacementKey;
++
++import java.io.IOException;
++import java.util.ArrayDeque;
++import java.util.ArrayList;
++import java.util.Deque;
++import java.util.List;
++import java.util.Objects;
++
++/**
++ * Bridges Terra's nested placement scopes to the durable cross-chunk journal.
++ *
++ * A root placement is the atomic journal unit. Nested structure scopes are
++ * savepoints: commit merges their writes into the parent; abort discards them.
++ * Only committing the root writes one complete placement frame to the WAL.
++ *
++ * Instances are intended to be owned by one generation context. A thread-local
++ * stack isolates concurrent generation workers; a scope must be closed on the
++ * same thread and in strict LIFO order.
++ */
++public final class PlacementTransactionCoordinator<S> {
++    @FunctionalInterface
++    public interface StateEncoder<S> {
++        byte[] encode(S state) throws IOException;
++    }
++
++    private final CrossChunkPlacementJournal journal;
++    private final StateEncoder<S> encoder;
++    private final ThreadLocal<Deque<Scope>> scopes = ThreadLocal.withInitial(ArrayDeque::new);
++
++    public PlacementTransactionCoordinator(CrossChunkPlacementJournal journal, StateEncoder<S> encoder) {
++        this.journal = Objects.requireNonNull(journal, "journal");
++        this.encoder = Objects.requireNonNull(encoder, "encoder");
++    }
++
++    /** Opens a root placement or a nested savepoint belonging to that root. */
++    public Scope begin(PlacementKey key, int priority, CrossChunkOperation.ConflictPolicy policy) {
++        Objects.requireNonNull(key, "key");
++        Objects.requireNonNull(policy, "policy");
++        Deque<Scope> stack = scopes.get();
++        Scope parent = stack.peek();
++        // A nested Terra structure has its own descriptor, but remains part of
++        // the root placement's atomic journal frame. The root key is inherited.
++        Scope scope = new Scope(parent, parent == null ? key : parent.key,
++                parent == null ? priority : parent.priority,
++                parent == null ? policy : parent.policy);
++        stack.push(scope);
++        return scope;
++    }
++
++    public boolean hasOpenScope() {
++        return !scopes.get().isEmpty();
++    }
++
++    /** Fails closed if a generator stage exits while a scope remains open. */
++    public void assertNoOpenScopes() {
++        Deque<Scope> stack = scopes.get();
++        if (!stack.isEmpty()) {
++            throw new IllegalStateException("Generation ended with " + stack.size() + " unclosed placement scope(s)");
++        }
++        scopes.remove();
++    }
++
++    public final class Scope implements AutoCloseable {
++        private final Scope parent;
++        private final PlacementKey key;
++        private final int priority;
++        private final CrossChunkOperation.ConflictPolicy policy;
++        private final List<PendingWrite<S>> writes = new ArrayList<>();
++        private final Thread owner = Thread.currentThread();
++        private boolean closed;
++
++        private Scope(Scope parent, PlacementKey key, int priority, CrossChunkOperation.ConflictPolicy policy) {
++            this.parent = parent;
++            this.key = key;
++            this.priority = priority;
++            this.policy = policy;
++        }
++
++        public void write(int x, int y, int z, int layer, S state) {
++            requireTopAndOpen();
++            if (layer < 0 || layer > 1) throw new IllegalArgumentException("PNX block layer must be 0 or 1");
++            writes.add(new PendingWrite<>(x, y, z, layer, Objects.requireNonNull(state, "state")));
++        }
++
++        /** Commits this savepoint; only the root commit reaches durable storage. */
++        public void commit() throws IOException {
++            requireTopAndOpen();
++            Deque<Scope> stack = scopes.get();
++            if (parent != null) {
++                // Savepoint commit is an in-memory merge only. A parent abort
++                // still discards every write made by this nested structure.
++                parent.writes.addAll(writes);
++            } else {
++                // Encode and durably append BEFORE popping/closing the root.
++                // If encoding or WAL I/O fails, the scope remains open and can
++                // be retried or explicitly aborted; no half-commit is exposed.
++                List<CrossChunkOperation> operations = new ArrayList<>(writes.size());
++                int ordinal = 0;
++                for (PendingWrite<S> write : writes) {
++                    byte[] payload = Objects.requireNonNull(encoder.encode(write.state()), "encoder returned null payload");
++                    operations.add(new CrossChunkOperation(write.x(), write.y(), write.z(), write.layer(),
++                            priority, policy, key, ordinal++, payload));
++                }
++                journal.append(key, operations);
++            }
++            stack.pop();
++            closed = true;
++            cleanup(stack);
++        }
++
++        /** Discards this scope and all of its writes without touching the WAL. */
++        public void abort() {
++            requireTopAndOpen();
++            Deque<Scope> stack = scopes.get();
++            stack.pop();
++            writes.clear();
++            closed = true;
++            cleanup(stack);
++        }
++
++        @Override public void close() {
++            if (!closed) abort();
++        }
++
++        private void requireTopAndOpen() {
++            if (Thread.currentThread() != owner) throw new IllegalStateException("Placement scope is thread-confined");
++            if (closed) throw new IllegalStateException("Placement scope is already closed");
++            if (scopes.get().peek() != this) throw new IllegalStateException("Placement scopes must close in LIFO order");
++        }
++    }
++
++    private void cleanup(Deque<Scope> stack) {
++        if (stack.isEmpty()) scopes.remove();
++    }
++
++    private record PendingWrite<S>(int x, int y, int z, int layer, S state) {}
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java
+new file mode 100644
+index 0000000..ee6de33
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinatorTest.java
+@@ -0,0 +1,75 @@
++package org.powernukkitx.terra.crosschunk.transaction;
++
++import org.powernukkitx.terra.crosschunk.CrossChunkOperation;
++import org.powernukkitx.terra.crosschunk.CrossChunkPlacementJournal;
++import org.powernukkitx.terra.crosschunk.PlacementKey;
++
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.List;
++
++public final class PlacementTransactionCoordinatorTest {
++    public static void main(String[] args) throws Exception {
++        Path dir = Files.createTempDirectory("pnx-terra-stage9-");
++        Path wal = dir.resolve("placements.wal");
++        PlacementKey key = PlacementKey.create(77L, "overworld", "castle_feature", "castle", 31, 70, -9, 0, "root");
++        try (CrossChunkPlacementJournal journal = new CrossChunkPlacementJournal(wal)) {
++            PlacementTransactionCoordinator<String> coordinator = new PlacementTransactionCoordinator<>(journal,
++                    value -> value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
++            try (var root = coordinator.begin(key, 40, CrossChunkOperation.ConflictPolicy.EXCLUSIVE)) {
++                root.write(31, 70, -9, 0, "stone");
++                PlacementKey nestedDescriptorKey = PlacementKey.create(77L, "overworld", "castle_feature", "inner_tower", 32, 70, -9, 1, "root/inner");
++                try (var nested = coordinator.begin(nestedDescriptorKey, 999, CrossChunkOperation.ConflictPolicy.ALLOW)) {
++                    nested.write(32, 70, -9, 0, "brick");
++                    nested.commit();
++                }
++                try (var aborted = coordinator.begin(key, 40, CrossChunkOperation.ConflictPolicy.EXCLUSIVE)) {
++                    aborted.write(33, 70, -9, 0, "must-not-appear");
++                    aborted.abort();
++                }
++                check(journal.operationsForChunk(1, -1).isEmpty(), "nested commit must not publish before root commit");
++                root.commit();
++            }
++            coordinator.assertNoOpenScopes();
++            List<CrossChunkOperation> west = journal.operationsForChunk(1, -1);
++            List<CrossChunkOperation> east = journal.operationsForChunk(2, -1);
++            check(west.size() == 1 && east.size() == 1, "root commit must atomically publish writes across both target chunks");
++            check(west.get(0).ordinal() != east.get(0).ordinal(), "ordinals must be unique across the root placement");
++            check(east.get(0).priority() == 40 && east.get(0).policy() == CrossChunkOperation.ConflictPolicy.EXCLUSIVE,
++                    "nested descriptor must not override root priority or conflict policy");
++            check(!new String(west.get(0).statePayload(), java.nio.charset.StandardCharsets.UTF_8).contains("must-not-appear")
++                    && !new String(east.get(0).statePayload(), java.nio.charset.StandardCharsets.UTF_8).contains("must-not-appear"),
++                    "aborted nested writes must not be journaled");
++        }
++        try (CrossChunkPlacementJournal recovered = new CrossChunkPlacementJournal(wal)) {
++            check(recovered.operationsForChunk(1, -1).size() == 1
++                    && recovered.operationsForChunk(2, -1).size() == 1, "cross-chunk root placement must survive journal recovery");
++            check(recovered.operationsForChunk(2, -1).get(0).placementKey().equals(key),
++                    "nested descriptor must inherit the root placement identity");
++        }
++        Path failedWal = dir.resolve("failed-encode.wal");
++        try (CrossChunkPlacementJournal journal = new CrossChunkPlacementJournal(failedWal)) {
++            PlacementTransactionCoordinator<String> failing = new PlacementTransactionCoordinator<>(journal, value -> {
++                throw new java.io.IOException("synthetic codec failure");
++            });
++            var scope = failing.begin(key, 1, CrossChunkOperation.ConflictPolicy.ALLOW);
++            scope.write(0, 64, 0, 0, "bad");
++            boolean failed = false;
++            try { scope.commit(); } catch (java.io.IOException expected) { failed = true; }
++            check(failed && failing.hasOpenScope(), "failed encoding must leave root scope open for explicit abort/retry");
++            scope.abort();
++            failing.assertNoOpenScopes();
++            check(journal.operationsForChunk(0, 0).isEmpty(), "failed encoding must not publish a partial journal frame");
++            var abortedRoot = failing.begin(key, 1, CrossChunkOperation.ConflictPolicy.ALLOW);
++            abortedRoot.write(1, 64, 1, 0, "discard-root");
++            abortedRoot.abort();
++            check(journal.operationsForChunk(0, 0).isEmpty() && journal.operationsForChunk(0, 0).isEmpty(),
++                    "root abort must publish no journal operations");
++        }
++        System.out.println("PASS: nested savepoint commit, abort isolation, root atomic publication, identity/policy inheritance, failed-encode rollback, root abort, WAL recovery");
++    }
++
++    private static void check(boolean condition, String message) {
++        if (!condition) throw new AssertionError(message);
++    }
++}

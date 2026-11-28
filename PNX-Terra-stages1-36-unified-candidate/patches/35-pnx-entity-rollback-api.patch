@@ -1,0 +1,17 @@
+diff --git a/src/main/java/org/powernukkitx/entity/Entity.java b/src/main/java/org/powernukkitx/entity/Entity.java
+index 367cfb6..1b907f0 100644
+--- a/src/main/java/org/powernukkitx/entity/Entity.java
++++ b/src/main/java/org/powernukkitx/entity/Entity.java
+@@ -2,4 +2,12 @@
+         close(true);
+     }
+ 
++    /**
++     * Remove an entity created by a generation transaction without firing a cancellable
++     * EntityDespawnEvent. This is reserved for rollback before the generation WAL is acknowledged.
++     */
++    public final void closeForGenerationRollback() {
++        close(false);
++    }
++
+     private void close(boolean despawn) {

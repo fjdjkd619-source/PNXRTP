@@ -1,0 +1,512 @@
+diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
+index 943febf..0024945 100644
+--- a/src/main/java/org/powernukkitx/terra/TerraGenerator.java
++++ b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
+@@ -21,6 +21,7 @@ import org.powernukkitx.level.generator.stages.normal.NormalPopulatorStage;
+ import org.powernukkitx.terra.delegate.PNXProtoChunk;
+ import org.powernukkitx.terra.delegate.PNXProtoWorld;
+ import org.powernukkitx.terra.delegate.PNXServerWorld;
++import org.powernukkitx.terra.crosschunk.runtime.TerraCrossChunkRuntime;
+ import org.powernukkitx.registry.Registries;
+ import com.dfsek.terra.api.config.ConfigPack;
+ import com.dfsek.terra.api.world.biome.generation.BiomeProvider;
+@@ -63,6 +64,12 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+             builder.next(new StructureStage());
+         }
+         builder.next(new PopulateStage());
++        // Keep the durable seal opt-in until Stage 12 connects exact feature
++        // write bounds to the dependency scheduler. Enabling it prematurely
++        // would reject otherwise valid structures anchored in later chunks.
++        if ((boolean) options.getOrDefault("terraJournalFinalization", false)) {
++            builder.next(new JournalFinalizeStage());
++        }
+         builder.next(Registries.GENERATE_STAGE.get(LightPopulationStage.NAME));
+         builder.next(Registries.GENERATE_STAGE.get(FinishedStage.NAME));
+     }
+@@ -116,20 +123,41 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+     class PopulateStage extends GenerateStage {
+         @Override public void apply(ChunkGenerateContext context) {
+             final IChunk chunk = context.getChunk();
+-            chunk.setChunkState(ChunkState.POPULATED);
+             final int chunkX = chunk.getX(), chunkZ = chunk.getZ();
+             var serverWorld = new PNXServerWorld(TerraGenerator.this, context.getLevel());
+             var protoWorld = new PNXProtoWorld(serverWorld, chunkX, chunkZ);
+             try {
+                 for (var generationStage : configPack.getStages()) generationStage.populate(protoWorld);
+             } catch (Exception e) {
+-                log.error("", e);
++                log.error("Terra feature population failed for chunk ({}, {})", chunkX, chunkZ, e);
++                throw new IllegalStateException("Terra feature population failed", e);
+             }
+             serverWorld.apply(chunk);
++            // POPULATED is the dependency barrier: publish it only after Terra
++            // feature generation and all root placement commits have finished.
++            chunk.setChunkState(ChunkState.POPULATED);
+         }
+         @Override public String name() { return "terra_populate"; }
+     }
+ 
++    /**
++     * Durable journal barrier. It runs after placements anchored in this chunk
++     * and before lighting/FinishedStage. Late placements targeting a sealed
++     * chunk fail their entire root placement rather than silently disappearing.
++     */
++    class JournalFinalizeStage extends GenerateStage {
++        @Override public void apply(ChunkGenerateContext context) {
++            try {
++                TerraCrossChunkRuntime.forLevel(context.getLevel())
++                        .finalizeChunk(context.getLevel(), context.getChunk());
++            } catch (java.io.IOException failure) {
++                throw new java.io.UncheckedIOException("Failed to durably finalize Terra chunk "
++                        + context.getChunk().getX() + "," + context.getChunk().getZ(), failure);
++            }
++        }
++        @Override public String name() { return "terra_journal_finalize"; }
++    }
++
+     public String getName() { return "terra"; }
+     @Override public ChunkGenerator getHandle() { return chunkGenerator; }
+     public BiomeProvider getBiomeProvider() { return biomeProvider; }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/ChunkSealLedger.java b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkSealLedger.java
+new file mode 100644
+index 0000000..5ffca0d
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkSealLedger.java
+@@ -0,0 +1,149 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.channels.FileChannel;
++import java.nio.channels.FileLock;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardOpenOption;
++import java.util.Collection;
++import java.util.HashSet;
++import java.util.Objects;
++import java.util.Set;
++import java.util.TreeSet;
++import java.util.zip.CRC32C;
++
++/**
++ * Durable finalization barrier for target chunks.
++ *
++ * A sealed chunk is immutable from the Terra placement journal's perspective:
++ * a new placement that would write into it is rejected before its WAL frame is
++ * published. This is deliberately fail-closed until the dependency scheduler
++ * proves that every possible source/anchor chunk has completed.
++ */
++@SuppressWarnings("try")
++public final class ChunkSealLedger implements AutoCloseable {
++    private static final int MAGIC = 0x50545853; // PTXS
++    private static final short VERSION = 1;
++    private static final int BODY_BYTES = Integer.BYTES * 2;
++    private static final int FRAME_BYTES = Integer.BYTES + Short.BYTES + BODY_BYTES + Integer.BYTES;
++
++    @FunctionalInterface
++    public interface JournalAppend {
++        boolean append() throws IOException;
++    }
++
++    private final FileChannel channel;
++    private final Set<ChunkPos> sealed = new HashSet<>();
++    private boolean closed;
++
++    public ChunkSealLedger(Path file) throws IOException {
++        Path path = Objects.requireNonNull(file, "file").toAbsolutePath();
++        Path parent = path.getParent();
++        if (parent != null) Files.createDirectories(parent);
++        if (!Files.exists(path)) Files.createFile(path);
++        recover(path);
++        channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE);
++        channel.position(channel.size());
++    }
++
++    /**
++     * Atomically validates all target chunks and publishes one placement frame.
++     * The same monitor protects seal(), so a placement cannot race between the
++     * unsealed check and its durable journal append.
++     */
++    public synchronized boolean appendIfUnsealed(Collection<CrossChunkOperation> operations,
++                                                   JournalAppend append) throws IOException {
++        ensureOpen();
++        Objects.requireNonNull(operations, "operations");
++        Objects.requireNonNull(append, "append");
++        TreeSet<ChunkPos> targets = new TreeSet<>((a, b) -> {
++            int x = Integer.compare(a.x(), b.x());
++            return x != 0 ? x : Integer.compare(a.z(), b.z());
++        });
++        for (CrossChunkOperation operation : operations) {
++            targets.add(new ChunkPos(operation.targetChunkX(), operation.targetChunkZ()));
++        }
++        for (ChunkPos target : targets) {
++            if (sealed.contains(target)) {
++                throw new IOException("Terra placement targets finalized chunk " + target
++                        + "; refusing a late cross-chunk write");
++            }
++        }
++        return append.append();
++    }
++
++    /** Durably seals a target chunk. Repeated calls are idempotent. */
++    public synchronized boolean seal(ChunkPos chunk) throws IOException {
++        ensureOpen();
++        Objects.requireNonNull(chunk, "chunk");
++        if (sealed.contains(chunk)) return false;
++        ByteBuffer body = ByteBuffer.allocate(BODY_BYTES).putInt(chunk.x()).putInt(chunk.z());
++        body.flip();
++        CRC32C crc = new CRC32C();
++        crc.update(body.asReadOnlyBuffer());
++        ByteBuffer frame = ByteBuffer.allocate(FRAME_BYTES);
++        frame.putInt(MAGIC).putShort(VERSION).put(body).putInt((int) crc.getValue()).flip();
++        try (FileLock ignored = channel.lock()) {
++            channel.position(channel.size());
++            while (frame.hasRemaining()) channel.write(frame);
++            channel.force(true);
++        }
++        sealed.add(chunk);
++        return true;
++    }
++
++    public synchronized boolean isSealed(ChunkPos chunk) {
++        ensureOpen();
++        return sealed.contains(Objects.requireNonNull(chunk, "chunk"));
++    }
++
++    private void recover(Path path) throws IOException {
++        try (FileChannel read = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
++            long size = read.size(), offset = 0, validEnd = 0;
++            ByteBuffer frame = ByteBuffer.allocate(FRAME_BYTES);
++            while (offset < size) {
++                frame.clear();
++                int total = 0;
++                while (frame.hasRemaining()) {
++                    int count = read.read(frame, offset + total);
++                    if (count <= 0) break;
++                    total += count;
++                }
++                if (total < FRAME_BYTES) break;
++                frame.flip();
++                int magic = frame.getInt();
++                short version = frame.getShort();
++                int x = frame.getInt(), z = frame.getInt();
++                int expectedCrc = frame.getInt();
++                ByteBuffer body = ByteBuffer.allocate(BODY_BYTES).putInt(x).putInt(z);
++                body.flip();
++                CRC32C crc = new CRC32C();
++                crc.update(body);
++                if (magic != MAGIC || version != VERSION || (int) crc.getValue() != expectedCrc) {
++                    throw new IOException("Invalid chunk-seal ledger frame at byte " + offset);
++                }
++                sealed.add(new ChunkPos(x, z));
++                offset += FRAME_BYTES;
++                validEnd = offset;
++            }
++            if (validEnd != size) {
++                read.truncate(validEnd);
++                read.force(true);
++            }
++        }
++    }
++
++    private void ensureOpen() {
++        if (closed) throw new IllegalStateException("Chunk seal ledger is closed");
++    }
++
++    @Override
++    public synchronized void close() throws IOException {
++        if (!closed) {
++            closed = true;
++            channel.close();
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java
+index 4e53255..ac34bb4 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/TerraCrossChunkRuntime.java
+@@ -2,6 +2,13 @@ package org.powernukkitx.terra.crosschunk.runtime;
+ 
+ import org.powernukkitx.level.Level;
+ import org.powernukkitx.level.format.LevelProvider;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.level.format.leveldb.LevelDBProvider;
++import org.powernukkitx.block.Block;
++import org.powernukkitx.terra.crosschunk.ChunkPos;
++import org.powernukkitx.terra.crosschunk.ChunkOperationDigest;
++import org.powernukkitx.terra.crosschunk.ChunkSealLedger;
++import org.powernukkitx.terra.crosschunk.pnx.PnxJournalChunkApplier;
+ import org.powernukkitx.block.BlockState;
+ import org.powernukkitx.terra.crosschunk.AppliedChunkLedger;
+ import org.powernukkitx.terra.crosschunk.CrossChunkPlacementJournal;
+@@ -26,13 +33,16 @@ public final class TerraCrossChunkRuntime implements AutoCloseable {
+     private final Path directory;
+     private final CrossChunkPlacementJournal journal;
+     private final AppliedChunkLedger ledger;
++    private final ChunkSealLedger seals;
+     private final PlacementTransactionCoordinator<BlockState> transactions;
+ 
+     private TerraCrossChunkRuntime(Path directory) throws IOException {
+         this.directory = directory;
+         this.journal = new CrossChunkPlacementJournal(directory.resolve("placements.wal"));
+         this.ledger = new AppliedChunkLedger(directory.resolve("applied-chunks.wal"));
+-        this.transactions = new PlacementTransactionCoordinator<>(journal, PnxBlockStatePayloadCodec::encode);
++        this.seals = new ChunkSealLedger(directory.resolve("sealed-chunks.wal"));
++        this.transactions = new PlacementTransactionCoordinator<>(journal, PnxBlockStatePayloadCodec::encode,
++                (key, operations) -> seals.appendIfUnsealed(operations, () -> journal.append(key, operations)));
+     }
+ 
+     public static synchronized TerraCrossChunkRuntime forLevel(Level level) {
+@@ -55,7 +65,42 @@ public final class TerraCrossChunkRuntime implements AutoCloseable {
+ 
+     public CrossChunkPlacementJournal journal() { return journal; }
+     public AppliedChunkLedger ledger() { return ledger; }
++    public ChunkSealLedger seals() { return seals; }
+     public PlacementTransactionCoordinator<BlockState> transactions() { return transactions; }
++
++    /**
++     * Finalizes one target chunk before PNX marks it FINISHED/sendable. The
++     * durable seal is written first and atomically excludes later placement
++     * commits targeting this chunk. The current journal snapshot is then
++     * applied, synchronously persisted with LevelDB sync=true, and only then
++     * acknowledged in the applied-chunk ledger.
++     */
++    public int finalizeChunk(org.powernukkitx.level.Level level, IChunk chunk) throws IOException {
++        Objects.requireNonNull(level, "level");
++        Objects.requireNonNull(chunk, "chunk");
++        ChunkPos position = new ChunkPos(chunk.getX(), chunk.getZ());
++        seals.seal(position);
++        if (level.getChunkIfLoaded(position.x(), position.z()) != chunk) {
++            throw new IOException("Chunk changed before Terra finalization: " + position);
++        }
++        PnxJournalChunkApplier applier = new PnxJournalChunkApplier(level, journal, ledger,
++                Block::canBeReplaced, Runnable::run);
++        int applied = applier.applyAvailableToChunk(chunk);
++        byte[] digest = ChunkOperationDigest.calculate(journal.operationsForChunk(position.x(), position.z()));
++        if (!(level.getProvider() instanceof LevelDBProvider provider)) {
++            throw new IOException("Durable Terra finalization requires the PNX LevelDB provider; found "
++                    + level.getProvider().getClass().getName());
++        }
++        if (level.getChunkIfLoaded(position.x(), position.z()) != chunk) {
++            throw new IOException("Chunk unloaded before durable Terra save: " + position);
++        }
++        provider.getStorage().writeChunkDurable(chunk);
++        if (!seals.isSealed(position)) {
++            throw new IOException("Chunk seal disappeared during finalization: " + position);
++        }
++        ledger.markApplied(position, digest);
++        return applied;
++    }
+     public Path directory() { return directory; }
+ 
+     public static synchronized void closeAll() throws IOException {
+@@ -80,6 +125,10 @@ public final class TerraCrossChunkRuntime implements AutoCloseable {
+             if (failure == null) failure = e;
+             else failure.addSuppressed(e);
+         }
++        try { seals.close(); } catch (IOException e) {
++            if (failure == null) failure = e;
++            else failure.addSuppressed(e);
++        }
+         if (failure != null) throw failure;
+     }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
+index 10ed17f..637966c 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/transaction/PlacementTransactionCoordinator.java
+@@ -29,13 +29,25 @@ public final class PlacementTransactionCoordinator<S> {
+         byte[] encode(S state) throws IOException;
+     }
+ 
++    @FunctionalInterface
++    public interface Committer {
++        boolean append(PlacementKey key, List<CrossChunkOperation> operations) throws IOException;
++    }
++
+     private final CrossChunkPlacementJournal journal;
+     private final StateEncoder<S> encoder;
++    private final Committer committer;
+     private final ThreadLocal<Deque<Scope>> scopes = ThreadLocal.withInitial(ArrayDeque::new);
+ 
+     public PlacementTransactionCoordinator(CrossChunkPlacementJournal journal, StateEncoder<S> encoder) {
++        this(journal, encoder, journal::append);
++    }
++
++    public PlacementTransactionCoordinator(CrossChunkPlacementJournal journal, StateEncoder<S> encoder,
++                                           Committer committer) {
+         this.journal = Objects.requireNonNull(journal, "journal");
+         this.encoder = Objects.requireNonNull(encoder, "encoder");
++        this.committer = Objects.requireNonNull(committer, "committer");
+     }
+ 
+     /** Opens a root placement or a nested savepoint belonging to that root. */
+@@ -146,7 +158,7 @@ public final class PlacementTransactionCoordinator<S> {
+                     operations.add(new CrossChunkOperation(write.x(), write.y(), write.z(), write.layer(),
+                             priority, policy, key, ordinal++, payload));
+                 }
+-                journal.append(key, operations);
++                committer.append(key, operations);
+             }
+             stack.pop();
+             closed = true;
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/ChunkSealLedgerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/ChunkSealLedgerTest.java
+new file mode 100644
+index 0000000..09335e9
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/ChunkSealLedgerTest.java
+@@ -0,0 +1,98 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.transaction.PlacementTransactionCoordinator;
++
++import java.io.IOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.List;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.atomic.AtomicReference;
++
++public final class ChunkSealLedgerTest {
++    public static void main(String[] args) throws Exception {
++        Path dir = Files.createTempDirectory("terra-seal-test");
++        Path sealFile = dir.resolve("sealed.wal");
++        Path journalFile = dir.resolve("placements.wal");
++        ChunkPos sealed = new ChunkPos(2, -3);
++        PlacementKey key = PlacementKey.create(9L, "overworld", "test:feature", "test:castle", 32, 70, -48, 0, "root");
++
++        try (CrossChunkPlacementJournal journal = new CrossChunkPlacementJournal(journalFile);
++             ChunkSealLedger seals = new ChunkSealLedger(sealFile)) {
++            PlacementTransactionCoordinator<byte[]> coordinator = new PlacementTransactionCoordinator<>(
++                    journal, bytes -> bytes.clone(),
++                    (placementKey, operations) -> seals.appendIfUnsealed(operations,
++                            () -> journal.append(placementKey, operations)));
++
++            var accepted = coordinator.begin(key, 0, CrossChunkOperation.ConflictPolicy.EXCLUSIVE);
++            accepted.write(31, 70, -48, 0, new byte[]{1});
++            accepted.commit();
++            if (journal.operationsForChunk(1, -3).size() != 1) throw new AssertionError("pre-seal placement missing");
++
++            seals.seal(sealed);
++            if (!seals.isSealed(sealed)) throw new AssertionError("chunk was not sealed");
++            var rejected = coordinator.begin(PlacementKey.create(9L, "overworld", "test:feature", "test:late", 40, 70, -48, 0, "root"),
++                    0, CrossChunkOperation.ConflictPolicy.EXCLUSIVE);
++            rejected.write(32, 70, -48, 0, new byte[]{2});
++            boolean failedClosed = false;
++            try {
++                rejected.commit();
++            } catch (IOException expected) {
++                failedClosed = expected.getMessage().contains("finalized chunk");
++            }
++            if (!failedClosed) throw new AssertionError("late write to sealed chunk was not rejected");
++            rejected.abort();
++            if (!journal.operationsForChunk(2, -3).isEmpty()) throw new AssertionError("rejected placement leaked to journal");
++        }
++
++        // The seal must survive a process restart and discard a torn tail.
++        Files.write(sealFile, new byte[]{0x50, 0x54, 0x58}, java.nio.file.StandardOpenOption.APPEND);
++        try (ChunkSealLedger recovered = new ChunkSealLedger(sealFile)) {
++            if (!recovered.isSealed(sealed)) throw new AssertionError("seal did not recover");
++            boolean idempotent = !recovered.seal(sealed);
++            if (!idempotent) throw new AssertionError("recovered seal was not idempotent");
++        }
++        if (Files.size(sealFile) != 18L) throw new AssertionError("torn seal-ledger tail was not truncated");
++
++        // A commit already inside the guard must finish before sealing can pass;
++        // a later commit must then be rejected. This tests the shared monitor.
++        Path raceFile = dir.resolve("race-sealed.wal");
++        try (ChunkSealLedger race = new ChunkSealLedger(raceFile)) {
++            CountDownLatch appendEntered = new CountDownLatch(1);
++            CountDownLatch releaseAppend = new CountDownLatch(1);
++            AtomicReference<Throwable> failure = new AtomicReference<>();
++            Thread commit = new Thread(() -> {
++                try {
++                    race.appendIfUnsealed(List.of(new CrossChunkOperation(48, 70, 0, 0, 0,
++                            CrossChunkOperation.ConflictPolicy.ALLOW, key, 0, new byte[]{3})), () -> {
++                        appendEntered.countDown();
++                        try { releaseAppend.await(); }
++                        catch (InterruptedException interrupted) {
++                            Thread.currentThread().interrupt();
++                            throw new IOException(interrupted);
++                        }
++                        return true;
++                    });
++                } catch (Throwable t) { failure.set(t); }
++            });
++            commit.start();
++            appendEntered.await();
++            Thread seal = new Thread(() -> {
++                try { race.seal(new ChunkPos(3, 0)); }
++                catch (Throwable t) { failure.set(t); }
++            });
++            seal.start();
++            releaseAppend.countDown();
++            commit.join();
++            seal.join();
++            if (failure.get() != null) throw new AssertionError("race failed", failure.get());
++            boolean rejectedAfterSeal = false;
++            try {
++                race.appendIfUnsealed(List.of(new CrossChunkOperation(49, 70, 0, 0, 0,
++                        CrossChunkOperation.ConflictPolicy.ALLOW, key, 1, new byte[]{4})), () -> true);
++            } catch (IOException expected) { rejectedAfterSeal = true; }
++            if (!rejectedAfterSeal) throw new AssertionError("post-seal concurrent commit was accepted");
++        }
++        System.out.println("ChunkSealLedgerTest: PASS");
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/pnx/Stage11FinalizationContractTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/pnx/Stage11FinalizationContractTest.java
+new file mode 100644
+index 0000000..53d5949
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/pnx/Stage11FinalizationContractTest.java
+@@ -0,0 +1,49 @@
++package org.powernukkitx.terra.crosschunk.pnx;
++
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.FakeChunk;
++import org.powernukkitx.level.format.leveldb.LevelDBStorage;
++import org.powernukkitx.terra.crosschunk.ChunkOperationDigest;
++import org.powernukkitx.terra.crosschunk.ChunkPos;
++import org.powernukkitx.terra.crosschunk.runtime.TerraCrossChunkRuntime;
++
++import java.nio.file.Files;
++import java.nio.file.Path;
++
++public final class Stage11FinalizationContractTest {
++    public static void main(String[] args) throws Exception {
++        Path world = Files.createTempDirectory("terra-stage11-world");
++        Level level = new Level();
++        FakeChunk chunk = new FakeChunk(4, -2);
++        Level.loaded = chunk;
++        // Point the LevelProvider stub at an isolated test directory.
++        System.setProperty("stage11.world", world.toString());
++        TerraCrossChunkRuntime runtime = TerraCrossChunkRuntime.forLevel(level);
++        ChunkPos position = new ChunkPos(4, -2);
++        byte[] emptyDigest = ChunkOperationDigest.calculate(runtime.journal().operationsForChunk(4, -2));
++
++        LevelDBStorage.FAIL = true;
++        boolean saveFailed = false;
++        try {
++            runtime.finalizeChunk(level, chunk);
++        } catch (java.io.IOException expected) {
++            saveFailed = true;
++        }
++        if (!saveFailed) throw new AssertionError("injected durable save failure was ignored");
++        if (runtime.ledger().isApplied(position, emptyDigest)) {
++            throw new AssertionError("failed chunk save was acknowledged");
++        }
++        if (!runtime.seals().isSealed(position)) {
++            throw new AssertionError("chunk must remain sealed after a failed save");
++        }
++
++        LevelDBStorage.FAIL = false;
++        runtime.finalizeChunk(level, chunk);
++        if (!runtime.ledger().isApplied(position, emptyDigest)) {
++            throw new AssertionError("successful durable save was not acknowledged");
++        }
++        if (LevelDBStorage.SAVES.get() != 1) throw new AssertionError("unexpected durable save count");
++        TerraCrossChunkRuntime.closeAll();
++        System.out.println("Stage11FinalizationContractTest: PASS");
++    }
++}

@@ -1,0 +1,222 @@
+--- a/src/main/java/org/powernukkitx/level/generator/GenerateStage.java
++++ b/src/main/java/org/powernukkitx/level/generator/GenerateStage.java
+@@ -2,14 +2,25 @@
+ 
+ import org.powernukkitx.Server;
+ import com.google.common.base.Preconditions;
+ 
++import java.util.concurrent.CompletableFuture;
+ import java.util.concurrent.Executor;
+ 
+ public abstract class GenerateStage {
+     private GenerateStage next;
+ 
+     public abstract void apply(ChunkGenerateContext context);
++
++    /**
++     * Asynchronous stage entry point. The default preserves the synchronous
++     * stage contract. Dependency-aware stages may override this method and
++     * complete the returned future only after their work is committed.
++     * Implementations must not block a generation worker while awaiting chunks.
++     */
++    public CompletableFuture<Void> applyAsync(ChunkGenerateContext context) {
++        return CompletableFuture.runAsync(() -> apply(context), getExecutor());
++    }
+ 
+     public abstract String name();
+ 
+     public Executor getExecutor() {
+--- a/src/main/java/org/powernukkitx/level/generator/Generator.java
++++ b/src/main/java/org/powernukkitx/level/generator/Generator.java
+@@ -65,20 +65,20 @@
+         }
+         if (start == null) {
+             return context.getChunk();
+         }
+-        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+-            start.apply(context);
+-        }, start.getExecutor());
++        CompletableFuture<Void> future = start.applyAsync(context);
+         GenerateStage now = start;
+         while ((now = now.getNextStage()) != null) {
+             final GenerateStage finalNow = now;
+             if (finalNow.name().equals(to)) {
+-                future = future.thenRunAsync(() -> finalNow.apply(context), now.getExecutor());
++                future = future.thenCompose(ignored -> finalNow.applyAsync(context));
+                 break;
+             }
+-            future = future.thenRunAsync(() -> finalNow.apply(context), finalNow.getExecutor());
++            future = future.thenCompose(ignored -> finalNow.applyAsync(context));
+         }
++        // Only the synchronous caller waits. Generation workers remain free
++        // to complete asynchronous cross-chunk dependencies.
+         future.join();
+         return context.getChunk();
+     }
+ 
+@@ -99,35 +99,81 @@
+         asyncGenerate(chunk, getEndName(chunk), callback);
+     }
+ 
+     public final void asyncGenerate(IChunk chunk, String to, Consumer<ChunkGenerateContext> callback) {
++        asyncGenerate(chunk, to, callback, failure -> log.error("Failed to generate chunk ({}, {})", chunk.getX(), chunk.getZ(), failure));
++    }
++
++    /**
++     * Async generation with an explicit failure callback. The failure callback
++     * is essential for owners of in-flight generation reservations: without it
++     * a failed stage can leave a chunk permanently marked as generating.
++     */
++    public final void asyncGenerate(IChunk chunk, Consumer<ChunkGenerateContext> callback,
++                                    Consumer<Throwable> failureCallback) {
++        asyncGenerate(chunk, getEndName(chunk), callback, failureCallback);
++    }
++
++    public final void asyncGenerate(IChunk chunk, String to, Consumer<ChunkGenerateContext> callback,
++                                    Consumer<Throwable> failureCallback) {
+         Preconditions.checkNotNull(to);
++        Preconditions.checkNotNull(callback);
++        Preconditions.checkNotNull(failureCallback);
+         final ChunkGenerateContext context = new ChunkGenerateContext(this, level, chunk);
+         final GenerateStage start = getStart(context);
+         if (chunk.getChunkState().ordinal() < ChunkState.STARTED.ordinal()) {
+             chunk.setChunkState(ChunkState.STARTED);
+         }
+-        asyncGenerate0(context, start, to, () -> callback.accept(context));
++        asyncGenerate0(context, start, to, () -> callback.accept(context), failureCallback);
+     }
+ 
++    protected final void asyncGenerate0(final ChunkGenerateContext context, final GenerateStage start,
++                                        String to, final Runnable callback) {
++        asyncGenerate0(context, start, to, callback, failure ->
++                log.error("Failed to execute generation stage for chunk ({}, {})",
++                        context.getChunk().getX(), context.getChunk().getZ(), failure));
++    }
+ 
+-    protected final void asyncGenerate0(final ChunkGenerateContext context, final GenerateStage start, String to, final Runnable callback) {
++    protected final void asyncGenerate0(final ChunkGenerateContext context, final GenerateStage start,
++                                        String to, final Runnable callback,
++                                        final Consumer<Throwable> failureCallback) {
+         if (start == null || to == null) {
+-            callback.run();
++            try {
++                callback.run();
++            } catch (Throwable failure) {
++                failureCallback.accept(failure);
++            }
+             return;
+         }
+-        if (to.equals(start.name())) {
+-            start.getExecutor().execute(() -> {
+-                start.apply(context);
+-                callback.run();
+-            });
++        final CompletableFuture<Void> stageFuture;
++        try {
++            stageFuture = start.applyAsync(context);
++        } catch (Throwable failure) {
++            failureCallback.accept(failure);
+             return;
+         }
+-        start.getExecutor().execute(() -> {
+-            start.apply(context);
+-            asyncGenerate0(context, start.getNextStage(), to, callback);
++        stageFuture.whenComplete((ignored, failure) -> {
++            if (failure != null) {
++                failureCallback.accept(unwrapFailure(failure));
++                return;
++            }
++            if (to.equals(start.name())) {
++                try {
++                    callback.run();
++                } catch (Throwable callbackFailure) {
++                    failureCallback.accept(callbackFailure);
++                }
++            } else {
++                asyncGenerate0(context, start.getNextStage(), to, callback, failureCallback);
++            }
+         });
++    }
+ 
++    private static Throwable unwrapFailure(Throwable failure) {
++        if (failure instanceof java.util.concurrent.CompletionException && failure.getCause() != null) {
++            return failure.getCause();
++        }
++        return failure;
+     }
+ 
+     public ObjectHolder createObjectHolder(Level level) {
+         return new EmptyObjectHolder();
+--- a/src/main/java/org/powernukkitx/level/format/ChunkState.java
++++ b/src/main/java/org/powernukkitx/level/format/ChunkState.java
+@@ -12,7 +12,9 @@
+     POPULATED,
+     FINISHED;
+ 
+     public boolean canSend() {
+-        return this.ordinal() >= 3;
++        // A chunk is publishable only after its complete generation pipeline,
++        // including final lighting and any asynchronous population barriers.
++        return this == FINISHED;
+     }
+ }
+--- a/src/main/java/org/powernukkitx/level/generator/stages/PopulatorStage.java
++++ b/src/main/java/org/powernukkitx/level/generator/stages/PopulatorStage.java
+@@ -14,9 +14,8 @@
+ public abstract class PopulatorStage extends GenerateStage {
+ 
+     @Override
+     public final void apply(ChunkGenerateContext context) {
+-        context.getChunk().setChunkState(ChunkState.POPULATED);
+         BlockManager root = new BlockManager(context.getLevel());
+         for(String name : populators()) {
+             try {
+                 Populator populator = Registries.POPULATOR.get(name);
+@@ -29,8 +28,11 @@
+         if (!root.getBlocks().isEmpty()) {
+             root.applySubChunkUpdate();
+             root.getBlocks().forEach(block -> block.getChunk().setChanged());
+         }
++        // POPULATED is a completion marker, not an entry marker. Publishing
++        // it before writes are flushed exposed partially populated chunks.
++        context.getChunk().setChunkState(ChunkState.POPULATED);
+     }
+ 
+     public abstract ObjectArraySet<String> populators();
+ 
+--- a/src/main/java/org/powernukkitx/level/Level.java
++++ b/src/main/java/org/powernukkitx/level/Level.java
+@@ -21,8 +21,14 @@
+             }
+             this.generator.asyncGenerate(chunk, (c) -> {
+                 GENERATED_CHUNK_COUNT.incrementAndGet();
+                 chunkGenerationQueue.remove(c.getChunk().getIndex());
++            }, failure -> {
++                try {
++                    log.error("Failed to generate chunk ({}, {}) in level '{}'", x, z, getFolderName(), failure);
++                } finally {
++                    chunkGenerationQueue.remove(index);
++                }
+             });
+         }
+     }
+ 
+@@ -37,11 +43,15 @@
+                 log.warn("syncGenerateChunk called on already-sendable chunk ({}, {}) in level '{}' with state {}. This is a bug - please report it ASAP!",
+                         x, z, getFolderName(), chunk.getChunkState(), new RuntimeException("syncGenerateChunk guard triggered"));
+                 return;
+             }
+-            this.generator.syncGenerate(chunk);
+-            GENERATED_CHUNK_COUNT.incrementAndGet();
+-            chunkGenerationQueue.remove(index);
++            try {
++                this.generator.syncGenerate(chunk);
++                GENERATED_CHUNK_COUNT.incrementAndGet();
++            } finally {
++                // Do not strand the reservation if a synchronous stage fails.
++                chunkGenerationQueue.remove(index);
++            }
+         }
+         while (isChunkGenerating(x, z));
+     }
+ 

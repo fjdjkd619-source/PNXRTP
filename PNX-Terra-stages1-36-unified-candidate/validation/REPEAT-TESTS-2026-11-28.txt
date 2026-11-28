@@ -1,0 +1,10 @@
+OpenJDK 21.0.12.1
+Command: ./validation/run-core-tests.sh
+Compiler flags: --release 21 -Xlint:all -Werror
+Test classes per round: 11
+
+Verification: 9 consecutive complete rounds passed (99 suite executions); the 10th complete standalone run also passed (11 suite executions). Total: 110/110 successful suite executions.
+Additional regression: accepted in-flight dependency anchor is not resubmitted by retry loop; test waits across multiple 250 ms retry intervals.
+Scope: independent core only; adapter/upstream-dependent classes excluded by the harness.
+
+Additional post-fix verification: 3 consecutive full runs after both Stage 17 scheduler fixes; all 33 suite executions passed.

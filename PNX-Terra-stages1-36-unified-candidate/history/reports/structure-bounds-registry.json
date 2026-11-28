@@ -1,0 +1,3867 @@
+{
+  "format": "pnx-terra-structure-bounds-registry",
+  "version": 1,
+  "source_archive": "origen-v2.2.0.zip",
+  "source_git_head": "228426bb192a8d6029952aae1a77008dea5f3cda",
+  "policy": "Fail closed: UNKNOWN bounds prevent dependent chunk sealing.",
+  "scripts": [
+    {
+      "id": "andesite_wall_boulder",
+      "path": "structures/boulders/andesite_wall_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "boulder",
+      "path": "structures/boulders/boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/boulders.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "boulder_notest",
+      "path": "structures/boulders/boulder_notest.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "boulder_ores",
+      "path": "structures/boulders/boulder_ores.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "boulder_palette"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/boulders/boulder_palette.tesf"
+      ]
+    },
+    {
+      "id": "boulder_palette",
+      "path": "structures/boulders/boulder_palette.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "boulder_textured",
+      "path": "structures/boulders/boulder_textured.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "boulder_ores",
+        "boulder_palette"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/mossy_boulders.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/boulders/boulder_ores.tesf",
+        "structures/boulders/boulder_palette.tesf"
+      ]
+    },
+    {
+      "id": "dripstone_caves_boulder",
+      "path": "structures/boulders/dripstone_caves_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "granite_boulder_ores",
+        "tuff_boulder_ores"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/dripstone_caves_boulder_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/boulders/granite_boulder_ores.tesf",
+        "structures/boulders/tuff_boulder_ores.tesf"
+      ]
+    },
+    {
+      "id": "granite_boulder",
+      "path": "structures/boulders/granite_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/granite_boulders.yml",
+        "features/boulders/granite_boulders_canyon.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "granite_boulder_ores",
+      "path": "structures/boulders/granite_boulder_ores.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sandstone_boulder",
+      "path": "structures/boulders/sandstone_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/sandstone_boulders.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sandstone_boulder_palette",
+      "path": "structures/boulders/sandstone_boulder_palette.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sandstone_boulder_textured",
+      "path": "structures/boulders/sandstone_boulder_textured.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "sandstone_boulder_palette"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/boulders/sandstone_boulder_palette.tesf"
+      ]
+    },
+    {
+      "id": "small_boulder",
+      "path": "structures/boulders/small_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/small_boulder_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_boulder_notest",
+      "path": "structures/boulders/small_boulder_notest.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_boulder_textured",
+      "path": "structures/boulders/small_boulder_textured.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "boulder_palette"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/small_mossy_boulder_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/boulders/boulder_palette.tesf"
+      ]
+    },
+    {
+      "id": "small_granite_boulder",
+      "path": "structures/boulders/small_granite_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/small_granite_boulder_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_sandstone_boulder",
+      "path": "structures/boulders/small_sandstone_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/boulders/small_sandstone_boulder_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_sandstone_boulder_textured",
+      "path": "structures/boulders/small_sandstone_boulder_textured.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "sandstone_boulder_palette"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/boulders/sandstone_boulder_palette.tesf"
+      ]
+    },
+    {
+      "id": "stone_wall_boulder",
+      "path": "structures/boulders/stone_wall_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "tuff_boulder_ores",
+      "path": "structures/boulders/tuff_boulder_ores.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "is_leaf",
+      "path": "structures/is_leaf.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "is_log",
+      "path": "structures/is_log.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "is_rock",
+      "path": "structures/is_rock.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "amethyst_geode",
+      "path": "structures/misc/amethyst_geode.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "place_crystals"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/amethyst_geodes.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/misc/place_crystals.tesf"
+      ]
+    },
+    {
+      "id": "bee_nest",
+      "path": "structures/misc/bee_nest.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "big_boulder",
+      "path": "structures/misc/big_boulder.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/giant_boulders.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "blank",
+      "path": "structures/misc/blank.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "ceiling_icicle",
+      "path": "structures/misc/ceiling_icicle.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/ceiling_icicles.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "del_floating_blocks",
+      "path": "structures/misc/del_floating_blocks.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/del_floating_blocks.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dripstone_column",
+      "path": "structures/misc/dripstone_column.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/dripstone_columns.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "iceberg",
+      "path": "structures/misc/iceberg.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/icebergs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "is_dripstone_column_replaceable",
+      "path": "structures/misc/is_dripstone_column_replaceable.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_ceiling_pointed_dripstone",
+      "path": "structures/misc/large_ceiling_pointed_dripstone.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/dripstone_caves_large_ceiling_dripstone.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "lava_column",
+      "path": "structures/misc/lava_column.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "is_rock"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/underground_lava_columns.yml",
+        "features/rearth/cave_lava_columns.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf"
+      ]
+    },
+    {
+      "id": "place_crystals",
+      "path": "structures/misc/place_crystals.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "propagule",
+      "path": "structures/misc/propagule.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "red_rock",
+      "path": "structures/misc/red_rock.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/red_rocks.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_ceiling_pointed_dripstone",
+      "path": "structures/misc/small_ceiling_pointed_dripstone.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/dripstone_caves_ceiling_pointed_dripstone.yml",
+        "features/misc/mountain_river_pointed_dripstone.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_floor_pointed_dripstone",
+      "path": "structures/misc/small_floor_pointed_dripstone.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/misc/dripstone_caves_floor_pointed_dripstone.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "chain_to_ceiling",
+      "path": "structures/rearth/chain_to_ceiling.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dam_to_floor",
+      "path": "structures/rearth/dam_to_floor.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/wood_water_dam.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "farm_edge",
+      "path": "structures/rearth/farm_edge.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/sharp_terraces_edge.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "farm_water",
+      "path": "structures/rearth/farm_water.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/farmland_water_spots.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "fossil_head",
+      "path": "structures/rearth/fossils/fossil_head.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "skull_center"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "fossil_segment_high",
+      "path": "structures/rearth/fossils/fossil_segment_high.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "fossil_segment_low",
+      "path": "structures/rearth/fossils/fossil_segment_low.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "fossil_segment_mid",
+      "path": "structures/rearth/fossils/fossil_segment_mid.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "fossil_segment_water",
+      "path": "structures/rearth/fossils/fossil_segment_water.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "giant_pillar",
+      "path": "structures/rearth/giant_pillar.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "custom_sakura_tree",
+      "path": "structures/rearth/giant_sakura/custom_sakura_tree.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "great_sakura_tree"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/rearth/giant_sakura/great_sakura_tree.tesf"
+      ]
+    },
+    {
+      "id": "great_sakura_tree",
+      "path": "structures/rearth/giant_sakura/great_sakura_tree.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "sakura_leaves_clump"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/rearth/giant_sakura/sakura_leaves_clump.tesf"
+      ]
+    },
+    {
+      "id": "sakura_leaves_clump",
+      "path": "structures/rearth/giant_sakura/sakura_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_dark_swamp_tree",
+      "path": "structures/rearth/large_dark_swamp_tree.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_oak_tree",
+      "path": "structures/rearth/large_oak_tree.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_spruce_tree",
+      "path": "structures/rearth/large_spruce_tree.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "pillar_to_bottom",
+      "path": "structures/rearth/pillar_to_bottom.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "waterfall",
+      "path": "structures/rearth/waterfall.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/edge_waterfalls.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "andesite_slabs",
+      "path": "structures/slabs/andesite_slabs.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/andesite_slabs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "diorite_slabs",
+      "path": "structures/slabs/diorite_slabs.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/diorite_slabs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "granite_slabs",
+      "path": "structures/slabs/granite_slabs.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/granite_slabs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "iceberg_snow_layers",
+      "path": "structures/slabs/iceberg_snow_layers.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/iceberg_snow_layers.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "red_sand_slabs",
+      "path": "structures/slabs/red_sand_slabs.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/red_sand_slabs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sand_slabs",
+      "path": "structures/slabs/sand_slabs.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/sand_slabs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "snow_layers",
+      "path": "structures/slabs/snow_layers.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/sinkhole_snow_layers.yml",
+        "features/slabs/snow_layers.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "stone_slabs",
+      "path": "structures/slabs/stone_slabs.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/slabs/stone_slabs.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "bamboo",
+      "path": "structures/vegetation/bamboo.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "big_dripleaf",
+      "path": "structures/vegetation/big_dripleaf.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/dripleaf/big_dripleaf.yml",
+        "features/vegetation/dripleaf/big_dripleaf_caves.yml",
+        "features/vegetation/dripleaf/big_dripleaf_ponds.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "azalea_bush",
+      "path": "structures/vegetation/bushes/azalea_bush.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "jungle_bush",
+      "path": "structures/vegetation/bushes/jungle_bush.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/bushes/jungle_bushes.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "oak_bush",
+      "path": "structures/vegetation/bushes/oak_bush.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/bushes/oak_bushes.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "spruce_bush",
+      "path": "structures/vegetation/bushes/spruce_bush.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/bushes/spruce_bushes.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "cactus",
+      "path": "structures/vegetation/cactus.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/cactus_sparse.yml",
+        "features/vegetation/cactus_sparse_underground.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "ball_coral_procedural",
+      "path": "structures/vegetation/coral/ball_coral_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "coral_fans",
+      "path": "structures/vegetation/coral/coral_fans.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "coral_plants",
+      "path": "structures/vegetation/coral/coral_plants.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dendriform_coral_procedural",
+      "path": "structures/vegetation/coral/dendriform_coral_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "beetroot_patch",
+      "path": "structures/vegetation/crops/beetroot_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "plantable"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/crops/beetroot_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/plantable.tesf"
+      ]
+    },
+    {
+      "id": "carrot_patch",
+      "path": "structures/vegetation/crops/carrot_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "plantable"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/crops/carrot_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/plantable.tesf"
+      ]
+    },
+    {
+      "id": "cocoa_bean",
+      "path": "structures/vegetation/crops/cocoa_bean.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "melon_patch",
+      "path": "structures/vegetation/crops/melon_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/bushes/melon_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "potato_patch",
+      "path": "structures/vegetation/crops/potato_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "plantable"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/crops/potato_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/plantable.tesf"
+      ]
+    },
+    {
+      "id": "pumpkin_patch",
+      "path": "structures/vegetation/crops/pumpkin_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/bushes/pumpkin_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sweet_berry_bush_patch",
+      "path": "structures/vegetation/crops/sweet_berry_bush_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "plantable"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/crops/sweet_berry_bush_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/plantable.tesf"
+      ]
+    },
+    {
+      "id": "wheat_patch",
+      "path": "structures/vegetation/crops/wheat_patch.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "plantable"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/crops/wheat_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/plantable.tesf"
+      ]
+    },
+    {
+      "id": "lilac",
+      "path": "structures/vegetation/flowers/lilac.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/flowers/lilac_patch.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "peony",
+      "path": "structures/vegetation/flowers/peony.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/flowers/peony_patch.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "pink_petals",
+      "path": "structures/vegetation/flowers/pink_petals.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/valley_petals.yml",
+        "features/vegetation/flowers/pink_petals.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "rose_bush",
+      "path": "structures/vegetation/flowers/rose_bush.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/flowers/rose_bush_patch.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sunflower",
+      "path": "structures/vegetation/flowers/sunflower.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/flowers/sunflower_cover.yml",
+        "features/vegetation/flowers/sunflower_patch.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "glow_lichen",
+      "path": "structures/vegetation/glow_lichen.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "is_rock"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/arch_glow_lichen.yml",
+        "features/vegetation/cave_glow_lichen.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf"
+      ]
+    },
+    {
+      "id": "large_fern",
+      "path": "structures/vegetation/large_fern.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "brown_mushroom_disk",
+      "path": "structures/vegetation/mushrooms/brown_mushroom_disk.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_mixed_mushroom_procedural",
+      "path": "structures/vegetation/mushrooms/large_mixed_mushroom_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/large_mushrooms.yml",
+        "features/vegetation/trees/sparse_large_mushrooms.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "red_mushroom_disk",
+      "path": "structures/vegetation/mushrooms/red_mushroom_disk.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "small_brown_mushroom_disk",
+      "path": "structures/vegetation/mushrooms/small_brown_mushroom_disk.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/mushroom_disk_patches.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "place_adjacent_sculk_veins",
+      "path": "structures/vegetation/place_adjacent_sculk_veins.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "sculk_vein"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/vegetation/sculk_vein.tesf",
+        "structures/vegetation/sculk_vein.tesf",
+        "structures/vegetation/sculk_vein.tesf",
+        "structures/vegetation/sculk_vein.tesf",
+        "structures/vegetation/sculk_vein.tesf",
+        "structures/vegetation/sculk_vein.tesf"
+      ]
+    },
+    {
+      "id": "plantable",
+      "path": "structures/vegetation/plantable.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "plantable_desert",
+      "path": "structures/vegetation/plantable_desert.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sculk_vein",
+      "path": "structures/vegetation/sculk_vein.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "is_rock"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf",
+        "structures/is_rock.tesf"
+      ]
+    },
+    {
+      "id": "small_dripleaf",
+      "path": "structures/vegetation/small_dripleaf.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/dripleaf/small_dripleaf.yml",
+        "features/vegetation/dripleaf/small_dripleaf_caves.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "spore_blossom",
+      "path": "structures/vegetation/spore_blossom.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "sugar_cane",
+      "path": "structures/vegetation/sugar_cane.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/sugar_cane.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "tall_grass",
+      "path": "structures/vegetation/tall_grass.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "acacia_leaves",
+      "path": "structures/vegetation/trees/acacia_leaves.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "acacia_leaves_clump",
+      "path": "structures/vegetation/trees/acacia_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "acacia_tree_procedural",
+      "path": "structures/vegetation/trees/acacia_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "autumnal_birch_tree_procedural",
+      "path": "structures/vegetation/trees/autumnal_birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "bee_nest"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/misc/bee_nest.tesf"
+      ]
+    },
+    {
+      "id": "azalea_leaves_clump",
+      "path": "structures/vegetation/trees/azalea/azalea_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "great_azalea_tree",
+      "path": "structures/vegetation/trees/azalea/great_azalea_tree.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "azalea_leaves_clump"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/vegetation/trees/azalea/azalea_leaves_clump.tesf"
+      ]
+    },
+    {
+      "id": "great_azalea_tree_tunnel",
+      "path": "structures/vegetation/trees/azalea/great_azalea_tree_tunnel.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "great_azalea_tree",
+        "is_great_azalea_plantable"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/vegetation/trees/azalea/is_great_azalea_plantable.tesf",
+        "structures/vegetation/trees/azalea/great_azalea_tree.tesf"
+      ]
+    },
+    {
+      "id": "is_great_azalea_plantable",
+      "path": "structures/vegetation/trees/azalea/is_great_azalea_plantable.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "place_great_azalea_tree_underground",
+      "path": "structures/vegetation/trees/azalea/place_great_azalea_tree_underground.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "great_azalea_tree_tunnel"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": true,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/great_azalea_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/trees/azalea/great_azalea_tree_tunnel.tesf"
+      ]
+    },
+    {
+      "id": "birch_tree_procedural",
+      "path": "structures/vegetation/trees/birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "bee_nest"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/misc/bee_nest.tesf"
+      ]
+    },
+    {
+      "id": "cherry_blossom_tree_procedural",
+      "path": "structures/vegetation/trees/cherry_blossom_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "bee_nest"
+      ],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/sakura_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/misc/bee_nest.tesf"
+      ]
+    },
+    {
+      "id": "cherry_leaves_clump",
+      "path": "structures/vegetation/trees/cherry_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dark_oak_leaves_clump",
+      "path": "structures/vegetation/trees/dark_oak_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dark_oak_tree_procedural",
+      "path": "structures/vegetation/trees/dark_oak_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dead_large_swamp_tree_procedural",
+      "path": "structures/vegetation/trees/dead_large_swamp_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/dead_swamp_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "dead_tree_procedural",
+      "path": "structures/vegetation/trees/dead_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/dead_trees_sparse.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "eucalyptus_tree_procedural",
+      "path": "structures/vegetation/trees/eucalyptus_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/eucalyptus_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "giant_redwood",
+      "path": "structures/vegetation/trees/giant_redwood.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/giant_redwoods.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "ice_spike",
+      "path": "structures/vegetation/trees/ice_spike.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "is_dark_oak_replaceable",
+      "path": "structures/vegetation/trees/is_dark_oak_replaceable.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_acacia_tree_procedural",
+      "path": "structures/vegetation/trees/large_acacia_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_autumnal_birch_tree_procedural",
+      "path": "structures/vegetation/trees/large_autumnal_birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_birch_tree_procedural",
+      "path": "structures/vegetation/trees/large_birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "tree_trunk_mushroom_disk"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/vegetation/trees/tree_trunk_mushroom_disk.tesf"
+      ]
+    },
+    {
+      "id": "large_dark_oak_tree_procedural",
+      "path": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_flat_acacia_tree_procedural",
+      "path": "structures/vegetation/trees/large_flat_acacia_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_jungle_tree_procedural",
+      "path": "structures/vegetation/trees/large_jungle_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "cocoa_bean",
+        "place_vines"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/vegetation/crops/cocoa_bean.tesf",
+        "structures/vegetation/crops/cocoa_bean.tesf",
+        "structures/vegetation/crops/cocoa_bean.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf"
+      ]
+    },
+    {
+      "id": "large_oak_tree_procedural",
+      "path": "structures/vegetation/trees/large_oak_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_oak_tree_procedural_2",
+      "path": "structures/vegetation/trees/large_oak_tree_procedural_2.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_swamp_tree_procedural",
+      "path": "structures/vegetation/trees/large_swamp_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "place_vines",
+        "spore_blossom"
+      ],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/swamp_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/spore_blossom.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf"
+      ]
+    },
+    {
+      "id": "large_thin_autumnal_birch_tree_procedural",
+      "path": "structures/vegetation/trees/large_thin_autumnal_birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_thin_birch_tree_procedural",
+      "path": "structures/vegetation/trees/large_thin_birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "mangrove_leaves_clump",
+      "path": "structures/vegetation/trees/mangrove_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "propagule"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/misc/propagule.tesf"
+      ]
+    },
+    {
+      "id": "mangrove_tree_procedural",
+      "path": "structures/vegetation/trees/mangrove_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "bee_nest",
+        "place_vines",
+        "spore_blossom"
+      ],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/mangrove_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/spore_blossom.tesf",
+        "structures/misc/bee_nest.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf"
+      ]
+    },
+    {
+      "id": "medium_jungle_tree_procedural",
+      "path": "structures/vegetation/trees/medium_jungle_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "cocoa_bean",
+        "place_vines"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/vegetation/crops/cocoa_bean.tesf",
+        "structures/vegetation/crops/cocoa_bean.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf",
+        "structures/vegetation/vines/place_vines.tesf"
+      ]
+    },
+    {
+      "id": "mesquite_tree_procedural",
+      "path": "structures/vegetation/trees/mesquite_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": true,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/mesquite_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "oak_leaves_clump",
+      "path": "structures/vegetation/trees/oak_leaves_clump.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "oak_tree_procedural",
+      "path": "structures/vegetation/trees/oak_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "bee_nest"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/oak_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/misc/bee_nest.tesf"
+      ]
+    },
+    {
+      "id": "palm_tree_procedural",
+      "path": "structures/vegetation/trees/palm_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/dense_palm_trees.yml",
+        "features/vegetation/trees/oasis_palm_trees.yml",
+        "features/vegetation/trees/palm_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "spruce_tree_procedural",
+      "path": "structures/vegetation/trees/spruce_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/sparse_spruce_trees.yml",
+        "features/vegetation/trees/spruce_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "stubbed_large_birch_tree_procedural",
+      "path": "structures/vegetation/trees/stubbed_large_birch_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "submerged_dead_tree_procedural",
+      "path": "structures/vegetation/trees/submerged_dead_tree_procedural.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "place_trunk_vines"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/trees/submerged_dead_trees.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/vines/place_trunk_vines.tesf",
+        "structures/vegetation/vines/place_trunk_vines.tesf",
+        "structures/vegetation/vines/place_trunk_vines.tesf",
+        "structures/vegetation/vines/place_trunk_vines.tesf"
+      ]
+    },
+    {
+      "id": "tree_trunk_mushroom_disk",
+      "path": "structures/vegetation/trees/tree_trunk_mushroom_disk.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": false,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "kelp",
+      "path": "structures/vegetation/underwater/kelp.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "kelp_low",
+      "path": "structures/vegetation/underwater/kelp_low.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "tall_seagrass",
+      "path": "structures/vegetation/underwater/tall_seagrass.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": false,
+      "uses_getBlock": true,
+      "uses_random_or_math": false,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "crossing_vines",
+      "path": "structures/vegetation/vines/crossing_vines.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "crossing_vines_segment"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/vines/crossing_vines.yml",
+        "features/vegetation/vines/crossing_vines_cave.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/vines/crossing_vines_segment.tesf",
+        "structures/vegetation/vines/crossing_vines_segment.tesf",
+        "structures/vegetation/vines/crossing_vines_segment.tesf"
+      ]
+    },
+    {
+      "id": "crossing_vines_frozen",
+      "path": "structures/vegetation/vines/crossing_vines_frozen.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "crossing_vines_segment_frozen"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/vines/crossing_vines_frozen.yml",
+        "features/vegetation/vines/crossing_vines_frozen_canyon.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/vines/crossing_vines_segment_frozen.tesf",
+        "structures/vegetation/vines/crossing_vines_segment_frozen.tesf",
+        "structures/vegetation/vines/crossing_vines_segment_frozen.tesf"
+      ]
+    },
+    {
+      "id": "crossing_vines_segment",
+      "path": "structures/vegetation/vines/crossing_vines_segment.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "crossing_vines_segment_frozen",
+      "path": "structures/vegetation/vines/crossing_vines_segment_frozen.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "crossing_vines_segment_uncolored",
+      "path": "structures/vegetation/vines/crossing_vines_segment_uncolored.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": []
+    },
+    {
+      "id": "crossing_vines_uncolored",
+      "path": "structures/vegetation/vines/crossing_vines_uncolored.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "crossing_vines_segment_uncolored"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/vines/crossing_stone_vines.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": [
+        "structures/vegetation/vines/crossing_vines_segment_uncolored.tesf",
+        "structures/vegetation/vines/crossing_vines_segment_uncolored.tesf",
+        "structures/vegetation/vines/crossing_vines_segment_uncolored.tesf"
+      ]
+    },
+    {
+      "id": "glow_berries",
+      "path": "structures/vegetation/vines/glow_berries.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/rearth/mountain_glow_berries.yml",
+        "features/rearth/valley_tree_glowberries.yml",
+        "features/vegetation/vines/cave_glow_berries.yml",
+        "features/vegetation/vines/large_leaf_vines_river_cave.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "large_ceiling_vines",
+      "path": "structures/vegetation/vines/large_ceiling_vines.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/vines/large_ceiling_vines.yml",
+        "features/vegetation/vines/large_ceiling_vines_cave.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    },
+    {
+      "id": "place_trunk_vines",
+      "path": "structures/vegetation/vines/place_trunk_vines.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "is_log"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/is_log.tesf",
+        "structures/is_log.tesf",
+        "structures/is_log.tesf",
+        "structures/is_log.tesf"
+      ]
+    },
+    {
+      "id": "place_vines",
+      "path": "structures/vegetation/vines/place_vines.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [
+        "is_leaf"
+      ],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": true,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [],
+      "has_root_feature_reference": false,
+      "nested_static_paths": [
+        "structures/is_leaf.tesf",
+        "structures/is_leaf.tesf",
+        "structures/is_leaf.tesf",
+        "structures/is_leaf.tesf"
+      ]
+    },
+    {
+      "id": "tree_vines",
+      "path": "structures/vegetation/vines/tree_vines.tesf",
+      "status": "UNKNOWN",
+      "bounds": null,
+      "rotation": "TerraScript-dependent; must transform verified AABB",
+      "nested_static_ids": [],
+      "dynamic_nested_target": false,
+      "uses_loops": true,
+      "uses_getBlock": false,
+      "uses_random_or_math": true,
+      "uses_origin_coordinates": false,
+      "notes": "No safe finite AABB certified by this static pass; keep dependent chunks unfinalized until bounded.",
+      "referenced_by_features": [
+        "features/vegetation/vines/tree_leaves.yml"
+      ],
+      "has_root_feature_reference": true,
+      "nested_static_paths": []
+    }
+  ],
+  "feature_structure_references": [
+    {
+      "feature_file": "features/boulders/boulders.yml",
+      "structure_id": "boulder",
+      "resolved_path": "structures/boulders/boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/dripstone_caves_boulder_patches.yml",
+      "structure_id": "dripstone_caves_boulder",
+      "resolved_path": "structures/boulders/dripstone_caves_boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/granite_boulders.yml",
+      "structure_id": "granite_boulder",
+      "resolved_path": "structures/boulders/granite_boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/granite_boulders_canyon.yml",
+      "structure_id": "granite_boulder",
+      "resolved_path": "structures/boulders/granite_boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/mossy_boulders.yml",
+      "structure_id": "boulder_textured",
+      "resolved_path": "structures/boulders/boulder_textured.tesf"
+    },
+    {
+      "feature_file": "features/boulders/sandstone_boulders.yml",
+      "structure_id": "sandstone_boulder",
+      "resolved_path": "structures/boulders/sandstone_boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/small_boulder_patches.yml",
+      "structure_id": "small_boulder",
+      "resolved_path": "structures/boulders/small_boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/small_granite_boulder_patches.yml",
+      "structure_id": "small_granite_boulder",
+      "resolved_path": "structures/boulders/small_granite_boulder.tesf"
+    },
+    {
+      "feature_file": "features/boulders/small_mossy_boulder_patches.yml",
+      "structure_id": "small_boulder_textured",
+      "resolved_path": "structures/boulders/small_boulder_textured.tesf"
+    },
+    {
+      "feature_file": "features/boulders/small_sandstone_boulder_patches.yml",
+      "structure_id": "small_sandstone_boulder",
+      "resolved_path": "structures/boulders/small_sandstone_boulder.tesf"
+    },
+    {
+      "feature_file": "features/deposits/deposits/underground_magma_block_deposits.yml",
+      "structure_id": "MAGMA_BLOCK_DEPOSIT",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/amethyst_geodes.yml",
+      "structure_id": "amethyst_geode",
+      "resolved_path": "structures/misc/amethyst_geode.tesf"
+    },
+    {
+      "feature_file": "features/misc/ceiling_dripstone_blocks.yml",
+      "structure_id": "BLOCK:minecraft:dripstone_block",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/ceiling_icicles.yml",
+      "structure_id": "ceiling_icicle",
+      "resolved_path": "structures/misc/ceiling_icicle.tesf"
+    },
+    {
+      "feature_file": "features/misc/coastal_water_pools.yml",
+      "structure_id": "BLOCK:minecraft:water",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/connect_lava_steps.yml",
+      "structure_id": "BLOCK:minecraft:lava[level=5",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/contain_floating_water.yml",
+      "structure_id": "BLOCK:minecraft:stone",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/contain_floating_water_deep.yml",
+      "structure_id": "BLOCK:minecraft:stone",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/contain_floating_water_mountains.yml",
+      "structure_id": "BLOCK:minecraft:stone",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/del_floating_blocks.yml",
+      "structure_id": "del_floating_blocks",
+      "resolved_path": "structures/misc/del_floating_blocks.tesf"
+    },
+    {
+      "feature_file": "features/misc/dripstone_caves_ceiling_pointed_dripstone.yml",
+      "structure_id": "small_ceiling_pointed_dripstone",
+      "resolved_path": "structures/misc/small_ceiling_pointed_dripstone.tesf"
+    },
+    {
+      "feature_file": "features/misc/dripstone_caves_floor_pointed_dripstone.yml",
+      "structure_id": "small_floor_pointed_dripstone",
+      "resolved_path": "structures/misc/small_floor_pointed_dripstone.tesf"
+    },
+    {
+      "feature_file": "features/misc/dripstone_caves_large_ceiling_dripstone.yml",
+      "structure_id": "large_ceiling_pointed_dripstone",
+      "resolved_path": "structures/misc/large_ceiling_pointed_dripstone.tesf"
+    },
+    {
+      "feature_file": "features/misc/dripstone_columns.yml",
+      "structure_id": "dripstone_column",
+      "resolved_path": "structures/misc/dripstone_column.tesf"
+    },
+    {
+      "feature_file": "features/misc/ice_coastline.yml",
+      "structure_id": "BLOCK:minecraft:ice",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/icebergs.yml",
+      "structure_id": "iceberg",
+      "resolved_path": "structures/misc/iceberg.tesf"
+    },
+    {
+      "feature_file": "features/misc/lava_floor.yml",
+      "structure_id": "BLOCK:minecraft:lava",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/lava_steps.yml",
+      "structure_id": "BLOCK:minecraft:lava",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/lush_cave_water_pools.yml",
+      "structure_id": "BLOCK:minecraft:water",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/mountain_river_pointed_dripstone.yml",
+      "structure_id": "small_ceiling_pointed_dripstone",
+      "resolved_path": "structures/misc/small_ceiling_pointed_dripstone.tesf"
+    },
+    {
+      "feature_file": "features/misc/red_rocks.yml",
+      "structure_id": "red_rock",
+      "resolved_path": "structures/misc/red_rock.tesf"
+    },
+    {
+      "feature_file": "features/misc/smooth_lava.yml",
+      "structure_id": "BLOCK:minecraft:lava[level=5",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/swamp_water.yml",
+      "structure_id": "BLOCK:minecraft:water",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/travertine/travertine_water.yml",
+      "structure_id": "BLOCK:minecraft:water",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/travertine/travertine_waterfalls.yml",
+      "structure_id": "BLOCK:minecraft:water",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/tree_snow.yml",
+      "structure_id": "BLOCK:minecraft:snow",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/tree_snow_canyon.yml",
+      "structure_id": "BLOCK:minecraft:snow",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/underground_lava_columns.yml",
+      "structure_id": "lava_column",
+      "resolved_path": "structures/misc/lava_column.tesf"
+    },
+    {
+      "feature_file": "features/misc/volcano/prismatic_spring_magma.yml",
+      "structure_id": "BLOCK:minecraft:magma_block",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/misc/volcano/volcano_water.yml",
+      "structure_id": "BLOCK:minecraft:water",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/rearth/arch_glow_lichen.yml",
+      "structure_id": "glow_lichen",
+      "resolved_path": "structures/vegetation/glow_lichen.tesf"
+    },
+    {
+      "feature_file": "features/rearth/cave_lava_columns.yml",
+      "structure_id": "lava_column",
+      "resolved_path": "structures/misc/lava_column.tesf"
+    },
+    {
+      "feature_file": "features/rearth/edge_waterfalls.yml",
+      "structure_id": "waterfall",
+      "resolved_path": "structures/rearth/waterfall.tesf"
+    },
+    {
+      "feature_file": "features/rearth/farmland_water_spots.yml",
+      "structure_id": "farm_water",
+      "resolved_path": "structures/rearth/farm_water.tesf"
+    },
+    {
+      "feature_file": "features/rearth/giant_boulders.yml",
+      "structure_id": "big_boulder",
+      "resolved_path": "structures/misc/big_boulder.tesf"
+    },
+    {
+      "feature_file": "features/rearth/lava_cave_floor.yml",
+      "structure_id": "BLOCK:minecraft:lava",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/rearth/mountain_glow_berries.yml",
+      "structure_id": "glow_berries",
+      "resolved_path": "structures/vegetation/vines/glow_berries.tesf"
+    },
+    {
+      "feature_file": "features/rearth/sharp_terraces.yml",
+      "structure_id": "BLOCK:minecraft:farmland[moisture=7",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/rearth/sharp_terraces_edge.yml",
+      "structure_id": "farm_edge",
+      "resolved_path": "structures/rearth/farm_edge.tesf"
+    },
+    {
+      "feature_file": "features/rearth/valley_petals.yml",
+      "structure_id": "pink_petals",
+      "resolved_path": "structures/vegetation/flowers/pink_petals.tesf"
+    },
+    {
+      "feature_file": "features/rearth/valley_tree_glowberries.yml",
+      "structure_id": "glow_berries",
+      "resolved_path": "structures/vegetation/vines/glow_berries.tesf"
+    },
+    {
+      "feature_file": "features/rearth/wood_water_dam.yml",
+      "structure_id": "dam_to_floor",
+      "resolved_path": "structures/rearth/dam_to_floor.tesf"
+    },
+    {
+      "feature_file": "features/slabs/andesite_slabs.yml",
+      "structure_id": "andesite_slabs",
+      "resolved_path": "structures/slabs/andesite_slabs.tesf"
+    },
+    {
+      "feature_file": "features/slabs/diorite_slabs.yml",
+      "structure_id": "diorite_slabs",
+      "resolved_path": "structures/slabs/diorite_slabs.tesf"
+    },
+    {
+      "feature_file": "features/slabs/granite_slabs.yml",
+      "structure_id": "granite_slabs",
+      "resolved_path": "structures/slabs/granite_slabs.tesf"
+    },
+    {
+      "feature_file": "features/slabs/iceberg_snow_layers.yml",
+      "structure_id": "iceberg_snow_layers",
+      "resolved_path": "structures/slabs/iceberg_snow_layers.tesf"
+    },
+    {
+      "feature_file": "features/slabs/red_sand_slabs.yml",
+      "structure_id": "red_sand_slabs",
+      "resolved_path": "structures/slabs/red_sand_slabs.tesf"
+    },
+    {
+      "feature_file": "features/slabs/sand_slabs.yml",
+      "structure_id": "sand_slabs",
+      "resolved_path": "structures/slabs/sand_slabs.tesf"
+    },
+    {
+      "feature_file": "features/slabs/sinkhole_snow_layers.yml",
+      "structure_id": "snow_layers",
+      "resolved_path": "structures/slabs/snow_layers.tesf"
+    },
+    {
+      "feature_file": "features/slabs/snow_layers.yml",
+      "structure_id": "snow_layers",
+      "resolved_path": "structures/slabs/snow_layers.tesf"
+    },
+    {
+      "feature_file": "features/slabs/stone_slabs.yml",
+      "structure_id": "stone_slabs",
+      "resolved_path": "structures/slabs/stone_slabs.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/bushes/azalea_block.yml",
+      "structure_id": "BLOCK:minecraft:azalea",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/bushes/flowering_azalea_block.yml",
+      "structure_id": "BLOCK:minecraft:flowering_azalea",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/bushes/jungle_bushes.yml",
+      "structure_id": "jungle_bush",
+      "resolved_path": "structures/vegetation/bushes/jungle_bush.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/bushes/melon_patches.yml",
+      "structure_id": "melon_patch",
+      "resolved_path": "structures/vegetation/crops/melon_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/bushes/oak_bushes.yml",
+      "structure_id": "oak_bush",
+      "resolved_path": "structures/vegetation/bushes/oak_bush.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/bushes/pumpkin_patches.yml",
+      "structure_id": "pumpkin_patch",
+      "resolved_path": "structures/vegetation/crops/pumpkin_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/bushes/spruce_bushes.yml",
+      "structure_id": "spruce_bush",
+      "resolved_path": "structures/vegetation/bushes/spruce_bush.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/cactus_sparse.yml",
+      "structure_id": "cactus",
+      "resolved_path": "structures/vegetation/cactus.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/cactus_sparse_underground.yml",
+      "structure_id": "cactus",
+      "resolved_path": "structures/vegetation/cactus.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/cave_glow_lichen.yml",
+      "structure_id": "glow_lichen",
+      "resolved_path": "structures/vegetation/glow_lichen.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/crops/beetroot_patches.yml",
+      "structure_id": "beetroot_patch",
+      "resolved_path": "structures/vegetation/crops/beetroot_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/crops/carrot_patches.yml",
+      "structure_id": "carrot_patch",
+      "resolved_path": "structures/vegetation/crops/carrot_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/crops/potato_patches.yml",
+      "structure_id": "potato_patch",
+      "resolved_path": "structures/vegetation/crops/potato_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/crops/sweet_berry_bush_patches.yml",
+      "structure_id": "sweet_berry_bush_patch",
+      "resolved_path": "structures/vegetation/crops/sweet_berry_bush_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/crops/wheat_patches.yml",
+      "structure_id": "wheat_patch",
+      "resolved_path": "structures/vegetation/crops/wheat_patch.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/dripleaf/big_dripleaf.yml",
+      "structure_id": "big_dripleaf",
+      "resolved_path": "structures/vegetation/big_dripleaf.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/dripleaf/big_dripleaf_caves.yml",
+      "structure_id": "big_dripleaf",
+      "resolved_path": "structures/vegetation/big_dripleaf.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/dripleaf/big_dripleaf_ponds.yml",
+      "structure_id": "big_dripleaf",
+      "resolved_path": "structures/vegetation/big_dripleaf.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/dripleaf/small_dripleaf.yml",
+      "structure_id": "small_dripleaf",
+      "resolved_path": "structures/vegetation/small_dripleaf.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/dripleaf/small_dripleaf_caves.yml",
+      "structure_id": "small_dripleaf",
+      "resolved_path": "structures/vegetation/small_dripleaf.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/flowers/allium_patch.yml",
+      "structure_id": "BLOCK:minecraft:allium",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/azure_bluet_patch.yml",
+      "structure_id": "BLOCK:minecraft:azure_bluet",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/blue_orchid_patch.yml",
+      "structure_id": "BLOCK:minecraft:blue_orchid",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/cornflower_patch.yml",
+      "structure_id": "BLOCK:minecraft:cornflower",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/dandelion_patch.yml",
+      "structure_id": "BLOCK:minecraft:dandelion",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/lilac_patch.yml",
+      "structure_id": "lilac",
+      "resolved_path": "structures/vegetation/flowers/lilac.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/flowers/lily_of_the_valley_patch.yml",
+      "structure_id": "BLOCK:minecraft:lily_of_the_valley",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/oxeye_daisy_patch.yml",
+      "structure_id": "BLOCK:minecraft:oxeye_daisy",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/peony_patch.yml",
+      "structure_id": "peony",
+      "resolved_path": "structures/vegetation/flowers/peony.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/flowers/pink_petals.yml",
+      "structure_id": "pink_petals",
+      "resolved_path": "structures/vegetation/flowers/pink_petals.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/flowers/poppy_patch.yml",
+      "structure_id": "BLOCK:minecraft:poppy",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/flowers/rose_bush_patch.yml",
+      "structure_id": "rose_bush",
+      "resolved_path": "structures/vegetation/flowers/rose_bush.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/flowers/sunflower_cover.yml",
+      "structure_id": "sunflower",
+      "resolved_path": "structures/vegetation/flowers/sunflower.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/flowers/sunflower_patch.yml",
+      "structure_id": "sunflower",
+      "resolved_path": "structures/vegetation/flowers/sunflower.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/lily_pads.yml",
+      "structure_id": "BLOCK:minecraft:lily_pad",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/moss_carpet.yml",
+      "structure_id": "BLOCK:minecraft:moss_carpet",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/sculk/sculk_webs.yml",
+      "structure_id": "BLOCK:minecraft:sculk",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/sugar_cane.yml",
+      "structure_id": "sugar_cane",
+      "resolved_path": "structures/vegetation/sugar_cane.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/dead_swamp_trees.yml",
+      "structure_id": "dead_large_swamp_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/dead_large_swamp_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/dead_trees_sparse.yml",
+      "structure_id": "dead_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/dead_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/dense_palm_trees.yml",
+      "structure_id": "palm_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/palm_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/eucalyptus_trees.yml",
+      "structure_id": "eucalyptus_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/eucalyptus_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/giant_redwoods.yml",
+      "structure_id": "giant_redwood",
+      "resolved_path": "structures/vegetation/trees/giant_redwood.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/great_azalea_trees.yml",
+      "structure_id": "place_great_azalea_tree_underground",
+      "resolved_path": "structures/vegetation/trees/azalea/place_great_azalea_tree_underground.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/large_mushrooms.yml",
+      "structure_id": "large_mixed_mushroom_procedural",
+      "resolved_path": "structures/vegetation/mushrooms/large_mixed_mushroom_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/mangrove_trees.yml",
+      "structure_id": "mangrove_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/mangrove_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/mesquite_trees.yml",
+      "structure_id": "mesquite_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/mesquite_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/mushroom_disk_patches.yml",
+      "structure_id": "small_brown_mushroom_disk",
+      "resolved_path": "structures/vegetation/mushrooms/small_brown_mushroom_disk.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/oak_trees.yml",
+      "structure_id": "oak_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/oak_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/oasis_palm_trees.yml",
+      "structure_id": "palm_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/palm_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/palm_trees.yml",
+      "structure_id": "palm_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/palm_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/sakura_trees.yml",
+      "structure_id": "cherry_blossom_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/cherry_blossom_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/sparse_large_mushrooms.yml",
+      "structure_id": "large_mixed_mushroom_procedural",
+      "resolved_path": "structures/vegetation/mushrooms/large_mixed_mushroom_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/sparse_spruce_trees.yml",
+      "structure_id": "spruce_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/spruce_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/spruce_trees.yml",
+      "structure_id": "spruce_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/spruce_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/submerged_dead_trees.yml",
+      "structure_id": "submerged_dead_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/submerged_dead_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/trees/swamp_trees.yml",
+      "structure_id": "large_swamp_tree_procedural",
+      "resolved_path": "structures/vegetation/trees/large_swamp_tree_procedural.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/cave_glow_berries.yml",
+      "structure_id": "glow_berries",
+      "resolved_path": "structures/vegetation/vines/glow_berries.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/crossing_stone_vines.yml",
+      "structure_id": "crossing_vines_uncolored",
+      "resolved_path": "structures/vegetation/vines/crossing_vines_uncolored.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/crossing_vines.yml",
+      "structure_id": "crossing_vines",
+      "resolved_path": "structures/vegetation/vines/crossing_vines.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/crossing_vines_cave.yml",
+      "structure_id": "crossing_vines",
+      "resolved_path": "structures/vegetation/vines/crossing_vines.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/crossing_vines_frozen.yml",
+      "structure_id": "crossing_vines_frozen",
+      "resolved_path": "structures/vegetation/vines/crossing_vines_frozen.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/crossing_vines_frozen_canyon.yml",
+      "structure_id": "crossing_vines_frozen",
+      "resolved_path": "structures/vegetation/vines/crossing_vines_frozen.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_ceiling_vines.yml",
+      "structure_id": "large_ceiling_vines",
+      "resolved_path": "structures/vegetation/vines/large_ceiling_vines.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_ceiling_vines_cave.yml",
+      "structure_id": "large_ceiling_vines",
+      "resolved_path": "structures/vegetation/vines/large_ceiling_vines.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_leaf_vines.yml",
+      "structure_id": "BLOCK:minecraft:jungle_leaves[persistent=true",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_leaf_vines_canyon.yml",
+      "structure_id": "BLOCK:minecraft:jungle_leaves[persistent=true",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_leaf_vines_canyon_frozen.yml",
+      "structure_id": "BLOCK:minecraft:spruce_leaves[persistent=true",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_leaf_vines_river_cave.yml",
+      "structure_id": "glow_berries",
+      "resolved_path": "structures/vegetation/vines/glow_berries.tesf"
+    },
+    {
+      "feature_file": "features/vegetation/vines/large_leaf_vines_uncolored.yml",
+      "structure_id": "BLOCK:minecraft:azalea_leaves[persistent=true",
+      "resolved_path": null
+    },
+    {
+      "feature_file": "features/vegetation/vines/tree_leaves.yml",
+      "structure_id": "tree_vines",
+      "resolved_path": "structures/vegetation/vines/tree_vines.tesf"
+    }
+  ],
+  "unresolved_dynamic_structure_calls": [
+    {
+      "file": "structures/misc/dripstone_column.tesf",
+      "call": "0, -y, 0, replaceableMask, \"NONE\""
+    },
+    {
+      "file": "structures/misc/dripstone_column.tesf",
+      "call": "x, -y, z, replaceableMask, \"NONE\""
+    },
+    {
+      "file": "structures/misc/dripstone_column.tesf",
+      "call": "0, y, 0, replaceableMask, \"NONE\""
+    },
+    {
+      "file": "structures/misc/dripstone_column.tesf",
+      "call": "x, y, z, replaceableMask, \"NONE\""
+    },
+    {
+      "file": "structures/misc/dripstone_column.tesf",
+      "call": "x, y, z, replaceableMask, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/mushrooms/large_mixed_mushroom_procedural.tesf",
+      "call": "ox, h, oz, diskStructure, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/trees/cherry_blossom_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/cherry_blossom_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/eucalyptus_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/eucalyptus_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "0, i, 0, isReplaceable, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "bx, by, bz, isReplaceable, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, isReplaceable, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "bx, by, bz, isReplaceable, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, isReplaceable, \"NONE\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_dark_oak_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_oak_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_oak_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_oak_tree_procedural_2.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_oak_tree_procedural_2.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_swamp_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/large_swamp_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/mangrove_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/mangrove_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/mesquite_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, sideBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    },
+    {
+      "file": "structures/vegetation/trees/mesquite_tree_procedural.tesf",
+      "call": "lox+cx, loy+cy, loz+cz, topBranchLeafStructure, \"NONE\", \"CW_90\", \"CCW_90\", \"CW_180\""
+    }
+  ]
+}

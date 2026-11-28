@@ -1,0 +1,9 @@
+Stage 21–25 patch path correction: PASS
+- All adapter source paths in 21-25-stage21-25-adapter.patch now use src/main/java/org/...
+- All Stage 26 production source paths use src/main/java/org/...
+- All Stage 26 test paths use src/test/java/...
+- No active Stage 21–26 patch introduces package-root org/... or tests/... paths.
+Stage 26 clean synthetic Maven-root apply: PASS
+- Applied 26-stage26-deterministic-placement-ordinal.patch to a clean synthetic adapter tree.
+- Resulting CrossChunkDependencyScheduler.java, PNXServerWorld.java and Stage17DependencySchedulerTest.java byte-match the integrated source overlay.
+Note: This is not a full clean upstream application of the complete patch chain.

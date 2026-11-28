@@ -1,0 +1,1 @@
+22/22 active patch files parse with git apply --stat

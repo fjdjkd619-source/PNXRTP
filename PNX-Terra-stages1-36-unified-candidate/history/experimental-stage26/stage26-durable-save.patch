@@ -1,0 +1,25 @@
+--- a/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
++++ b/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+@@ -2,6 +2,7 @@
+ 
+ import org.powernukkitx.block.BlockState;
+ import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.level.format.leveldb.LevelDBProvider;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
+ import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
+@@ -60,8 +61,13 @@
+     @Override
+     public void saveDurably() throws IOException {
+         if (chunk.getProvider() == null) throw new IOException("Target chunk has no storage provider");
++        if (!(chunk.getProvider() instanceof LevelDBProvider provider)) {
++            throw new IOException("Durable Terra finalization requires the pinned LevelDBProvider; refusing a non-durable fallback");
++        }
+         chunk.setChanged();
+-        chunk.getProvider().saveChunk(chunk.getX(), chunk.getZ(), chunk);
++        // Bypass LevelDBProvider.saveChunk(): it deliberately uses sync(false) for autosaves.
++        // The WAL acknowledgement must never precede a synchronous LevelDB write.
++        provider.getStorage().writeChunkDurable(chunk);
+         chunk.setChanged(false);
+     }
+ 

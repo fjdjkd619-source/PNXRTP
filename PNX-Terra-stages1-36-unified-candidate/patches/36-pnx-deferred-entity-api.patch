@@ -1,0 +1,87 @@
+diff --git a/src/main/java/org/powernukkitx/entity/Entity.java b/src/main/java/org/powernukkitx/entity/Entity.java
+index 0a9a465..e991fe2 100644
+--- a/src/main/java/org/powernukkitx/entity/Entity.java
++++ b/src/main/java/org/powernukkitx/entity/Entity.java
+@@ -2,11 +2,14 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+     public static final Entity[] EMPTY_ARRAY = new Entity[0];
+     protected final ActorDataMap actorDataMap = new ActorDataMap();
+     public static AtomicLong entityCount = new AtomicLong(1);
++    private static final ThreadLocal<Boolean> GENERATION_ENTITY_CREATION = ThreadLocal.withInitial(() -> false);
+     public final List<Entity> passengers = new ArrayList<>();
+     protected final AxisAlignedBB offsetBoundingBox = new SimpleAxisAlignedBB(0, 0, 0, 0, 0, 0);
+ 
+     protected String name;
+     private volatile boolean initialized;
++    private boolean generationActivationPending;
++    private boolean generationRegisteredForSave;
+     protected volatile boolean saveWithChunk = true;
+ 
+     @Nullable
+@@ -15,6 +18,20 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+         return Registries.ENTITY.provideEntity(identifier, chunk, nbt, args);
+     }
+ 
++    /** Construct an entity for a durable generation transaction without registering or scheduling it. */
++    @Nullable
++    public static Entity createEntityForGeneration(@NotNull String identifier, @NotNull IChunk chunk,
++                                                   @NotNull CompoundTag nbt) {
++        boolean previous = GENERATION_ENTITY_CREATION.get();
++        GENERATION_ENTITY_CREATION.set(true);
++        try {
++            return createEntity(identifier, chunk, nbt);
++        } finally {
++            if (previous) GENERATION_ENTITY_CREATION.set(true);
++            else GENERATION_ENTITY_CREATION.remove();
++        }
++    }
++
+     protected final void init(IChunk chunk, CompoundTag nbt) {
+         if ((chunk == null || chunk.getProvider() == null)) {
+             throw new ChunkException("Invalid garbage Chunk given to Entity");
+@@ -24,6 +41,7 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+         this.temporalVector = new Vector3();
+         this.justCreated = true;
+         this.nbt = nbt;
++        this.generationActivationPending = GENERATION_ENTITY_CREATION.get();
+ 
+         this.setMotion(this.temporalVector.setComponents(0, 0, 0));
+         try {
+@@ -34,6 +52,13 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+             }
+             this.initialized = true;
+ 
++            if (this.generationActivationPending) {
++                EntitySpawnEvent event = new EntitySpawnEvent(this);
++                this.server.getPluginManager().callEvent(event);
++                if (event.isCancelled()) this.close(false);
++                return;
++            }
++
+             this.chunk.addEntity(this);
+             this.level.addEntity(this);
+ 
+@@ -51,6 +76,24 @@ public abstract class Entity extends Location implements Metadatable, EntityID {
+         }
+     }
+ 
++    /** Register in the chunk save set without exposing the entity to Level ticking or clients. */
++    public final boolean registerForGenerationSave() {
++        if (this.closed || !this.generationActivationPending || this.generationRegisteredForSave) return false;
++        this.generationRegisteredForSave = true;
++        this.chunk.addEntity(this);
++        return true;
++    }
++
++    /** Activate a staged entity only after its owning generation transaction's durable save succeeds. */
++    public final boolean activateAfterGenerationCommit() {
++        if (this.closed || !this.generationActivationPending || !this.generationRegisteredForSave) return false;
++        this.generationActivationPending = false;
++        this.level.addEntity(this);
++        this.scheduleUpdate();
++        this.lastUpdate = this.level.getTick();
++        return true;
++    }
++
+     public Set<String> typeFamily() {
+         return Set.of();
+     }

@@ -1,0 +1,22 @@
+--- a/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
++++ b/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
+@@ -22,6 +22,9 @@
+             check(!ready.isDone(),"target initially blocked");
+             CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
+             var ticket=session.beginPlacement();
++            var secondTicket=session.beginPlacement();
++            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
++            secondTicket.abort();
+             session.finishPopulation();
+             check(!ready.isDone(),"population cannot complete with in-flight root placement");
+             PlacementKey key=new PlacementKey("world",1,new ChunkPos(0,0),"feature","structure",1,64,1,0,0);
+--- a/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
++++ b/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
+@@ -29,6 +29,7 @@
+             coordinator.persist(prepared,()->supported);
+             check(supported.saved,"chunk persisted after complete intent application");
+             check(journal.isChunkApplied("world",target,prepared.digest()),"acknowledgement follows durable save");
++            check(supported.saved, "save completed before acknowledgement is visible");
+         }
+         System.out.println("Stage25IntentFinalizationTest: PASS");
+     }

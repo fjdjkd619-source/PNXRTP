@@ -1,0 +1,4 @@
+PnxBlockEntityNbtContractTest: PASS
+PnxBlockEntityIntentApplierContractTest: PASS
+PnxStagedSignContractTest: PASS
+PnxStagedSpawnerContainerContractTest: PASS

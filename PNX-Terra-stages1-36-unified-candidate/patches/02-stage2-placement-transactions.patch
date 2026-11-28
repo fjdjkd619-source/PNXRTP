@@ -1,0 +1,288 @@
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+index 0000000..1111111 100644
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -1,5 +1,8 @@
+ package org.powernukkitx.terra.delegate;
+ 
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+ import org.powernukkitx.block.Block;
+ import org.powernukkitx.block.BlockID;
+ import org.powernukkitx.level.Level;
+@@ -19,8 +22,21 @@
+ 
+ import java.util.Objects;
++import java.util.ArrayDeque;
++import java.util.ArrayList;
++import java.util.Deque;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
+ 
+-public class PNXServerWorld implements ServerWorld {
++public class PNXServerWorld implements ServerWorld, PlacementScopeProvider {
+ 
+     private final TerraGenerator generatorWrapper;
+     private final BlockManager level;
++    /*
++     * A generation stage owns one PNXServerWorld and runs its Terra stages on
++     * the generation worker. ThreadLocal prevents unrelated generation workers
++     * from accidentally sharing a structure transaction.
++     */
++    private final ThreadLocal<Deque<WriteTransaction>> transactions =
++            ThreadLocal.withInitial(ArrayDeque::new);
+ 
+@@ -42,6 +58,7 @@
+     }
+ 
+     public void apply(IChunk chunk) {
++        ensureNoOpenTransactions();
+         for(Block b : level.getBlocks()) {
+             if(b.getChunk() != chunk) {
+                 level.getChunk(b.getChunkX(), b.getChunkZ());
+@@ -52,23 +69,154 @@
+ 
+     @Override
+     public void setBlockState(int x, int y, int z, BlockState blockState, boolean b) {
+         var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
+-
+-        if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)) {
+-            level.setBlockStateAt(x, y, z, innerBlockState);
+-            level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+-            return;
+-        }
+-
+-        var ob = level.getBlockAt(x, y, z);
+-        if (Objects.equals(ob.getId(), BlockID.WATERLILY)
+-                || Objects.equals(ob.getId(), BlockID.WATER)
+-                || Objects.equals(ob.getId(), BlockID.FLOWING_WATER)) {
+-
+-            level.setBlockStateAt(x, y, z, innerBlockState);
+-            level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+-        } else {
+-            level.setBlockStateAt(x, y, z, innerBlockState);
+-        }
++        WriteTransaction current = currentTransaction();
++        if (current != null) {
++            String previousId = current.readBlockId(x, y, z);
++            current.write(x, y, z, innerBlockState, 0);
++            if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)
++                    || isWaterLike(previousId)) {
++                current.write(x, y, z, PNXProtoChunk.water, 1);
++            }
++            return;
++        }
++        writeDirect(x, y, z, innerBlockState);
+     }
+ 
++    private void writeDirect(int x, int y, int z, org.powernukkitx.block.BlockState state) {
++        if (Objects.equals(state.getIdentifier(), BlockID.KELP)
++                || isWaterLike(level.getBlockIfCachedOrLoaded(x, y, z).getId())) {
++            level.setBlockStateAt(x, y, z, state);
++            level.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
++        } else {
++            level.setBlockStateAt(x, y, z, state);
++        }
++    }
++
++    private static boolean isWaterLike(String id) {
++        return Objects.equals(id, BlockID.WATER)
++                || Objects.equals(id, BlockID.FLOWING_WATER)
++                || Objects.equals(id, BlockID.WATERLILY);
++    }
++
++    @Override
++    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++        Deque<WriteTransaction> stack = transactions.get();
++        WriteTransaction parent = stack.peek();
++        WriteTransaction transaction = new WriteTransaction(parent, descriptor);
++        stack.push(transaction);
++        return transaction;
++    }
++
++    private WriteTransaction currentTransaction() {
++        return transactions.get().peek();
++    }
++
++    private void ensureNoOpenTransactions() {
++        Deque<WriteTransaction> stack = transactions.get();
++        if (!stack.isEmpty()) {
++            throw new IllegalStateException("Terra generation ended with " + stack.size()
++                    + " unclosed placement transaction(s)");
++        }
++        transactions.remove();
++    }
++
++    private final class WriteTransaction implements PlacementScope {
++        private final WriteTransaction parent;
++        private final PlacementDescriptor descriptor;
++        private final List<BlockWrite> writes = new ArrayList<>();
++        private final Map<BlockPos, org.powernukkitx.block.BlockState> readOverlay = new HashMap<>();
++        private boolean closed;
++
++        private WriteTransaction(WriteTransaction parent, PlacementDescriptor descriptor) {
++            this.parent = parent;
++            this.descriptor = descriptor;
++        }
++
++        private void write(int x, int y, int z, org.powernukkitx.block.BlockState state, int layer) {
++            requireOpen();
++            writes.add(new BlockWrite(x, y, z, layer, state));
++            if (layer == 0) {
++                readOverlay.put(new BlockPos(x, y, z), state);
++            }
++        }
++
++        private org.powernukkitx.block.BlockState readBlockState(int x, int y, int z) {
++            BlockPos pos = new BlockPos(x, y, z);
++            org.powernukkitx.block.BlockState own = readOverlay.get(pos);
++            if (own != null) {
++                return own;
++            }
++            return parent == null ? null : parent.readBlockState(x, y, z);
++        }
++
++        private String readBlockId(int x, int y, int z) {
++            org.powernukkitx.block.BlockState staged = readBlockState(x, y, z);
++            if (staged != null) {
++                return staged.getIdentifier();
++            }
++            // This method deliberately does not force-load an unloaded chunk.
++            // The fallback is AIR; unknown-vs-air handling is a later queue/read
++            // contract and must not be used for destructive overwrite decisions.
++            return level.getBlockIfCachedOrLoaded(x, y, z).getId();
++        }
++
++        @Override
++        public void commit() {
++            requireOpen();
++            Deque<WriteTransaction> stack = transactions.get();
++            if (stack.peek() != this) {
++                throw new IllegalStateException("Placement scopes must close in LIFO order");
++            }
++            stack.pop();
++            if (parent != null) {
++                parent.writes.addAll(writes);
++                parent.readOverlay.putAll(readOverlay);
++            } else {
++                for (BlockWrite write : writes) {
++                    level.setBlockStateAt(write.x(), write.y(), write.z(), write.layer(), write.state());
++                }
++            }
++            closed = true;
++            cleanupStack(stack);
++        }
++
++        @Override
++        public void abort() {
++            requireOpen();
++            Deque<WriteTransaction> stack = transactions.get();
++            if (stack.peek() != this) {
++                throw new IllegalStateException("Placement scopes must close in LIFO order");
++            }
++            stack.pop();
++            writes.clear();
++            readOverlay.clear();
++            closed = true;
++            cleanupStack(stack);
++        }
++
++        @Override
++        public void close() {
++            if (!closed) {
++                abort();
++            }
++        }
++
++        private void requireOpen() {
++            if (closed) {
++                throw new IllegalStateException("Placement transaction is already closed");
++            }
++        }
++    }
++
++    private void cleanupStack(Deque<WriteTransaction> stack) {
++        if (stack.isEmpty()) {
++            transactions.remove();
++        }
++    }
++
++    private record BlockPos(int x, int y, int z) {}
++
++    private record BlockWrite(int x, int y, int z, int layer,
++                              org.powernukkitx.block.BlockState state) {}
++
+@@ -74,5 +222,15 @@
+     @Override
+     public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
++        if (currentTransaction() != null) {
++            /*
++             * Entity.createEntity() registers immediately in PNX and fires
++             * EntitySpawnEvent. Until a deferred-entity proxy is implemented,
++             * fail the placement rather than leak an entity from an aborted
++             * structure.
++             */
++            throw new UnsupportedOperationException(
++                    "Entity spawning inside transactional Terra placement is not yet supported");
++        }
+         String identifier = (String) entityType.getHandle();
+         org.powernukkitx.entity.Entity nukkitEntity =
+                 org.powernukkitx.entity.Entity.createEntity(
+@@ -85,7 +233,14 @@
+ 
+     @Override
+     public BlockState getBlockState(int x, int y, int z) {
+-        return PNXAdapter.adapt(level.getBlockAt(x, y, z).getBlockState());
++        WriteTransaction current = currentTransaction();
++        if (current != null) {
++            org.powernukkitx.block.BlockState staged = current.readBlockState(x, y, z);
++            if (staged != null) {
++                return PNXAdapter.adapt(staged);
++            }
++        }
++        return PNXAdapter.adapt(level.getBlockIfCachedOrLoaded(x, y, z).getBlockState());
+     }
+ 
+ 
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
+index 0000000..2222222 100644
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
+@@ -1,4 +1,7 @@
+ package org.powernukkitx.terra.delegate;
+ 
++import com.dfsek.terra.api.world.PlacementDescriptor;
++import com.dfsek.terra.api.world.PlacementScope;
++import com.dfsek.terra.api.world.PlacementScopeProvider;
+ import lombok.extern.slf4j.Slf4j;
+ import org.powernukkitx.level.Position;
+@@ -13,5 +16,13 @@
+ import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
+ 
+ @Slf4j
+-public record PNXProtoWorld(ServerWorld serverWorld, int centerChunkX, int centerChunkZ) implements ProtoWorld {
++public record PNXProtoWorld(ServerWorld serverWorld, int centerChunkX, int centerChunkZ) implements ProtoWorld, PlacementScopeProvider {
+ 
++    @Override
++    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++        if (serverWorld instanceof PlacementScopeProvider provider) {
++            return provider.beginPlacement(descriptor);
++        }
++        return PlacementScope.noop();
++    }
++
+@@ -39,11 +50,4 @@
+     @Override
+     public Entity spawnEntity(double v, double v1, double v2, EntityType entityType) {
+-        String identifier = (String) entityType.getHandle();
+-        try {
+-            org.powernukkitx.entity.Entity nukkitEntity = org.powernukkitx.entity.Entity.createEntity(identifier, new Position(v, v1, v2, ((PNXServerWorld) serverWorld).generatorWrapper().getLevel()));
+-            return new PNXEntity(nukkitEntity, serverWorld);
+-        } catch (Exception e) {
+-            log.error("Failed to spawn entity {} in {}", identifier, serverWorld);
+-            throw e;
+-        }
++        return serverWorld.spawnEntity(v, v1, v2, entityType);
+     }

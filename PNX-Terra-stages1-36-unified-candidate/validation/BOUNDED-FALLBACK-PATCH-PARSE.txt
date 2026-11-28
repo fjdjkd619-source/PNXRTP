@@ -1,0 +1,12 @@
+ .../crosschunk/bounds/OrigenBoundsCatalog.java     |   46 +++++++++++++--
+ .../terra/delegate/PNXServerWorld.java             |   25 +++++---
+ .../scheduler/CrossChunkDependencyScheduler.java   |   48 +++++++++++++--
+ .../runtime/PnxGenerationJournalRuntime.java       |    7 ++
+ .../terra/crosschunk/finalize/PnxChunkHandle.java  |   16 ++++-
+ .../crosschunk/Stage17DependencySchedulerTest.java |   61 +++++++++++++++++++
+ .../crosschunk/Stage25IntentFinalizationTest.java  |   21 +++++--
+ .../crosschunk/bounds/ScriptBoundsProfile.java     |    5 ++
+ .../bounds/Stage15AdapterGuardContractTest.java    |   31 ++++++++--
+ .../terra/delegate/PNXBlockStateDelegate.java      |   63 +++++++++++++++++---
+ .../terra/delegate/PNXChunkDelegate.java           |   16 +++--
+ 11 files changed, 288 insertions(+), 51 deletions(-)

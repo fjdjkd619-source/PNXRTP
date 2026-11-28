@@ -1,0 +1,1 @@
+bash -n apply-stages1-26.sh apply-stages1-25.sh: PASS

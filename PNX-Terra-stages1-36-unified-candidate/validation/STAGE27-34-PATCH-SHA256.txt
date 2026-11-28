@@ -1,0 +1,1 @@
+5342a07fb354d512b2584fa2a8ef5aa27b18f970dc08a50cec44527c56a0470a  patches/27-34-stage27-34-core.patch

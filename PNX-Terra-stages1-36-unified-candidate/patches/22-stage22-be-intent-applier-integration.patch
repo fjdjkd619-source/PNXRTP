@@ -1,0 +1,217 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+index 1900949..ef7e70a 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+@@ -22,12 +22,20 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+     private final String worldKey;
+     private final PlacementJournal journal;
+     private final Executor executor;
++    private final Executor intentExecutor;
+ 
+     public ChunkFinalizationCoordinator(String worldKey, PlacementJournal journal, Executor executor) {
++        this(worldKey, journal, executor, executor);
++    }
++
++    /** Separate the block projection worker from PNX-owned intent application. */
++    public ChunkFinalizationCoordinator(String worldKey, PlacementJournal journal, Executor executor,
++                                        Executor intentExecutor) {
+         if (worldKey == null || worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
+         this.worldKey = worldKey;
+         this.journal = Objects.requireNonNull(journal, "journal");
+         this.executor = Objects.requireNonNull(executor, "executor");
++        this.intentExecutor = Objects.requireNonNull(intentExecutor, "intentExecutor");
+     }
+ 
+     public CompletableFuture<Prepared<C>> prepare(ChunkPos target, CompletableFuture<Void> dependencyBarrier,
+@@ -46,14 +54,31 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+                         PlacementProjection.resolve(records, target);
+                 try {
+                     chunk.applyProjection(projection);
+-                    chunk.applyBlockEntityIntents(PlacementProjection.resolveBlockEntities(records, target));
+-                    chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(records, target));
+                 } catch (Exception failure) {
+-                    throw new FinalizationException("Could not apply complete journal projection/intents to " + target, failure);
++                    throw new FinalizationException("Could not apply block projection to " + target, failure);
+                 }
+             }
+-            return new Prepared<>(worldKey, target, digest, chunk, alreadyApplied);
+-        }, executor);
++            return new Pending<>(worldKey, target, digest, chunk, alreadyApplied, records);
++        }, executor).thenApplyAsync(pending -> {
++            if (!pending.alreadyApplied) {
++                try {
++                    NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> blockEntities =
++                            PlacementProjection.resolveBlockEntities(pending.records, target);
++                    pending.chunk.applyBlockEntityIntents(blockEntities);
++                    pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
++                    if (!blockEntities.isEmpty()) {
++                        // Some PNX BlockEntity constructors schedule their own tick immediately.
++                        // Persist in the same level-scheduler task before that heartbeat can run them.
++                        pending.chunk.saveDurably();
++                        pending.chunk.confirmBlockEntityIntents();
++                    }
++                } catch (Exception failure) {
++                    pending.chunk.rollbackBlockEntityIntents();
++                    throw new FinalizationException("Could not apply and durably save complete journal intents to " + target, failure);
++                }
++            }
++            return new Prepared<>(pending.worldKey, pending.target, pending.digest, pending.chunk, pending.alreadyApplied);
++        }, intentExecutor);
+     }
+ 
+     public void persist(Prepared<C> prepared, Supplier<C> loadedOnlyLookup) throws IOException {
+@@ -92,6 +117,8 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+         default void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> intents) throws Exception {
+             if (!intents.isEmpty()) throw new UnsupportedOperationException("Block entity intents are not supported by this chunk adapter");
+         }
++        default void rollbackBlockEntityIntents() { }
++        default void confirmBlockEntityIntents() { }
+         default void applyPhysicsIntents(List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> intents) throws Exception {
+             if (intents.stream().anyMatch(org.powernukkitx.terra.crosschunk.journal.PhysicsIntent::applyPhysics))
+                 throw new UnsupportedOperationException("Physics intents are not supported by this chunk adapter");
+@@ -99,6 +126,9 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+         void saveDurably() throws Exception;
+     }
+ 
++    private record Pending<C extends ChunkHandle>(String worldKey, ChunkPos target, String digest,
++                                                   C chunk, boolean alreadyApplied, List<PlacementRecord> records) { }
++
+     public static final class Prepared<C extends ChunkHandle> {
+         private final String worldKey;
+         private final ChunkPos target;
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java
+new file mode 100644
+index 0000000..ad36a70
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java
+@@ -0,0 +1,130 @@
++package org.powernukkitx.terra.crosschunk.journal.pnx;
++
++import org.powernukkitx.blockentity.BlockEntity;
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.registry.Registries;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
++
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.IdentityHashMap;
++import java.util.List;
++import java.util.Set;
++import java.util.NavigableMap;
++import java.util.Objects;
++
++/** Applies a fully prevalidated, deterministic batch of BlockEntity intents to one loaded PNX chunk. */
++public final class PnxBlockEntityIntentApplier {
++    private PnxBlockEntityIntentApplier() { }
++
++    public static List<BlockEntity> apply(IChunk chunk,
++                             NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> intents)
++            throws IOException {
++        Objects.requireNonNull(chunk, "chunk");
++        Objects.requireNonNull(intents, "intents");
++        if (intents.isEmpty()) return List.of();
++        if (!chunk.isLoaded() || !chunk.isGenerated() || !chunk.isInitiated()) {
++            throw new IOException("BlockEntity intents require a loaded, generated, initiated target chunk");
++        }
++        if (chunk.getProvider() == null || chunk.getProvider().getLevel() == null) {
++            throw new IOException("BlockEntity target chunk has no live PNX level");
++        }
++        Level level = chunk.getProvider().getLevel();
++        List<PreparedEntity> prepared = preflight(chunk, level, intents);
++        Set<BlockEntity> preexisting = Collections.newSetFromMap(new IdentityHashMap<>());
++        preexisting.addAll(chunk.getBlockEntities().values());
++        List<BlockEntity> created = new ArrayList<>();
++        try {
++            for (PreparedEntity entity : prepared) {
++                if (entity.alreadyPresent) continue;
++                BlockEntity blockEntity = BlockEntity.createBlockEntity(entity.canonicalType, chunk, entity.tag.copy());
++                if (blockEntity == null) {
++                    throw new IOException("PNX factory returned null for BlockEntity type " + entity.canonicalType);
++                }
++                created.add(blockEntity);
++                if (!entity.type.isInstance(blockEntity)
++                        || blockEntity.chunk != chunk
++                        || blockEntity.getLevel() != level
++                        || (int) blockEntity.getX() != entity.x
++                        || (int) blockEntity.getY() != entity.y
++                        || (int) blockEntity.getZ() != entity.z) {
++                    throw new IOException("PNX BlockEntity factory returned an object with mismatched type, world, or coordinates");
++                }
++                blockEntity.saveNBT();
++                if (!entity.intentHash.equals(blockEntity.getNbt().getString(PnxBlockEntityNbtCodec.INTENT_HASH_TAG))) {
++                    throw new IOException("PNX BlockEntity constructor discarded its durable intent hash at "
++                            + entity.x + "," + entity.y + "," + entity.z);
++                }
++            }
++            return List.copyOf(created);
++        } catch (Exception failure) {
++            // The PNX factory can swallow constructor failures after the base constructor has
++            // already registered the object. Snapshot the chunk registry so even an object whose
++            // constructor never returned is found and closed during rollback.
++            List<BlockEntity> afterFailure = new ArrayList<>(chunk.getBlockEntities().values());
++            for (int i = afterFailure.size() - 1; i >= 0; i--) {
++                BlockEntity candidate = afterFailure.get(i);
++                if (preexisting.contains(candidate)) continue;
++                try {
++                    candidate.close();
++                } catch (RuntimeException rollbackFailure) {
++                    failure.addSuppressed(rollbackFailure);
++                }
++            }
++            if (failure instanceof IOException ioFailure) throw ioFailure;
++            throw new IOException("Could not apply BlockEntity intent batch; created entities were rolled back", failure);
++        }
++    }
++
++    private static List<PreparedEntity> preflight(
++            IChunk chunk, Level level,
++            NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> intents) throws IOException {
++        List<PreparedEntity> prepared = new ArrayList<>(intents.size());
++        ChunkPos target = new ChunkPos(chunk.getX(), chunk.getZ());
++        for (var entry : intents.entrySet()) {
++            PlacementProjection.Position position = entry.getKey();
++            BlockEntityIntent intent = entry.getValue().intent();
++            if (position.layer() != 0 || position.x() != intent.x() || position.y() != intent.y()
++                    || position.z() != intent.z() || !target.equals(intent.chunk())) {
++                throw new IOException("BlockEntity projection key does not match its target intent: " + position);
++            }
++            if (position.y() < chunk.getDimensionData().getMinHeight()
++                    || position.y() >= chunk.getDimensionData().getMaxHeight()) {
++                throw new IOException("BlockEntity intent is outside world height: " + position);
++            }
++            Class<? extends BlockEntity> type = Registries.BLOCKENTITY.get(intent.type());
++            if (type == null) throw new IOException("Unknown PNX BlockEntity type: " + intent.type());
++            String canonicalType = Registries.BLOCKENTITY.getSaveId(type);
++            if (canonicalType == null || canonicalType.isBlank() || !canonicalType.equals(intent.type())) {
++                throw new IOException("BlockEntity intent must use the canonical PNX save ID: " + intent.type());
++            }
++            CompoundTag tag = PnxBlockEntityNbtCodec.fromIntent(intent);
++            String intentHash = tag.getString(PnxBlockEntityNbtCodec.INTENT_HASH_TAG);
++            BlockEntity existing = chunk.getTile(position.x() & 15, position.y(), position.z() & 15);
++            boolean alreadyPresent = false;
++            if (existing != null) {
++                if (!type.isInstance(existing) || existing.chunk != chunk || existing.getLevel() != level) {
++                    throw new IOException("Conflicting BlockEntity already occupies " + position);
++                }
++                existing.saveNBT();
++                if (!intentHash.equals(existing.getNbt().getString(PnxBlockEntityNbtCodec.INTENT_HASH_TAG))) {
++                    throw new IOException("Existing BlockEntity differs from the durable intent at " + position);
++                }
++                alreadyPresent = true;
++            }
++            prepared.add(new PreparedEntity(position.x(), position.y(), position.z(), type, canonicalType,
++                    tag, intentHash, alreadyPresent));
++        }
++        return List.copyOf(prepared);
++    }
++
++    private record PreparedEntity(int x, int y, int z, Class<? extends BlockEntity> type,
++                                  String canonicalType, CompoundTag tag, String intentHash,
++                                  boolean alreadyPresent) { }
++}

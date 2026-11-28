@@ -1,0 +1,23 @@
+PASS 01-stage1-terra-placement-scope.patch
+PASS 02-stage2-placement-transactions.patch
+PASS 07-stage7-core.patch
+PASS 08-stage8-adapter.patch
+PASS 09-stage9-adapter.patch
+PASS 10-stage10-adapter.patch
+PASS 11-stage11-adapter.patch
+PASS 11-stage11-pnx-durable-storage.patch
+PASS 15-stage15-adapter.patch
+PASS 15-stage15-terra-core.patch
+PASS 16-17-stage16-17-adapter.patch
+PASS 16-17-stage16-17-terra-generator.patch
+PASS 18-20-stage18-20-adapter.patch
+PASS 18-stage18-pnx-core.patch
+PASS 21-25-stage21-25-adapter.patch
+PASS 22-stage22-be-finalizer-wiring.patch
+PASS 22-stage22-be-intent-applier-integration.patch
+PASS 22-stage22-be-nbt-codec-and-level-executor.patch
+PASS 22-stage22-pnx-spawner-delay.patch
+PASS 22-stage22-terra-block-entity-capture.patch
+PASS 26-stage26-deterministic-placement-ordinal.patch
+PASS supplemental-stages15-25-runtime-hardening.patch
+active_patch_count=22

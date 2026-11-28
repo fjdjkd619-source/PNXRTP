@@ -1,0 +1,948 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java
+index 2e9893e..c12e537 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java
+@@ -32,6 +32,14 @@ public final class OrigenBoundsCatalog {
+ 
+     public static Map<String, ScriptBoundsProfile> allVerified() { return PROFILES; }
+ 
++    /** Maximum horizontal write reach across profiles currently accepted by the fail-closed adapter. */
++    public static int maxHorizontalReach() {
++        return PROFILES.values().stream().filter(profile -> profile.maxEntitySpawns() == 0).mapToInt(profile -> Math.max(
++                Math.max(Math.abs(profile.writeBounds().minX()), Math.abs(profile.writeBounds().maxX())),
++                Math.max(Math.abs(profile.writeBounds().minZ()), Math.abs(profile.writeBounds().maxZ()))
++        )).max().orElse(0);
++    }
++
+     /** Unknown scripts remain unbounded and must not be scheduled for finalization. */
+     public static ScriptBoundsProfile requireVerified(String structureId) {
+         return find(structureId).orElseThrow(() ->
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/BlockWrite.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/BlockWrite.java
+new file mode 100644
+index 0000000..3368e99
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/BlockWrite.java
+@@ -0,0 +1,29 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.util.Arrays;
++import java.util.Objects;
++
++/** One canonical block-state write. Payload is owned by a platform codec, never a runtime ID. */
++public final class BlockWrite {
++    private final int x, y, z, layer;
++    private final byte[] canonicalState;
++
++    public BlockWrite(int x, int y, int z, int layer, byte[] canonicalState) {
++        if (layer < 0 || layer > 1) throw new IllegalArgumentException("PNX block layer must be 0 or 1");
++        this.x = x; this.y = y; this.z = z; this.layer = layer;
++        this.canonicalState = Objects.requireNonNull(canonicalState, "canonicalState").clone();
++        if (this.canonicalState.length == 0 || this.canonicalState.length > 65_536)
++            throw new IllegalArgumentException("canonicalState payload length out of range");
++    }
++    public int x() { return x; }
++    public int y() { return y; }
++    public int z() { return z; }
++    public int layer() { return layer; }
++    public byte[] canonicalState() { return canonicalState.clone(); }
++    public ChunkPos chunk() { return ChunkPos.fromBlock(x, z); }
++    @Override public boolean equals(Object o) {
++        return o instanceof BlockWrite b && x == b.x && y == b.y && z == b.z && layer == b.layer
++                && Arrays.equals(canonicalState, b.canonicalState);
++    }
++    @Override public int hashCode() { return 31 * Objects.hash(x,y,z,layer) + Arrays.hashCode(canonicalState); }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/ChunkPos.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/ChunkPos.java
+new file mode 100644
+index 0000000..d2eabb1
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/ChunkPos.java
+@@ -0,0 +1,13 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++/** Immutable chunk coordinate with correct negative-coordinate ordering. */
++public record ChunkPos(int x, int z) implements Comparable<ChunkPos> {
++    public static ChunkPos fromBlock(int blockX, int blockZ) {
++        return new ChunkPos(Math.floorDiv(blockX, 16), Math.floorDiv(blockZ, 16));
++    }
++
++    @Override public int compareTo(ChunkPos other) {
++        int xOrder = Integer.compare(x, other.x);
++        return xOrder != 0 ? xOrder : Integer.compare(z, other.z);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java
+new file mode 100644
+index 0000000..ddaa28f
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/JournalEvent.java
+@@ -0,0 +1,6 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++public sealed interface JournalEvent permits JournalEvent.PlacementCommitted, JournalEvent.AnchorCompleted {
++    record PlacementCommitted(long sequence, PlacementRecord record) implements JournalEvent {}
++    record AnchorCompleted(long sequence, String worldKey, ChunkPos anchor) implements JournalEvent {}
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+new file mode 100644
+index 0000000..68042e1
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+@@ -0,0 +1,229 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.io.*;
++import java.nio.ByteBuffer;
++import java.nio.channels.FileChannel;
++import java.nio.channels.FileLock;
++import java.nio.channels.OverlappingFileLockException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.*;
++import java.util.*;
++import java.util.concurrent.locks.ReentrantLock;
++import java.util.zip.CRC32C;
++
++import static java.nio.file.StandardOpenOption.*;
++
++/**
++ * Append-only, fsync-before-return WAL. Invalid/torn tail is truncated to the last verified frame.
++ * Frame: magic, payload length, payload, CRC32C(payload). All values are explicit and versioned.
++ */
++public final class PlacementJournal implements AutoCloseable {
++    private static final int MAGIC = 0x50584A31; // PXJ1
++    private static final int VERSION = 1;
++    private static final int HEADER_BYTES = 8;
++    private static final int TRAILER_BYTES = 4;
++    private static final int MAX_FRAME = 64 * 1024 * 1024;
++    private static final byte PLACEMENT = 1, ANCHOR_COMPLETE = 2;
++
++    private final Path path;
++    private final FileChannel channel;
++    private final FileLock processLock;
++    private final ReentrantLock lock = new ReentrantLock();
++    private final List<JournalEvent> events = new ArrayList<>();
++    private final Map<String, PlacementRecord> placements = new HashMap<>();
++    private final Set<AnchorId> completedAnchors = new HashSet<>();
++    private long nextSequence = 1;
++
++    public PlacementJournal(Path path) throws IOException {
++        this.path = Objects.requireNonNull(path, "path");
++        Path parent = path.toAbsolutePath().getParent();
++        if (parent != null) Files.createDirectories(parent);
++        channel = FileChannel.open(path, CREATE, READ, WRITE);
++        try {
++            processLock = channel.tryLock();
++        } catch (OverlappingFileLockException alreadyOpen) {
++            channel.close();
++            throw new IOException("Placement journal is already open in this process: " + path, alreadyOpen);
++        }
++        if (processLock == null) {
++            channel.close();
++            throw new IOException("Placement journal is locked by another process: " + path);
++        }
++        try {
++            recover();
++            channel.position(channel.size());
++        } catch (IOException | RuntimeException failure) {
++            try { processLock.release(); } finally { channel.close(); }
++            throw failure;
++        }
++    }
++
++    public long appendPlacement(PlacementRecord record) throws IOException {
++        Objects.requireNonNull(record, "record");
++        lock.lock();
++        try {
++            String id = record.key().stableId();
++            PlacementRecord old = placements.get(id);
++            if (old != null) {
++                if (sameRecord(old, record)) return sequenceOfPlacement(id);
++                throw new IOException("Placement key collision with different payload: " + id);
++            }
++            long sequence = nextSequence;
++            byte[] payload = encodePlacement(sequence, record);
++            appendFrame(payload); // durable before visible in memory / return
++            events.add(new JournalEvent.PlacementCommitted(sequence, record));
++            placements.put(id, record);
++            nextSequence++;
++            return sequence;
++        } finally { lock.unlock(); }
++    }
++
++    public long appendAnchorCompleted(String worldKey, ChunkPos anchor) throws IOException {
++        Objects.requireNonNull(worldKey, "worldKey"); Objects.requireNonNull(anchor, "anchor");
++        if (worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
++        lock.lock();
++        try {
++            AnchorId id = new AnchorId(worldKey, anchor);
++            if (completedAnchors.contains(id)) return sequenceOfAnchor(id);
++            long sequence = nextSequence;
++            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++            try (DataOutputStream out = new DataOutputStream(bytes)) {
++                out.writeByte(VERSION); out.writeByte(ANCHOR_COMPLETE); out.writeLong(sequence);
++                writeString(out, worldKey); out.writeInt(anchor.x()); out.writeInt(anchor.z());
++            }
++            appendFrame(bytes.toByteArray());
++            events.add(new JournalEvent.AnchorCompleted(sequence, worldKey, anchor));
++            completedAnchors.add(id); nextSequence++;
++            return sequence;
++        } finally { lock.unlock(); }
++    }
++
++    public List<JournalEvent> events() {
++        lock.lock(); try { return List.copyOf(events); } finally { lock.unlock(); }
++    }
++    public List<PlacementRecord> placementsFor(ChunkPos target) {
++        lock.lock(); try {
++            return placements.values().stream().filter(p -> p.targetChunks().contains(target))
++                    .sorted(Comparator.comparing(p -> p.key().stableId())).toList();
++        } finally { lock.unlock(); }
++    }
++    public boolean isAnchorCompleted(String worldKey, ChunkPos anchor) {
++        lock.lock(); try { return completedAnchors.contains(new AnchorId(worldKey, anchor)); }
++        finally { lock.unlock(); }
++    }
++    public long lastSequence() { lock.lock(); try { return nextSequence - 1; } finally { lock.unlock(); } }
++    public Path path() { return path; }
++
++    private void appendFrame(byte[] payload) throws IOException {
++        if (payload.length > MAX_FRAME) throw new IOException("Journal frame exceeds maximum size");
++        CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
++        ByteBuffer frame = ByteBuffer.allocate(HEADER_BYTES + payload.length + TRAILER_BYTES);
++        frame.putInt(MAGIC).putInt(payload.length).put(payload).putInt((int) crc.getValue()).flip();
++        long start = channel.size();
++        channel.position(start);
++        try {
++            while (frame.hasRemaining()) channel.write(frame);
++            channel.force(true);
++        } catch (IOException failure) {
++            channel.truncate(start);
++            channel.force(true);
++            throw failure;
++        }
++    }
++
++    private void recover() throws IOException {
++        lock.lock();
++        try {
++            long size = channel.size(), offset = 0, validEnd = 0;
++            ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
++            while (offset + HEADER_BYTES + TRAILER_BYTES <= size) {
++                header.clear(); if (!readFully(channel, header, offset)) break; header.flip();
++                int magic = header.getInt(), length = header.getInt();
++                if (magic != MAGIC || length < 10 || length > MAX_FRAME
++                        || offset + HEADER_BYTES + (long) length + TRAILER_BYTES > size) break;
++                ByteBuffer body = ByteBuffer.allocate(length + TRAILER_BYTES);
++                if (!readFully(channel, body, offset + HEADER_BYTES)) break;
++                body.flip(); byte[] payload = new byte[length]; body.get(payload); int storedCrc = body.getInt();
++                CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
++                if ((int) crc.getValue() != storedCrc) break;
++                JournalEvent event;
++                try { event = decode(payload); } catch (RuntimeException | IOException malformed) { break; }
++                if (eventSequence(event) != nextSequence) break;
++                acceptRecovered(event); nextSequence++;
++                offset += HEADER_BYTES + (long) length + TRAILER_BYTES; validEnd = offset;
++            }
++            if (validEnd != size) { channel.truncate(validEnd); channel.force(true); }
++        } finally { lock.unlock(); }
++    }
++
++    private void acceptRecovered(JournalEvent event) throws IOException {
++        if (event instanceof JournalEvent.PlacementCommitted p) {
++            String id = p.record().key().stableId();
++            PlacementRecord previous = placements.putIfAbsent(id, p.record());
++            if (previous != null && !sameRecord(previous, p.record())) throw new IOException("Duplicate placement key collision in WAL");
++        } else if (event instanceof JournalEvent.AnchorCompleted a) {
++            completedAnchors.add(new AnchorId(a.worldKey(), a.anchor()));
++        }
++        events.add(event);
++    }
++
++    private JournalEvent decode(byte[] payload) throws IOException {
++        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
++            int version = in.readUnsignedByte(), type = in.readUnsignedByte(); long seq = in.readLong();
++            if (version != VERSION) throw new IOException("Unsupported journal version " + version);
++            JournalEvent result;
++            if (type == PLACEMENT) {
++                PlacementKey key = new PlacementKey(readString(in), in.readLong(),
++                        new ChunkPos(in.readInt(), in.readInt()), readString(in), readString(in),
++                        in.readInt(), in.readInt(), in.readInt(), in.readInt(), in.readLong());
++                int count = in.readInt(); if (count < 1 || count > 2_000_000) throw new IOException("Invalid write count");
++                List<BlockWrite> writes = new ArrayList<>(count);
++                for (int i = 0; i < count; i++) {
++                    int x=in.readInt(), y=in.readInt(), z=in.readInt(), layer=in.readUnsignedByte(), n=in.readInt();
++                    if (n < 1 || n > 65_536) throw new IOException("Invalid state payload size");
++                    byte[] state = in.readNBytes(n); if (state.length != n) throw new EOFException();
++                    writes.add(new BlockWrite(x,y,z,layer,state));
++                }
++                result = new JournalEvent.PlacementCommitted(seq, new PlacementRecord(key, writes));
++            } else if (type == ANCHOR_COMPLETE) {
++                result = new JournalEvent.AnchorCompleted(seq, readString(in), new ChunkPos(in.readInt(), in.readInt()));
++            } else throw new IOException("Unknown journal event type " + type);
++            if (in.available() != 0) throw new IOException("Trailing bytes in journal event");
++            return result;
++        }
++    }
++
++    private static byte[] encodePlacement(long seq, PlacementRecord record) throws IOException {
++        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++        try (DataOutputStream out = new DataOutputStream(bytes)) {
++            PlacementKey k=record.key(); out.writeByte(VERSION); out.writeByte(PLACEMENT); out.writeLong(seq);
++            writeString(out,k.worldKey()); out.writeLong(k.worldSeed()); out.writeInt(k.anchor().x()); out.writeInt(k.anchor().z());
++            writeString(out,k.featureId()); writeString(out,k.structureId());
++            out.writeInt(k.originX()); out.writeInt(k.originY()); out.writeInt(k.originZ());
++            out.writeInt(k.rotationQuarterTurns()); out.writeLong(k.placementOrdinal());
++            out.writeInt(record.writes().size());
++            for (BlockWrite w : record.writes()) {
++                out.writeInt(w.x()); out.writeInt(w.y()); out.writeInt(w.z()); out.writeByte(w.layer());
++                byte[] state=w.canonicalState(); out.writeInt(state.length); out.write(state);
++            }
++        }
++        return bytes.toByteArray();
++    }
++
++    private static boolean readFully(FileChannel c, ByteBuffer b, long position) throws IOException {
++        while (b.hasRemaining()) { int n=c.read(b,position); if(n<0)return false; if(n==0)continue; position+=n; }
++        return true;
++    }
++    private static void writeString(DataOutput out,String s)throws IOException{
++        byte[] b=s.getBytes(StandardCharsets.UTF_8); if(b.length>1_048_576)throw new IOException("String too long"); out.writeInt(b.length);out.write(b);
++    }
++    private static String readString(DataInput in)throws IOException{
++        int n=in.readInt();if(n<0||n>1_048_576)throw new IOException("Invalid string length");byte[] b=new byte[n];in.readFully(b);return new String(b,StandardCharsets.UTF_8);
++    }
++    private static long eventSequence(JournalEvent e){return e instanceof JournalEvent.PlacementCommitted p?p.sequence():((JournalEvent.AnchorCompleted)e).sequence();}
++    private long sequenceOfPlacement(String id){return events.stream().filter(e->e instanceof JournalEvent.PlacementCommitted p&&p.record().key().stableId().equals(id)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
++    private long sequenceOfAnchor(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorCompleted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
++    private static boolean sameRecord(PlacementRecord a,PlacementRecord b){return a.key().equals(b.key())&&a.writes().equals(b.writes());}
++    private record AnchorId(String worldKey,ChunkPos anchor){}
++    @Override public void close() throws IOException { lock.lock();try{channel.force(true);processLock.release();channel.close();}finally{lock.unlock();} }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementKey.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementKey.java
+new file mode 100644
+index 0000000..4e1a831
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementKey.java
+@@ -0,0 +1,37 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.HexFormat;
++import java.util.Objects;
++
++/** Stable identity of one root feature placement; deliberately independent of runtime hashes. */
++public record PlacementKey(String worldKey, long worldSeed, ChunkPos anchor,
++                           String featureId, String structureId,
++                           int originX, int originY, int originZ,
++                           int rotationQuarterTurns, long placementOrdinal) {
++    public PlacementKey {
++        Objects.requireNonNull(worldKey, "worldKey");
++        Objects.requireNonNull(anchor, "anchor");
++        Objects.requireNonNull(featureId, "featureId");
++        Objects.requireNonNull(structureId, "structureId");
++        if (worldKey.isBlank() || featureId.isBlank() || structureId.isBlank())
++            throw new IllegalArgumentException("Placement identity fields must be non-empty");
++        if (rotationQuarterTurns < 0 || rotationQuarterTurns > 3)
++            throw new IllegalArgumentException("rotationQuarterTurns must be in [0,3]");
++    }
++
++    public String stableId() {
++        String canonical = String.join("\u001f", worldKey, Long.toString(worldSeed),
++                Integer.toString(anchor.x()), Integer.toString(anchor.z()), featureId, structureId,
++                Integer.toString(originX), Integer.toString(originY), Integer.toString(originZ),
++                Integer.toString(rotationQuarterTurns), Long.toString(placementOrdinal));
++        try {
++            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
++                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
++        } catch (NoSuchAlgorithmException impossible) {
++            throw new IllegalStateException("JVM does not provide SHA-256", impossible);
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java
+new file mode 100644
+index 0000000..3a6221f
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementProjection.java
+@@ -0,0 +1,30 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.util.*;
++
++/** Deterministic target-chunk projection. Lowest stable placement key wins coordinate/layer conflicts. */
++public final class PlacementProjection {
++    private PlacementProjection() {}
++    public record Position(int x, int y, int z, int layer) implements Comparable<Position> {
++        @Override public int compareTo(Position o) {
++            int c=Integer.compare(x,o.x); if(c==0)c=Integer.compare(y,o.y); if(c==0)c=Integer.compare(z,o.z);
++            return c==0?Integer.compare(layer,o.layer):c;
++        }
++    }
++    public record Winner(String placementId, BlockWrite write) {}
++
++    public static NavigableMap<Position, Winner> resolve(Collection<PlacementRecord> records, ChunkPos target) {
++        TreeMap<String, PlacementRecord> stableOrder = new TreeMap<>();
++        for (PlacementRecord record : records) stableOrder.put(record.key().stableId(), record);
++        TreeMap<Position, Winner> winners = new TreeMap<>();
++        for (var entry : stableOrder.entrySet()) {
++            // Preserve script order inside one placement; only its final write to a cell survives.
++            LinkedHashMap<Position, BlockWrite> local = new LinkedHashMap<>();
++            for (BlockWrite write : entry.getValue().writes()) {
++                if (write.chunk().equals(target)) local.put(new Position(write.x(),write.y(),write.z(),write.layer()),write);
++            }
++            for (var cell : local.entrySet()) winners.putIfAbsent(cell.getKey(), new Winner(entry.getKey(),cell.getValue()));
++        }
++        return Collections.unmodifiableNavigableMap(winners);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java
+new file mode 100644
+index 0000000..5296505
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementRecord.java
+@@ -0,0 +1,19 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.util.*;
++
++/** Immutable root placement transaction. Duplicate coordinates within this placement are last-write-wins. */
++public record PlacementRecord(PlacementKey key, List<BlockWrite> writes) {
++    public PlacementRecord {
++        Objects.requireNonNull(key, "key");
++        Objects.requireNonNull(writes, "writes");
++        if (writes.isEmpty()) throw new IllegalArgumentException("A committed placement must contain writes");
++        if (writes.size() > 2_000_000) throw new IllegalArgumentException("Placement exceeds write limit");
++        writes = List.copyOf(writes);
++    }
++    public Set<ChunkPos> targetChunks() {
++        TreeSet<ChunkPos> result = new TreeSet<>();
++        writes.forEach(w -> result.add(w.chunk()));
++        return Collections.unmodifiableSet(result);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockStateCodec.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockStateCodec.java
+new file mode 100644
+index 0000000..7eb857c
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockStateCodec.java
+@@ -0,0 +1,82 @@
++package org.powernukkitx.terra.crosschunk.journal.pnx;
++
++import org.powernukkitx.block.BlockProperties;
++import org.powernukkitx.block.BlockState;
++import org.powernukkitx.block.property.type.BlockPropertyType;
++import org.powernukkitx.registry.Registries;
++
++import java.io.*;
++import java.nio.charset.StandardCharsets;
++import java.util.*;
++
++/**
++ * Canonical PNX 3.0.6 block-state codec. Stores namespaced identifier and named property values,
++ * never the process-local/runtime network ID or blockStateHash as the durable payload.
++ */
++public final class PnxBlockStateCodec {
++    private static final int VERSION = 1;
++    private PnxBlockStateCodec() {}
++
++    public static byte[] encode(BlockState state) throws IOException {
++        Objects.requireNonNull(state,"state");
++        if (state.getIdentifier().equals("minecraft:unknown"))
++            throw new IOException("Unknown block states cannot be journaled safely");
++        List<PropertyValue> values=new ArrayList<>();
++        for (BlockPropertyType.BlockPropertyValue<?, ?, ?> value : state.getBlockPropertyValues()) {
++            BlockPropertyType<?> type=value.getPropertyType();
++            values.add(new PropertyValue(type.getName(),type.getType(),String.valueOf(value.getValue())));
++        }
++        values.sort(Comparator.comparing(PropertyValue::name));
++        ByteArrayOutputStream bytes=new ByteArrayOutputStream();
++        try(DataOutputStream out=new DataOutputStream(bytes)){
++            out.writeByte(VERSION);writeString(out,state.getIdentifier());out.writeShort(values.size());
++            for(PropertyValue value:values){writeString(out,value.name());out.writeByte(value.type().ordinal());writeString(out,value.value());}
++        }
++        return bytes.toByteArray();
++    }
++
++    public static BlockState decode(byte[] payload) throws IOException {
++        Objects.requireNonNull(payload,"payload");
++        try(DataInputStream in=new DataInputStream(new ByteArrayInputStream(payload))){
++            int version=in.readUnsignedByte();if(version!=VERSION)throw new IOException("Unsupported PNX block-state payload version: "+version);
++            String identifier=readString(in);int count=in.readUnsignedShort();
++            if(count>256)throw new IOException("Excessive block-state property count");
++            BlockProperties properties=Registries.BLOCK.getBlockProperties(identifier);
++            if(properties==null)throw new IOException("Block properties are not registered: "+identifier);
++            Map<String,PropertyValue> encoded=new HashMap<>();
++            for(int i=0;i<count;i++){
++                String name=readString(in);int typeOrdinal=in.readUnsignedByte();String value=readString(in);
++                BlockPropertyType.Type[] types=BlockPropertyType.Type.values();
++                if(typeOrdinal>=types.length)throw new IOException("Invalid property type");
++                if(encoded.put(name,new PropertyValue(name,types[typeOrdinal],value))!=null)
++                    throw new IOException("Duplicate property: "+name);
++            }
++            if(in.available()!=0)throw new IOException("Trailing bytes in PNX block-state payload");
++            if(encoded.size()!=properties.getPropertyTypeSet().size())
++                throw new IOException("Property schema mismatch for "+identifier);
++            List<BlockPropertyType.BlockPropertyValue<?, ?, ?>> decoded=new ArrayList<>();
++            for(BlockPropertyType<?> type:properties.getPropertyTypeSet()){
++                PropertyValue value=encoded.remove(type.getName());
++                if(value==null||value.type()!=type.getType())throw new IOException("Missing or mismatched property "+type.getName()+" for "+identifier);
++                decoded.add(createValue(type,value.value()));
++            }
++            if(!encoded.isEmpty())throw new IOException("Unexpected properties for "+identifier+": "+encoded.keySet());
++            return properties.getBlockState(decoded.toArray(BlockPropertyType.BlockPropertyValue[]::new));
++        } catch(IllegalArgumentException|ClassCastException malformed){
++            throw new IOException("Invalid canonical PNX block state",malformed);
++        }
++    }
++
++    @SuppressWarnings({"rawtypes","unchecked"})
++    private static BlockPropertyType.BlockPropertyValue<?, ?, ?> createValue(BlockPropertyType type,String value)throws IOException{
++        Object parsed=switch(type.getType()){
++            case BOOLEAN -> {if(!value.equals("true")&&!value.equals("false"))throw new IOException("Invalid boolean property value");yield Boolean.valueOf(value);}
++            case INT -> {try{yield Integer.valueOf(value);}catch(NumberFormatException e){throw new IOException("Invalid integer property value",e);}}
++            case ENUM -> value;
++        };
++        try{return type.tryCreateValue(parsed);}catch(RuntimeException invalid){throw new IOException("Property value is not registered: "+type.getName()+"="+value,invalid);}
++    }
++    private static void writeString(DataOutput out,String value)throws IOException{byte[] bytes=value.getBytes(StandardCharsets.UTF_8);if(bytes.length>4096)throw new IOException("Property string too long");out.writeShort(bytes.length);out.write(bytes);}
++    private static String readString(DataInput in)throws IOException{int length=in.readUnsignedShort();if(length>4096)throw new IOException("Property string too long");byte[] bytes=new byte[length];in.readFully(bytes);return new String(bytes,StandardCharsets.UTF_8);}
++    private record PropertyValue(String name,BlockPropertyType.Type type,String value){}
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java
+new file mode 100644
+index 0000000..cf5aafe
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java
+@@ -0,0 +1,18 @@
++package org.powernukkitx.terra.crosschunk.journal.pnx;
++
++import org.powernukkitx.level.generator.object.BlockManager;
++import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
++import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
++
++import java.io.IOException;
++import java.util.Objects;
++
++/** Narrow bridge: called by Stage15 root commit before writes are merged into the live PNX batch. */
++public final class PnxPlacementCommitter {
++    private PnxPlacementCommitter() {}
++    public static long commit(CrossChunkDependencyScheduler.PlacementTicket ticket,
++                              PlacementKey key,BlockManager staged)throws IOException{
++        Objects.requireNonNull(ticket,"ticket");
++        return ticket.commit(PnxPlacementRecordFactory.fromBlockManager(key,staged));
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java
+new file mode 100644
+index 0000000..fc38a2a
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java
+@@ -0,0 +1,23 @@
++package org.powernukkitx.terra.crosschunk.journal.pnx;
++
++import org.powernukkitx.block.Block;
++import org.powernukkitx.level.generator.object.BlockManager;
++import org.powernukkitx.terra.crosschunk.journal.*;
++
++import java.io.IOException;
++import java.util.*;
++
++/** Converts a staged PNX BlockManager into a durable, platform-canonical root placement record. */
++public final class PnxPlacementRecordFactory {
++    private PnxPlacementRecordFactory() {}
++    public static PlacementRecord fromBlockManager(PlacementKey key,BlockManager manager)throws IOException{
++        Objects.requireNonNull(key,"key");Objects.requireNonNull(manager,"manager");
++        List<BlockWrite>writes=new ArrayList<>();
++        for(Block block:manager.getBlocks()){
++            writes.add(new BlockWrite(block.getFloorX(),block.getFloorY(),block.getFloorZ(),block.layer,
++                    PnxBlockStateCodec.encode(block.getBlockState())));
++        }
++        if(writes.isEmpty())throw new IOException("Refusing to journal an empty root placement");
++        return new PlacementRecord(key,writes);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+new file mode 100644
+index 0000000..e76b70e
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/runtime/PnxGenerationJournalRuntime.java
+@@ -0,0 +1,72 @@
++package org.powernukkitx.terra.crosschunk.runtime;
++
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PlacementJournal;
++import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Path;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.HexFormat;
++import java.util.Objects;
++import java.util.Set;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.ConcurrentHashMap;
++
++/** Per-world journal runtime shared by concurrent PNX chunk-population workers. */
++public final class PnxGenerationJournalRuntime implements AutoCloseable {
++    private final String worldKey;
++    private final Level level;
++    private final PlacementJournal journal;
++    private final CrossChunkDependencyScheduler scheduler;
++    private final Set<ChunkPos> dependencyPrefetch = ConcurrentHashMap.newKeySet();
++
++    private PnxGenerationJournalRuntime(String worldKey, Level level, PlacementJournal journal) {
++        this.worldKey=worldKey;this.level=level;this.journal=journal;
++        this.scheduler=new CrossChunkDependencyScheduler(worldKey,journal,this::requestAnchor);
++    }
++
++    public static PnxGenerationJournalRuntime open(Path directory,Level level,int dimensionId)throws IOException{
++        Objects.requireNonNull(directory,"directory");Objects.requireNonNull(level,"level");
++        String worldKey=level.getName()+"|"+level.getSeed()+"|dimension="+dimensionId;
++        Path wal=directory.resolve(sha256(worldKey)+".pnxterra.wal");
++        return new PnxGenerationJournalRuntime(worldKey,level,new PlacementJournal(wal));
++    }
++    public String worldKey(){return worldKey;}
++    public CrossChunkDependencyScheduler scheduler(){return scheduler;}
++    public CompletableFuture<Void> registerTarget(ChunkPos target,int maxReachBlocks,boolean requestDependencies){
++        return scheduler.registerTarget(target,maxReachBlocks,maxReachBlocks,requestDependencies);
++    }
++    public CompletableFuture<Void> activateTarget(ChunkPos target){return scheduler.activateTarget(target);}
++    public CrossChunkDependencyScheduler.AnchorSession openAnchor(ChunkPos anchor){return scheduler.openAnchor(anchor);}
++    public PlacementJournal journal(){return journal;}
++
++    /** True once for chunks queued only as source anchors; prevents infinite recursive prefetch. */
++    public boolean consumeDependencyPrefetch(ChunkPos anchor){return dependencyPrefetch.remove(anchor);}
++
++    /** Non-blocking, queue-aware source-anchor request. False means PNX's generation queue was full. */
++    private boolean requestAnchor(ChunkPos anchor){
++        if(journal.isAnchorCompleted(worldKey,anchor))return true;
++        if(level.isChunkGenerating(anchor.x(),anchor.z()))return true;
++        IChunk loaded=level.getChunkIfLoaded(anchor.x(),anchor.z());
++        if(loaded!=null&&loaded.getChunkState().canSend()){
++            throw new IllegalStateException("Existing finished chunk has no Terra anchor WAL marker: "+anchor+
++                    ". Refusing to treat an unjournaled chunk as a complete dependency.");
++        }
++        dependencyPrefetch.add(anchor);
++        level.generateChunk(anchor.x(),anchor.z());
++        if(level.isChunkGenerating(anchor.x(),anchor.z())||journal.isAnchorCompleted(worldKey,anchor))return true;
++        dependencyPrefetch.remove(anchor);
++        return false;
++    }
++
++    private static String sha256(String value){
++        try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}
++        catch(NoSuchAlgorithmException impossible){throw new IllegalStateException("SHA-256 unavailable",impossible);}
++    }
++    @Override public void close()throws IOException{journal.close();}
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+new file mode 100644
+index 0000000..b94147f
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/scheduler/CrossChunkDependencyScheduler.java
+@@ -0,0 +1,160 @@
++package org.powernukkitx.terra.crosschunk.scheduler;
++
++import org.powernukkitx.terra.crosschunk.journal.*;
++
++import java.io.IOException;
++import java.util.*;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.locks.ReentrantLock;
++
++/**
++ * Durable anchor-population barrier. A target waits for every anchor whose possible feature
++ * footprint can overlap it. No method loads or generates a chunk.
++ */
++public final class CrossChunkDependencyScheduler {
++    private static final int MAX_REACH_BLOCKS = 4096;
++    private final String worldKey;
++    private final PlacementJournal journal;
++    private final AnchorRequester requester;
++    private final ReentrantLock lock = new ReentrantLock();
++    private final Map<ChunkPos, AnchorSession> sessions = new HashMap<>();
++    private final Map<ChunkPos, TargetBarrier> targets = new HashMap<>();
++
++    public CrossChunkDependencyScheduler(String worldKey, PlacementJournal journal) {
++        this(worldKey, journal, anchor -> true);
++    }
++
++    public CrossChunkDependencyScheduler(String worldKey, PlacementJournal journal, AnchorRequester requester) {
++        if (worldKey == null || worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
++        this.worldKey=worldKey; this.journal=Objects.requireNonNull(journal,"journal");
++        this.requester=Objects.requireNonNull(requester,"requester");
++    }
++
++    /**
++     * Register a target's complete conservative source-anchor set. Reach is the maximum horizontal
++     * displacement in blocks from any origin point inside an anchor chunk to a write. The default
++     * overload requests missing anchors; dependency-prefetch chunks can register without recursion.
++     */
++    public CompletableFuture<Void> registerTarget(ChunkPos target, int maxReachX, int maxReachZ) {
++        return registerTarget(target,maxReachX,maxReachZ,true);
++    }
++
++    public CompletableFuture<Void> registerTarget(ChunkPos target, int maxReachX, int maxReachZ, boolean requestDependencies) {
++        Objects.requireNonNull(target,"target");
++        if(maxReachX<0||maxReachZ<0)throw new IllegalArgumentException("reach cannot be negative");
++        if(maxReachX>MAX_REACH_BLOCKS||maxReachZ>MAX_REACH_BLOCKS)throw new IllegalArgumentException("reach exceeds safety limit");
++        Set<ChunkPos> expected=expectedAnchors(target,maxReachX,maxReachZ);
++        List<ChunkPos> toRequest=new ArrayList<>();
++        TargetBarrier barrier;
++        lock.lock();try{
++            barrier=targets.get(target);
++            if(barrier!=null&&!barrier.expected.equals(expected))throw new IllegalStateException("Target registered with different reach envelope");
++            if(barrier==null){barrier=new TargetBarrier(expected,maxReachX,maxReachZ);targets.put(target,barrier);}
++            if(requestDependencies){
++                for(ChunkPos anchor:expected){
++                    if(!journal.isAnchorCompleted(worldKey,anchor)&&barrier.requested.add(anchor))toRequest.add(anchor);
++                }
++            }
++            refresh(barrier);
++        }finally{lock.unlock();}
++        for(ChunkPos anchor:toRequest){
++            try {
++                if (!requester.request(anchor)) {
++                    lock.lock(); try { barrier.requested.remove(anchor); } finally { lock.unlock(); }
++                }
++            } catch(RuntimeException failure){barrier.ready.completeExceptionally(failure);break;}
++        }
++        return barrier.ready;
++    }
++
++    /** Activate a previously dependency-prefetched target when it becomes a player-demanded chunk. */
++    public CompletableFuture<Void> activateTarget(ChunkPos target){
++        TargetBarrier barrier;
++        lock.lock();try{barrier=targets.get(target);}finally{lock.unlock();}
++        if(barrier==null)throw new IllegalStateException("Target has not been registered: "+target);
++        return registerTarget(target,barrier.maxReachX,barrier.maxReachZ,true);
++    }
++
++    /** Starts one anchor's Terra population lifecycle. Recovered incomplete anchors may be replayed. */
++    public AnchorSession openAnchor(ChunkPos anchor) {
++        Objects.requireNonNull(anchor,"anchor");
++        lock.lock();try{
++            if(journal.isAnchorCompleted(worldKey,anchor))throw new IllegalStateException("Anchor already durably completed: "+anchor);
++            if(sessions.containsKey(anchor))throw new IllegalStateException("Anchor session already active: "+anchor);
++            AnchorSession session=new AnchorSession(anchor);sessions.put(anchor,session);return session;
++        }finally{lock.unlock();}
++    }
++
++    public boolean isAnchorComplete(ChunkPos anchor){return journal.isAnchorCompleted(worldKey,anchor);}
++
++    /** Exact conservative geometry, using floor division so negative coordinates are correct. */
++    public static Set<ChunkPos> expectedAnchors(ChunkPos target,int reachX,int reachZ){
++        if(reachX<0||reachZ<0)throw new IllegalArgumentException("reach cannot be negative");
++        long minBlockX=(long)target.x()*16, maxBlockX=minBlockX+15;
++        long minBlockZ=(long)target.z()*16, maxBlockZ=minBlockZ+15;
++        int minAnchorX=ceilDiv(minBlockX-reachX-15,16), maxAnchorX=floorDiv(maxBlockX+reachX,16);
++        int minAnchorZ=ceilDiv(minBlockZ-reachZ-15,16), maxAnchorZ=floorDiv(maxBlockZ+reachZ,16);
++        TreeSet<ChunkPos> result=new TreeSet<>();
++        for(int x=minAnchorX;x<=maxAnchorX;x++)for(int z=minAnchorZ;z<=maxAnchorZ;z++)result.add(new ChunkPos(x,z));
++        return Collections.unmodifiableSet(result);
++    }
++    private static int floorDiv(long a,long b){return Math.toIntExact(Math.floorDiv(a,b));}
++    private static int ceilDiv(long a,long b){return Math.toIntExact(-Math.floorDiv(-a,b));}
++
++    private void refresh(TargetBarrier barrier){
++        if(barrier.ready.isDone())return;
++        for(ChunkPos anchor:barrier.expected)if(!journal.isAnchorCompleted(worldKey,anchor))return;
++        barrier.ready.complete(null);
++    }
++    private void refreshAll(){for(TargetBarrier barrier:targets.values())refresh(barrier);}
++
++    @FunctionalInterface
++    public interface AnchorRequester { boolean request(ChunkPos anchor); }
++
++    private final class TargetBarrier{
++        final Set<ChunkPos> expected;final int maxReachX,maxReachZ;
++        final Set<ChunkPos> requested=new HashSet<>();
++        final CompletableFuture<Void> ready=new CompletableFuture<>();
++        TargetBarrier(Set<ChunkPos> expected,int maxReachX,int maxReachZ){this.expected=expected;this.maxReachX=maxReachX;this.maxReachZ=maxReachZ;}
++    }
++
++    public final class AnchorSession implements AutoCloseable{
++        private final ChunkPos anchor;private int inFlight;private boolean populationFinished;private boolean completed;private boolean failed;
++        private AnchorSession(ChunkPos anchor){this.anchor=anchor;}
++        public ChunkPos anchor(){return anchor;}
++        public PlacementTicket beginPlacement(){
++            lock.lock();try{ensureOpen();if(populationFinished)throw new IllegalStateException("Population already marked finished");inFlight++;return new PlacementTicket(this);}finally{lock.unlock();}
++        }
++        /** Called only after Terra PopulateStage has finished selecting/running all features for this anchor. */
++        public void finishPopulation() throws IOException{
++            lock.lock();try{ensureOpen();populationFinished=true;tryComplete();}finally{lock.unlock();}
++        }
++        private void ticketFinished(){lock.lock();try{if(inFlight<=0)throw new IllegalStateException("Placement ticket underflow");inFlight--;tryComplete();}catch(IOException e){failed=true;throw new JournalCommitException(e);}finally{lock.unlock();}}
++        private void tryComplete() throws IOException{
++            if(populationFinished&&inFlight==0&&!completed&&!failed){journal.appendAnchorCompleted(worldKey,anchor);completed=true;sessions.remove(anchor);refreshAll();}
++        }
++        private void ensureOpen(){if(completed||failed||sessions.get(anchor)!=this)throw new IllegalStateException("Anchor session is not active");}
++        @Override public void close(){lock.lock();try{if(!completed){failed=true;sessions.remove(anchor);}}finally{lock.unlock();}}
++    }
++
++    public final class PlacementTicket implements AutoCloseable{
++        private final AnchorSession session;private boolean finished;
++        private PlacementTicket(AnchorSession session){this.session=session;}
++        /** WAL append is fsynced before the ticket is released and before the anchor can complete. */
++        public long commit(PlacementRecord record) throws IOException{
++            if(finished)throw new IllegalStateException("Ticket already finished");
++            lock.lock();
++            try { session.ensureOpen(); } finally { lock.unlock(); }
++            if(!record.key().worldKey().equals(worldKey)||!record.key().anchor().equals(session.anchor))
++                throw new IllegalArgumentException("Placement key does not belong to this world/anchor session");
++            long sequence=journal.appendPlacement(record);finished=true;session.ticketFinished();return sequence;
++        }
++        public void abort(){if(finished)return;finished=true;session.ticketFinished();}
++        @Override public void close(){abort();}
++    }
++
++    public static final class JournalCommitException extends RuntimeException{
++        private static final long serialVersionUID = 1L;
++        public JournalCommitException(IOException cause){super("Failed to durably complete anchor population",cause);}
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+index e814781..71408ca 100644
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -25,7 +25,12 @@ import org.powernukkitx.terra.crosschunk.bounds.OrigenBoundsCatalog;
+ import org.powernukkitx.terra.crosschunk.bounds.PlacementGuardContext;
+ import org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard;
+ import org.powernukkitx.terra.crosschunk.bounds.ScriptBoundsProfile;
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
++import org.powernukkitx.terra.crosschunk.journal.pnx.PnxPlacementCommitter;
++import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
+ 
++import java.io.IOException;
+ import java.util.Objects;
+ import java.util.Optional;
+ 
+@@ -34,18 +39,30 @@ public class PNXServerWorld implements ServerWorld {
+     private final TerraGenerator generatorWrapper;
+     private final BlockManager level;
+     private PlacementTransaction activePlacement;
++    private final CrossChunkDependencyScheduler.AnchorSession anchorSession;
++    private final String worldKey;
+ 
+     public PNXServerWorld(TerraGenerator generatorWrapper, Level level) {
++        this(generatorWrapper, level, null, null);
++    }
++
++    public PNXServerWorld(TerraGenerator generatorWrapper, Level level,
++                          CrossChunkDependencyScheduler.AnchorSession anchorSession, String worldKey) {
+         this.generatorWrapper = generatorWrapper;
+         this.level = new BlockManager(level);
++        this.anchorSession = anchorSession;
++        this.worldKey = worldKey;
++        if ((anchorSession == null) != (worldKey == null)) {
++            throw new IllegalArgumentException("Anchor session and world key must be supplied together");
++        }
+     }
+ 
+     public TerraGenerator generatorWrapper() { return generatorWrapper; }
+     public Level level() { return level.getLevel(); }
+ 
+     public void apply(IChunk chunk) {
+-        // Cross-chunk publication is disabled until the durable journal/finalizer is connected.
+-        // Never force-load a neighbouring chunk from this generation worker.
++        // The WAL owns cross-chunk writes. This stage-local manager may contain only anchor writes.
++        // Never force-load a neighbouring chunk from this generation worker; Stage18 applies WAL projections.
+         for (Block block : level.getBlocks()) {
+             if (block.getChunkX() != chunk.getX() || block.getChunkZ() != chunk.getZ()) {
+                 throw new IllegalStateException("Cross-chunk Terra writes reached PNX apply before journal integration");
+@@ -75,8 +92,12 @@ public class PNXServerWorld implements ServerWorld {
+         };
+         PlacementRuntimeGuard guard = new PlacementRuntimeGuard(profile, origin.getX(), origin.getY(), origin.getZ(), turn);
+         PlacementGuardContext.Scope guardScope = PlacementGuardContext.installRoot(guard);
+-        PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getZ(),
+-                guard, new BlockManager(level.getLevel()), null, guardScope, Thread.currentThread());
++        CrossChunkDependencyScheduler.PlacementTicket journalTicket = anchorSession == null ? null : anchorSession.beginPlacement();
++        PlacementKey journalKey = anchorSession == null ? null : new PlacementKey(worldKey, level.getSeed(),
++                anchorSession.anchor(), featureId, structureId,
++                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), 0L);
++        PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
++                guard, new BlockManager(level.getLevel()), null, guardScope, Thread.currentThread(), journalTicket, journalKey);
+         activePlacement = root;
+         return scopeFor(root, true);
+     }
+@@ -88,8 +109,8 @@ public class PNXServerWorld implements ServerWorld {
+             return PlacementGuardHost.PlacementScope.rejected();
+         }
+         PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
+-                parent.originX, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent, null,
+-                parent.owner);
++                parent.originX, parent.originY, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent, null,
++                parent.owner, null, null);
+         activePlacement = child;
+         return scopeFor(child, false);
+     }
+@@ -113,17 +134,37 @@ public class PNXServerWorld implements ServerWorld {
+                     finish();
+                     return true;
+                 }
+-                // Until the durable cross-chunk journal is wired, accept only writes owned by
+-                // the anchor chunk. This prevents BlockManager from force-loading neighbours.
+                 int anchorChunkX = transaction.originX >> 4;
+                 int anchorChunkZ = transaction.originZ >> 4;
+-                for (Block block : transaction.staged.getBlocks()) {
+-                    if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
++                if (transaction.journalTicket == null) {
++                    // Legacy construction remains fail-closed until the PopulateStage journal service is supplied.
++                    for (Block block : transaction.staged.getBlocks()) {
++                        if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
++                            abort();
++                            return false;
++                        }
++                    }
++                    level.merge(transaction.staged);
++                } else if (transaction.staged.getBlocks().isEmpty()) {
++                    transaction.journalTicket.abort();
++                } else {
++                    // Durable WAL first. Only anchor-local writes enter this stage's BlockManager;
++                    // cross-chunk writes are left for the Stage18 journal applier after its barrier.
++                    try {
++                        PnxPlacementCommitter.commit(transaction.journalTicket, transaction.journalKey, transaction.staged);
++                    } catch (IOException journalFailure) {
+                         abort();
+-                        return false;
++                        throw new IllegalStateException("Failed to durably commit Terra placement", journalFailure);
++                    }
++                    BlockManager anchorWrites = new BlockManager(level.getLevel());
++                    for (Block block : transaction.staged.getBlocks()) {
++                        if (block.getChunkX() == anchorChunkX && block.getChunkZ() == anchorChunkZ) {
++                            anchorWrites.setBlockStateAt(block.getFloorX(), block.getFloorY(), block.getFloorZ(),
++                                    block.layer, block.getBlockState());
++                        }
+                     }
++                    level.merge(anchorWrites);
+                 }
+-                level.merge(transaction.staged);
+                 transaction.guard.complete();
+                 finish();
+                 return true;
+@@ -136,6 +177,7 @@ public class PNXServerWorld implements ServerWorld {
+                 if (root && transaction.guard.snapshot().state() != PlacementRuntimeGuard.State.COMPLETED) {
+                     transaction.guard.abort();
+                 }
++                if (root && transaction.journalTicket != null) transaction.journalTicket.abort();
+                 finish();
+             }
+ 
+@@ -235,7 +277,8 @@ public class PNXServerWorld implements ServerWorld {
+     @Override public Level getHandle() { return level.getLevel(); }
+     @Override public Chunk getChunkAt(int x, int z) { return new PNXChunkDelegate(this, level.getChunk(x, z)); }
+ 
+-    private record PlacementTransaction(String featureId, String structureId, int originX, int originZ,
++    private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
+                                         PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
+-                                        PlacementGuardContext.Scope guardScope, Thread owner) { }
++                                        PlacementGuardContext.Scope guardScope, Thread owner,
++                                        CrossChunkDependencyScheduler.PlacementTicket journalTicket, PlacementKey journalKey) { }
+ }

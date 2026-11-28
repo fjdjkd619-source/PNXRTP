@@ -1,0 +1,4 @@
+Stage 1–26 candidate core regression suite — R11
+OpenJDK 21; javac --release 21 -Xlint:all -Werror
+11/11 test suites PASS.
+Additional Stage 26 assertion: a mismatched ticket/PlacementKey ordinal is rejected before WAL append (journal sequence unchanged); ticket remains abortable.

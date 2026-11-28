@@ -1,0 +1,8 @@
+Stage 35 patch verification — 2026-11-28 R13
+
+PASS: 35-pnx-entity-rollback-api.patch parses and applies to a synthetic Entity.java fixture matching the exact close()/close(boolean) context inspected at both PNX c574993 and ff86b15.
+PASS: 35-stage35-entity-spawn-adapter.patch applies to a clean synthetic R12 adapter checkout.
+PASS: applied PnxChunkHandle.java byte-matches the R13 overlay.
+PASS: applied PnxEntitySpawnIntentApplier.java byte-matches the R13 overlay.
+PASS: PnxEntitySpawnIntentApplier contract suite passes under Java 21 with -Xlint:all -Werror.
+LIMIT: no clean full upstream checkout was available in the execution container; no complete Gradle build or live server runtime test is claimed.

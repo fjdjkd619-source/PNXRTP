@@ -1,0 +1,50 @@
+--- a/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
++++ b/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
+@@ -22,6 +22,9 @@
+             check(!ready.isDone(),"target initially blocked");
+             CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
+             var ticket=session.beginPlacement();
++            var secondTicket=session.beginPlacement();
++            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
++            secondTicket.abort();
+             session.finishPopulation();
+             check(!ready.isDone(),"population cannot complete with in-flight root placement");
+             PlacementKey key=new PlacementKey("world",1,new ChunkPos(0,0),"feature","structure",1,64,1,0,0);
+--- a/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
++++ b/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
+@@ -29,18 +29,31 @@
+             coordinator.persist(prepared,()->supported);
+             check(supported.saved,"chunk persisted after complete intent application");
+             check(journal.isChunkApplied("world",target,prepared.digest()),"acknowledgement follows durable save");
++            check(supported.saved, "save completed before acknowledgement is visible");
++            ChunkPos failureTarget = new ChunkPos(1,0);
++            PlacementKey failureKey = new PlacementKey("world",1,failureTarget,"feature-failure","structure",16,64,0,0,1);
++            journal.appendPlacement(new PlacementRecord(failureKey,List.of(new BlockWrite(16,64,0,0,new byte[]{3}))));
++            ChunkFinalizationCoordinator<FakeChunk> failureCoordinator = new ChunkFinalizationCoordinator<>("world",journal,Runnable::run);
++            FakeChunk saveFailure = new FakeChunk(true,1,0);
++            saveFailure.failSave = true;
++            var failedPrepared = failureCoordinator.prepare(failureTarget,CompletableFuture.completedFuture(null),()->saveFailure).join();
++            boolean saveRejected=false;
++            try { failureCoordinator.persist(failedPrepared,()->saveFailure); } catch (java.io.IOException expected) { saveRejected=true; }
++            check(saveRejected, "durable save failure propagates");
++            check(!journal.isChunkApplied("world",failureTarget,failedPrepared.digest()), "failed durable save cannot publish digest acknowledgement");
+         }
+         System.out.println("Stage25IntentFinalizationTest: PASS");
+     }
+     private static final class FakeChunk implements ChunkFinalizationCoordinator.ChunkHandle {
+-        private final boolean supports; int blocks,entities,physics; boolean saved;
+-        FakeChunk(boolean supports){this.supports=supports;}
+-        public ChunkPos position(){return new ChunkPos(0,0);} public boolean isLoaded(){return true;}
++        private final boolean supports; private final int chunkX,chunkZ; int blocks,entities,physics; boolean saved; boolean failSave;
++        FakeChunk(boolean supports){this(supports,0,0);}
++        FakeChunk(boolean supports,int chunkX,int chunkZ){this.supports=supports;this.chunkX=chunkX;this.chunkZ=chunkZ;}
++        public ChunkPos position(){return new ChunkPos(chunkX,chunkZ);} public boolean isLoaded(){return true;}
+         public boolean isGenerated(){return true;} public boolean isInitiated(){return true;}
+         public void applyProjection(NavigableMap<PlacementProjection.Position,PlacementProjection.Winner> p){blocks=p.size();}
+         public void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position,PlacementProjection.EntityWinner> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();entities=p.size();}
+         public void applyPhysicsIntents(List<PhysicsIntent> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();physics=p.size();}
+-        public void saveDurably(){saved=true;}
++        public void saveDurably() throws java.io.IOException {if(failSave)throw new java.io.IOException("simulated durable write failure");saved=true;}
+     }
+     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+ }

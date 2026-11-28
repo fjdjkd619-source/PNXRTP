@@ -1,0 +1,1697 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..a07d5ed8b8d98dd73a55432c37361d0bd6128ac2
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,2 @@
++/build/
++/out/
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..41b628cf1d61e585d2df47836c5c15016bba286d
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,25 @@
++# Stage 8 — PNX journal/block-state adapter
++
++Target PNX commit: `c57499365737654eca32df008751ef6bca5af142`.
++
++This stage adds the first adapter that understands actual PNX `BlockState`, `Level`, `IChunk`, and `BlockManager` APIs.
++
++## Included
++
++- `PnxBlockStatePayloadCodec`: durable payload is `(format magic, version, block identifier, specialValue)`. It deliberately does not persist `blockStateHash`, because that is an internal registry hash. Decode resolves the state through `Registries.BLOCK` and rejects unknown/noncanonical states.
++- `PnxJournalChunkApplier`: reads journal operations for one target chunk, resolves deterministic winners per coordinate+layer, applies them through PNX `BlockManager`, and refuses to load missing chunks. `REPLACEABLE_ONLY` is evaluated against the pre-apply block through an injected predicate.
++- Per-target asynchronous serialization and repeat-until-stable behavior. A later journal append invalidates the digest and triggers another pass.
++- Durable acknowledgement is written only after an injected chunk persistence future succeeds. Failure leaves the ledger unacknowledged and safe to replay.
++
++## Exact PNX source observations
++
++- `Level.getChunkIfLoaded(int,int)` exists and does not request generation.
++- `IChunk` exposes `getBlockState`, `isGenerated`, `isInitiated`, and dimension height.
++- `BlockManager.setBlockStateAt(x,y,z,layer,state)` and `applySubChunkUpdate()` provide the platform write path, including block-entity holder creation and chunk dirty marking.
++- `BlockProperties.getBlockState(short)` and `containBlockState(BlockState)` allow registry-validated identifier/special-value payloads.
++
++## Important integration boundary
++
++The adapter intentionally does not invent a `LevelProvider` persistence call. The PNX integration must supply `ChunkPersister` using the pinned provider's actual save contract. The caller must also keep the target chunk non-publishable until this future completes and the digest is acknowledged. Do not mark the ledger before persistence.
++
++This is not yet a complete PNX/Terra runtime integration. It does not patch `Level.generateChunk`, does not install a concrete generation-stage driver, and does not gate all packet publication paths. It is the PNX-facing journal application layer required before those hooks can safely be wired.
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/AppliedChunkLedger.java b/src/main/java/org/powernukkitx/terra/crosschunk/AppliedChunkLedger.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..fff8fb8240a077f4a17bbd1584e5218f20ebc837
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/AppliedChunkLedger.java
+@@ -0,0 +1,119 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.channels.FileChannel;
++import java.nio.channels.FileLock;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardOpenOption;
++import java.security.MessageDigest;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.Objects;
++import java.util.zip.CRC32C;
++
++/**
++ * Durable acknowledgement ledger for target-chunk operation snapshots.
++ *
++ * The caller MUST persist/save the target chunk first, then call markApplied.
++ * A crash between chunk save and this acknowledgement causes safe idempotent
++ * replay; acknowledging before the chunk is durable can lose generated blocks.
++ * A later incoming operation changes the snapshot digest and invalidates the
++ * old acknowledgement automatically.
++ */
++@SuppressWarnings("try")
++public final class AppliedChunkLedger implements AutoCloseable {
++    private static final int MAGIC = 0x50545841; // PTXA
++    private static final short VERSION = 1;
++    private static final int BODY_BYTES = Integer.BYTES * 2 + 32;
++    private static final int FRAME_BYTES = Integer.BYTES + Short.BYTES + BODY_BYTES + Integer.BYTES;
++
++    private final Path path;
++    private final FileChannel channel;
++    private final Map<ChunkPos, byte[]> applied = new HashMap<>();
++    private boolean closed;
++
++    public AppliedChunkLedger(Path file) throws IOException {
++        path = Objects.requireNonNull(file, "file").toAbsolutePath();
++        Path parent = path.getParent();
++        if (parent != null) Files.createDirectories(parent);
++        if (!Files.exists(path)) Files.createFile(path);
++        recover();
++        channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE);
++        channel.position(channel.size());
++    }
++
++    public synchronized boolean isApplied(ChunkPos chunk, byte[] snapshotDigest) {
++        ensureOpen();
++        byte[] prior = applied.get(chunk);
++        return prior != null && MessageDigest.isEqual(prior, requireDigest(snapshotDigest));
++    }
++
++    /** Append acknowledgement after target chunk persistence has succeeded. */
++    public synchronized boolean markApplied(ChunkPos chunk, byte[] snapshotDigest) throws IOException {
++        ensureOpen();
++        Objects.requireNonNull(chunk, "chunk");
++        byte[] digest = requireDigest(snapshotDigest);
++        byte[] prior = applied.get(chunk);
++        if (prior != null && MessageDigest.isEqual(prior, digest)) return false;
++
++        ByteBuffer body = ByteBuffer.allocate(BODY_BYTES);
++        body.putInt(chunk.x()).putInt(chunk.z()).put(digest).flip();
++        CRC32C crc = new CRC32C();
++        crc.update(body.asReadOnlyBuffer());
++        ByteBuffer frame = ByteBuffer.allocate(FRAME_BYTES);
++        frame.putInt(MAGIC).putShort(VERSION).put(body).putInt((int) crc.getValue()).flip();
++        try (FileLock ignored = channel.lock()) {
++            channel.position(channel.size());
++            while (frame.hasRemaining()) channel.write(frame);
++            channel.force(true);
++        }
++        applied.put(chunk, digest.clone());
++        return true;
++    }
++
++    private void recover() throws IOException {
++        try (FileChannel read = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
++            long size = read.size(), offset = 0, validEnd = 0;
++            ByteBuffer frame = ByteBuffer.allocate(FRAME_BYTES);
++            while (offset < size) {
++                frame.clear();
++                int total = 0;
++                while (frame.hasRemaining()) {
++                    int n = read.read(frame, offset + total);
++                    if (n <= 0) break;
++                    total += n;
++                }
++                if (total < FRAME_BYTES) break; // torn final acknowledgement
++                frame.flip();
++                int magic = frame.getInt();
++                short version = frame.getShort();
++                int x = frame.getInt(), z = frame.getInt();
++                byte[] digest = new byte[32]; frame.get(digest);
++                int expectedCrc = frame.getInt();
++                if (magic != MAGIC || version != VERSION) throw new IOException("Invalid applied-ledger frame at " + offset);
++                ByteBuffer body = ByteBuffer.allocate(BODY_BYTES).putInt(x).putInt(z).put(digest);
++                body.flip();
++                CRC32C crc = new CRC32C(); crc.update(body);
++                if ((int) crc.getValue() != expectedCrc) throw new IOException("Applied-ledger checksum mismatch at " + offset);
++                applied.put(new ChunkPos(x, z), digest);
++                offset += FRAME_BYTES;
++                validEnd = offset;
++            }
++            if (validEnd != size) { read.truncate(validEnd); read.force(true); }
++        }
++    }
++
++    private static byte[] requireDigest(byte[] digest) {
++        Objects.requireNonNull(digest, "snapshotDigest");
++        if (digest.length != 32) throw new IllegalArgumentException("Snapshot digest must be SHA-256 (32 bytes)");
++        return digest;
++    }
++
++    private void ensureOpen() { if (closed) throw new IllegalStateException("Ledger is closed"); }
++
++    @Override public synchronized void close() throws IOException {
++        if (!closed) { closed = true; channel.close(); }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/ChunkGenerationRequestCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkGenerationRequestCoordinator.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..08fbf4490fcb1db331799744d6c0febdd6daf995
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkGenerationRequestCoordinator.java
+@@ -0,0 +1,198 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.ArrayList;
++import java.util.EnumMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Objects;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.CompletionException;
++import java.util.concurrent.ConcurrentHashMap;
++
++/**
++ * Coalesces generation requests for the same chunk and monotonically extends
++ * the requested completion phase. It never waits synchronously for a stage.
++ *
++ * <p>The coordinator is deliberately storage/scheduler agnostic. The driver
++ * must map phases to the pinned PNX/Terra pipeline, persist its own phase
++ * markers, and make each phase idempotent. A failed phase completes current
++ * waiters exceptionally; a later request retries from the last completed
++ * phase reported by the driver.</p>
++ */
++public final class ChunkGenerationRequestCoordinator {
++    public enum Phase {
++        NEW,
++        TERRAIN,
++        GENERATED,
++        STRUCTURES,
++        POPULATED,
++        FINALIZED;
++
++        public Phase next() {
++            int next = ordinal() + 1;
++            return next < values().length ? values()[next] : null;
++        }
++    }
++
++    public interface Driver {
++        /** Returns the last durably completed phase for this chunk. */
++        Phase completedPhase(ChunkPos chunk);
++
++        /** Schedules one phase and completes only after its work is committed. */
++        CompletableFuture<Void> runPhase(ChunkPos chunk, Phase phase);
++    }
++
++    private final Driver driver;
++    private final ConcurrentHashMap<ChunkPos, Slot> slots = new ConcurrentHashMap<>();
++
++    public ChunkGenerationRequestCoordinator(Driver driver) {
++        this.driver = Objects.requireNonNull(driver, "driver");
++    }
++
++    /**
++     * Request at least {@code requiredPhase}. Concurrent requests for a chunk
++     * share one phase runner; a later request can extend its target without
++     * starting a second pipeline.
++     */
++    public CompletableFuture<Void> request(ChunkPos chunk, Phase requiredPhase) {
++        Objects.requireNonNull(chunk, "chunk");
++        Objects.requireNonNull(requiredPhase, "requiredPhase");
++        CompletableFuture<Void> result = new CompletableFuture<>();
++        Slot[] selected = new Slot[1];
++        boolean[] launch = new boolean[1];
++        boolean[] alreadyComplete = new boolean[1];
++        slots.compute(chunk, (key, existing) -> {
++            Slot slot = existing == null
++                    ? new Slot(requireCompleted(driver.completedPhase(key)))
++                    : existing;
++            synchronized (slot) {
++                selected[0] = slot;
++                if (slot.completed.ordinal() >= requiredPhase.ordinal()) {
++                    alreadyComplete[0] = true;
++                } else {
++                    slot.waiters.computeIfAbsent(requiredPhase, ignored -> new ArrayList<>()).add(result);
++                    if (!slot.running) {
++                        slot.running = true;
++                        launch[0] = true;
++                    }
++                }
++            }
++            return slot;
++        });
++        if (alreadyComplete[0]) return CompletableFuture.completedFuture(null);
++        if (launch[0]) advance(chunk, selected[0]);
++        return result;
++    }
++
++    /** Number of chunk slots currently retained by this coordinator. */
++    public int trackedChunks() {
++        return slots.size();
++    }
++
++    /**
++     * Forget an idle chunk after its unload lifecycle has completed. Active
++     * slots cannot be forgotten, preventing a second runner for the same chunk.
++     */
++    public boolean forget(ChunkPos chunk) {
++        boolean[] removed = new boolean[1];
++        slots.computeIfPresent(chunk, (key, slot) -> {
++            synchronized (slot) {
++                if (slot.running || !slot.waiters.isEmpty()) return slot;
++                removed[0] = true;
++                return null;
++            }
++        });
++        return removed[0] || !slots.containsKey(chunk);
++    }
++
++    private void advance(ChunkPos chunk, Slot slot) {
++        final Phase next;
++        synchronized (slot) {
++            Phase target = highestPending(slot);
++            if (target == null || slot.completed.ordinal() >= target.ordinal()) {
++                slot.running = false;
++                return;
++            }
++            next = slot.completed.next();
++            if (next == null) {
++                failPending(slot, new IllegalStateException("No phase remains before requested target " + target));
++                slot.running = false;
++                return;
++            }
++        }
++
++        final CompletableFuture<Void> phaseFuture;
++        try {
++            phaseFuture = Objects.requireNonNull(driver.runPhase(chunk, next), "driver returned null future");
++        } catch (Throwable failure) {
++            onPhaseFailure(slot, failure);
++            return;
++        }
++        phaseFuture.whenComplete((ignored, failure) -> {
++            if (failure != null) {
++                onPhaseFailure(slot, unwrap(failure));
++                return;
++            }
++            synchronized (slot) {
++                if (next.ordinal() > slot.completed.ordinal()) {
++                    slot.completed = next;
++                }
++                completeSatisfied(slot);
++                if (highestPending(slot) == null) {
++                    slot.running = false;
++                    return;
++                }
++            }
++            advance(chunk, slot);
++        });
++    }
++
++    private static void onPhaseFailure(Slot slot, Throwable failure) {
++        synchronized (slot) {
++            failPending(slot, failure);
++            slot.running = false;
++        }
++    }
++
++    private static void completeSatisfied(Slot slot) {
++        var iterator = slot.waiters.entrySet().iterator();
++        while (iterator.hasNext()) {
++            Map.Entry<Phase, List<CompletableFuture<Void>>> entry = iterator.next();
++            if (entry.getKey().ordinal() <= slot.completed.ordinal()) {
++                entry.getValue().forEach(future -> future.complete(null));
++                iterator.remove();
++            }
++        }
++    }
++
++    private static void failPending(Slot slot, Throwable failure) {
++        slot.waiters.values().forEach(list -> list.forEach(future -> future.completeExceptionally(failure)));
++        slot.waiters.clear();
++    }
++
++    private static Phase highestPending(Slot slot) {
++        Phase highest = null;
++        for (Phase phase : slot.waiters.keySet()) {
++            if (highest == null || phase.ordinal() > highest.ordinal()) highest = phase;
++        }
++        return highest;
++    }
++
++    private static Phase requireCompleted(Phase phase) {
++        return Objects.requireNonNull(phase, "driver completedPhase returned null");
++    }
++
++    private static Throwable unwrap(Throwable failure) {
++        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
++    }
++
++    private static final class Slot {
++        private Phase completed;
++        private boolean running;
++        private final EnumMap<Phase, List<CompletableFuture<Void>>> waiters = new EnumMap<>(Phase.class);
++
++        private Slot(Phase completed) {
++            this.completed = completed;
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/ChunkOperationDigest.java b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkOperationDigest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..e707690ccb0bb4e8e68985b51581c535fdefa216
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkOperationDigest.java
+@@ -0,0 +1,37 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.io.ByteArrayOutputStream;
++import java.io.DataOutputStream;
++import java.io.IOException;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.List;
++
++/** Stable digest of the complete operation snapshot for one target chunk. */
++public final class ChunkOperationDigest {
++    private ChunkOperationDigest() {}
++
++    public static byte[] calculate(List<CrossChunkOperation> operations) {
++        try {
++            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++            try (DataOutputStream out = new DataOutputStream(bytes)) {
++                List<CrossChunkOperation> ordered = CrossChunkPlacementJournal.stableOrder(operations);
++                out.writeInt(ordered.size());
++                for (CrossChunkOperation op : ordered) {
++                    out.writeInt(op.x()); out.writeInt(op.y()); out.writeInt(op.z());
++                    out.writeByte(op.layer()); out.writeInt(op.priority());
++                    out.writeByte(op.policy().ordinal());
++                    out.write(op.placementKey().bytes());
++                    out.writeInt(op.ordinal());
++                    byte[] payload = op.statePayload();
++                    out.writeInt(payload.length); out.write(payload);
++                }
++            }
++            return MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray());
++        } catch (IOException impossible) {
++            throw new AssertionError(impossible);
++        } catch (NoSuchAlgorithmException impossible) {
++            throw new AssertionError(impossible);
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/ChunkPos.java b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkPos.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..00853e0d5ea1bd7be7d4d28a29590c1cc0e8191b
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/ChunkPos.java
+@@ -0,0 +1,9 @@
++package org.powernukkitx.terra.crosschunk;
++
++/** Immutable chunk coordinate; ordering is stable and independent of scheduling. */
++public record ChunkPos(int x, int z) implements Comparable<ChunkPos> {
++    @Override public int compareTo(ChunkPos other) {
++        int xOrder = Integer.compare(x, other.x);
++        return xOrder != 0 ? xOrder : Integer.compare(z, other.z);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkDependencyScheduler.java b/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkDependencyScheduler.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b0042efada2893928d586f608e1e61f72435339
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkDependencyScheduler.java
+@@ -0,0 +1,37 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.Collection;
++import java.util.List;
++import java.util.Objects;
++import java.util.concurrent.CompletableFuture;
++
++/**
++ * Connects feature write bounds to the coalesced generation request coordinator.
++ * Every possible source/anchor chunk is requested through POPULATED before the
++ * target is allowed to enter its placement-finalization step.
++ */
++public final class CrossChunkDependencyScheduler {
++    private final ChunkGenerationRequestCoordinator requests;
++    private final List<FeatureWriteBounds> enabledBounds;
++
++    public CrossChunkDependencyScheduler(
++            ChunkGenerationRequestCoordinator requests,
++            Collection<FeatureWriteBounds> enabledBounds) {
++        this.requests = Objects.requireNonNull(requests, "requests");
++        this.enabledBounds = List.copyOf(Objects.requireNonNull(enabledBounds, "enabledBounds"));
++    }
++
++    /**
++     * Schedules all source chunks whose declared feature extents can reach the
++     * target and completes asynchronously once their feature placements are
++     * committed. No source-generation worker is synchronously blocked.
++     */
++    public CompletableFuture<GenerationBarrierCoordinator.BarrierTicket> awaitTargetPopulation(ChunkPos target) {
++        List<ChunkPos> dependencies = GenerationBarrierCoordinator.dependenciesFor(target, enabledBounds);
++        CompletableFuture<?>[] scheduled = dependencies.stream()
++                .map(source -> requests.request(source, ChunkGenerationRequestCoordinator.Phase.POPULATED))
++                .toArray(CompletableFuture[]::new);
++        return CompletableFuture.allOf(scheduled)
++                .thenApply(ignored -> new GenerationBarrierCoordinator.BarrierTicket(target, dependencies));
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkOperation.java b/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkOperation.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c1a434fa7e9af9d3b14763d7a2db95a95cf54ee
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkOperation.java
+@@ -0,0 +1,28 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.Objects;
++
++/** One absolute block-layer write emitted by a committed placement. */
++public record CrossChunkOperation(
++        int x, int y, int z, int layer,
++        int priority, ConflictPolicy policy,
++        PlacementKey placementKey, int ordinal,
++        byte[] statePayload) {
++
++    public enum ConflictPolicy { ALLOW, PRIORITY, EXCLUSIVE, REPLACEABLE_ONLY }
++
++    public CrossChunkOperation {
++        if (layer < 0 || layer > 1) throw new IllegalArgumentException("PNX block layer must be 0 or 1");
++        if (ordinal < 0) throw new IllegalArgumentException("ordinal must be non-negative");
++        Objects.requireNonNull(policy, "policy");
++        Objects.requireNonNull(placementKey, "placementKey");
++        Objects.requireNonNull(statePayload, "statePayload");
++        if (statePayload.length == 0) throw new IllegalArgumentException("statePayload must not be empty");
++        statePayload = statePayload.clone();
++    }
++
++    @Override public byte[] statePayload() { return statePayload.clone(); }
++
++    public int targetChunkX() { return Math.floorDiv(x, 16); }
++    public int targetChunkZ() { return Math.floorDiv(z, 16); }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkPlacementJournal.java b/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkPlacementJournal.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..dda9af809499ed65ddc2aacc878c9c971bf4c630
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/CrossChunkPlacementJournal.java
+@@ -0,0 +1,270 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.EOFException;
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.channels.FileChannel;
++import java.nio.channels.FileLock;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardOpenOption;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Comparator;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++import java.util.HashSet;
++import java.util.Set;
++import java.util.Objects;
++import java.util.TreeMap;
++import java.util.zip.CRC32C;
++
++/**
++ * Crash-recoverable write-ahead journal for committed Terra placements.
++ * It deliberately knows nothing about PNX BlockState serialization or chunk
++ * lifecycle: the platform adapter supplies stable statePayload bytes and owns
++ * safe target-chunk application.
++ *
++ * A whole placement is one CRC-protected frame. A torn final frame is truncated
++ * during recovery; a complete frame with a bad checksum is treated as corruption.
++ */
++@SuppressWarnings("try")
++public final class CrossChunkPlacementJournal implements AutoCloseable {
++    private static final int MAGIC = 0x50545851; // PTXQ
++    private static final short VERSION = 1;
++    private static final int HEADER_BYTES = Integer.BYTES + Short.BYTES + Integer.BYTES + Integer.BYTES;
++    private static final int MAX_FRAME_BYTES = 64 * 1024 * 1024;
++    private static final int MAX_OPERATIONS = 2_000_000;
++    private static final int MAX_STATE_BYTES = 1 * 1024 * 1024;
++
++    private final Path path;
++    private final FileChannel channel;
++    private final Map<PlacementKey, byte[]> committed = new HashMap<>();
++    private final Map<ChunkKey, List<CrossChunkOperation>> byTargetChunk = new HashMap<>();
++    private boolean closed;
++
++    public CrossChunkPlacementJournal(Path file) throws IOException {
++        this.path = Objects.requireNonNull(file, "file").toAbsolutePath();
++        Path parent = path.getParent();
++        if (parent != null) Files.createDirectories(parent);
++        if (!Files.exists(path)) Files.createFile(path);
++        this.channel = recoverAndOpen();
++    }
++
++    /**
++     * Durably publishes one root placement. Duplicate identical placement IDs
++     * are ignored; reusing an ID for different operations is a hard error.
++     */
++    public synchronized boolean append(PlacementKey key, List<CrossChunkOperation> operations) throws IOException {
++        ensureOpen();
++        Objects.requireNonNull(key, "key");
++        Objects.requireNonNull(operations, "operations");
++        if (operations.isEmpty()) return false;
++        if (operations.size() > MAX_OPERATIONS) throw new IOException("Placement exceeds operation limit");
++        Set<Integer> ordinals = new HashSet<>();
++        for (CrossChunkOperation op : operations) {
++            if (!key.equals(op.placementKey())) throw new IllegalArgumentException("Operation belongs to another placement key");
++            if (!ordinals.add(op.ordinal())) throw new IllegalArgumentException("Placement operation ordinals must be unique");
++            if (op.statePayload().length > MAX_STATE_BYTES) throw new IOException("Block-state payload exceeds 1 MiB");
++        }
++
++        byte[] body = encodeBody(key, operations);
++        byte[] fingerprint = sha256(body);
++        byte[] prior = committed.get(key);
++        if (prior != null) {
++            if (!Arrays.equals(prior, fingerprint)) throw new IOException("Placement key collision with different payload: " + key);
++            return false;
++        }
++
++        CRC32C crc = new CRC32C();
++        crc.update(body, 0, body.length);
++        ByteBuffer frame = ByteBuffer.allocate(HEADER_BYTES + body.length);
++        frame.putInt(MAGIC).putShort(VERSION).putInt(body.length).putInt((int) crc.getValue()).put(body).flip();
++        try (FileLock ignored = channel.lock()) {
++            channel.position(channel.size());
++            while (frame.hasRemaining()) channel.write(frame);
++            channel.force(true);
++        }
++        publish(key, fingerprint, operations);
++        return true;
++    }
++
++    /** Returns an immutable snapshot. The adapter must not mutate returned payloads. */
++    public synchronized List<CrossChunkOperation> operationsForChunk(int chunkX, int chunkZ) {
++        ensureOpen();
++        List<CrossChunkOperation> list = byTargetChunk.get(new ChunkKey(chunkX, chunkZ));
++        return list == null ? List.of() : stableOrder(list);
++    }
++
++    /**
++     * Stable order for replay. This is not a final conflict resolver: the PNX
++     * adapter must resolve REPLACEABLE_ONLY against the pre-placement terrain
++     * and apply the documented policy semantics before touching a chunk.
++     */
++    public static List<CrossChunkOperation> stableOrder(List<CrossChunkOperation> operations) {
++        List<CrossChunkOperation> copy = new ArrayList<>(operations);
++        copy.sort(Comparator
++                .comparingInt(CrossChunkOperation::x)
++                .thenComparingInt(CrossChunkOperation::y)
++                .thenComparingInt(CrossChunkOperation::z)
++                .thenComparingInt(CrossChunkOperation::layer)
++                .thenComparing(CrossChunkOperation::placementKey)
++                .thenComparingInt(CrossChunkOperation::ordinal));
++        return List.copyOf(copy);
++    }
++
++    /**
++     * Deterministic per-block winner. EXCLUSIVE beats PRIORITY; PRIORITY beats
++     * ALLOW; REPLACEABLE_ONLY participates only when the original terrain state
++     * is replaceable. Equal-class candidates are resolved by descending
++     * priority, then ascending stable placement key, then descending write
++     * ordinal (so a later write by the same structure wins).
++     */
++    public static java.util.Optional<CrossChunkOperation> resolveWinner(
++            List<CrossChunkOperation> operations, boolean baseIsReplaceable) {
++        List<CrossChunkOperation> eligible = operations.stream()
++                .filter(op -> op.policy() != CrossChunkOperation.ConflictPolicy.REPLACEABLE_ONLY || baseIsReplaceable)
++                .toList();
++        if (eligible.isEmpty()) return Optional.empty();
++        CrossChunkOperation.ConflictPolicy tier = eligible.stream().anyMatch(op -> op.policy() == CrossChunkOperation.ConflictPolicy.EXCLUSIVE)
++                ? CrossChunkOperation.ConflictPolicy.EXCLUSIVE
++                : eligible.stream().anyMatch(op -> op.policy() == CrossChunkOperation.ConflictPolicy.PRIORITY)
++                    ? CrossChunkOperation.ConflictPolicy.PRIORITY
++                    : CrossChunkOperation.ConflictPolicy.ALLOW;
++        return eligible.stream()
++                .filter(op -> tier == CrossChunkOperation.ConflictPolicy.ALLOW
++                        ? op.policy() == CrossChunkOperation.ConflictPolicy.ALLOW
++                            || op.policy() == CrossChunkOperation.ConflictPolicy.REPLACEABLE_ONLY
++                        : op.policy() == tier)
++                .min(Comparator.comparingInt(CrossChunkOperation::priority).reversed()
++                        .thenComparing(CrossChunkOperation::placementKey)
++                        .thenComparing(Comparator.comparingInt(CrossChunkOperation::ordinal).reversed()));
++    }
++
++    private FileChannel recoverAndOpen() throws IOException {
++        try (FileChannel read = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
++            long size = read.size(), offset = 0, validEnd = 0;
++            ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
++            while (offset < size) {
++                header.clear();
++                int headerRead = readFully(read, header, offset);
++                if (headerRead < HEADER_BYTES) break; // torn tail
++                header.flip();
++                int magic = header.getInt();
++                short version = header.getShort();
++                int length = header.getInt();
++                int expectedCrc = header.getInt();
++                if (magic != MAGIC || version != VERSION || length < 0 || length > MAX_FRAME_BYTES) {
++                    throw new IOException("Invalid journal frame at byte " + offset);
++                }
++                if (offset + HEADER_BYTES + (long) length > size) break; // torn tail
++                ByteBuffer bodyBuffer = ByteBuffer.allocate(length);
++                if (readFully(read, bodyBuffer, offset + HEADER_BYTES) < length) break;
++                byte[] body = bodyBuffer.array();
++                CRC32C crc = new CRC32C();
++                crc.update(body, 0, body.length);
++                if ((int) crc.getValue() != expectedCrc) throw new IOException("Journal checksum mismatch at byte " + offset);
++                Decoded decoded = decodeBody(body);
++                byte[] fingerprint = sha256(body);
++                byte[] old = committed.get(decoded.key());
++                if (old != null && !Arrays.equals(old, fingerprint)) {
++                    throw new IOException("Conflicting duplicate placement key in journal: " + decoded.key());
++                }
++                if (old == null) publish(decoded.key(), fingerprint, decoded.operations());
++                offset += HEADER_BYTES + (long) length;
++                validEnd = offset;
++            }
++            if (validEnd != size) {
++                read.truncate(validEnd);
++                read.force(true);
++            }
++        }
++        FileChannel opened = FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.READ);
++        opened.position(opened.size());
++        return opened;
++    }
++
++    private void publish(PlacementKey key, byte[] fingerprint, List<CrossChunkOperation> operations) {
++        committed.put(key, fingerprint.clone());
++        for (CrossChunkOperation operation : operations) {
++            ChunkKey target = new ChunkKey(operation.targetChunkX(), operation.targetChunkZ());
++            byTargetChunk.computeIfAbsent(target, ignored -> new ArrayList<>()).add(operation);
++        }
++    }
++
++    private static byte[] encodeBody(PlacementKey key, List<CrossChunkOperation> operations) throws IOException {
++        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++        try (DataOutputStream out = new DataOutputStream(bytes)) {
++            out.write(key.bytes());
++            out.writeInt(operations.size());
++            for (CrossChunkOperation op : operations) {
++                out.writeInt(op.x()); out.writeInt(op.y()); out.writeInt(op.z());
++                out.writeByte(op.layer()); out.writeInt(op.priority());
++                out.writeByte(op.policy().ordinal()); out.writeInt(op.ordinal());
++                out.writeInt(op.statePayload().length); out.write(op.statePayload());
++            }
++        }
++        if (bytes.size() > MAX_FRAME_BYTES) throw new IOException("Placement journal frame exceeds 64 MiB");
++        return bytes.toByteArray();
++    }
++
++    private static Decoded decodeBody(byte[] body) throws IOException {
++        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(body))) {
++            byte[] keyBytes = in.readNBytes(32);
++            if (keyBytes.length != 32) throw new EOFException("Missing placement key");
++            PlacementKey key = PlacementKey.fromBytes(keyBytes);
++            int count = in.readInt();
++            if (count < 0 || count > MAX_OPERATIONS) throw new IOException("Invalid operation count: " + count);
++            List<CrossChunkOperation> operations = new ArrayList<>(Math.min(count, 100_000));
++            for (int i = 0; i < count; i++) {
++                int x = in.readInt(), y = in.readInt(), z = in.readInt();
++                int layer = in.readUnsignedByte(), priority = in.readInt();
++                int policy = in.readUnsignedByte(), ordinal = in.readInt();
++                int payloadLength = in.readInt();
++                if (policy >= CrossChunkOperation.ConflictPolicy.values().length
++                        || payloadLength <= 0 || payloadLength > MAX_STATE_BYTES) {
++                    throw new IOException("Invalid operation record");
++                }
++                byte[] payload = in.readNBytes(payloadLength);
++                if (payload.length != payloadLength) throw new EOFException("Truncated operation payload");
++                operations.add(new CrossChunkOperation(x, y, z, layer, priority,
++                        CrossChunkOperation.ConflictPolicy.values()[policy], key, ordinal, payload));
++            }
++            if (in.available() != 0) throw new IOException("Trailing bytes in placement journal frame");
++            return new Decoded(key, List.copyOf(operations));
++        } catch (IllegalArgumentException ex) {
++            throw new IOException("Invalid placement journal record", ex);
++        }
++    }
++
++    private static int readFully(FileChannel channel, ByteBuffer buffer, long position) throws IOException {
++        int total = 0;
++        while (buffer.hasRemaining()) {
++            int read = channel.read(buffer, position + total);
++            if (read < 0) break;
++            if (read == 0) break;
++            total += read;
++        }
++        return total;
++    }
++
++    private static byte[] sha256(byte[] input) {
++        try { return java.security.MessageDigest.getInstance("SHA-256").digest(input); }
++        catch (java.security.NoSuchAlgorithmException impossible) { throw new AssertionError(impossible); }
++    }
++
++    private void ensureOpen() { if (closed) throw new IllegalStateException("Journal is closed"); }
++
++    @Override public synchronized void close() throws IOException {
++        if (!closed) { closed = true; channel.close(); }
++    }
++
++    private record ChunkKey(int x, int z) {}
++    private record Decoded(PlacementKey key, List<CrossChunkOperation> operations) {}
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/FeatureWriteBounds.java b/src/main/java/org/powernukkitx/terra/crosschunk/FeatureWriteBounds.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f20389d43e72e1944eb7c5a8053f6061808435d
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/FeatureWriteBounds.java
+@@ -0,0 +1,57 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.Objects;
++import java.util.Set;
++import java.util.TreeSet;
++
++/**
++ * Declared horizontal write bounds relative to a feature's anchor.
++ * Bounds must include every nested structure, decorator, and block-entity write.
++ * Vertical bounds are intentionally omitted because chunk scheduling is X/Z based.
++ */
++public record FeatureWriteBounds(
++        String featureId,
++        int minOffsetX, int maxOffsetX,
++        int minOffsetZ, int maxOffsetZ) {
++
++    public FeatureWriteBounds {
++        Objects.requireNonNull(featureId, "featureId");
++        if (featureId.isBlank()) throw new IllegalArgumentException("featureId must not be blank");
++        if (minOffsetX > maxOffsetX || minOffsetZ > maxOffsetZ)
++            throw new IllegalArgumentException("Invalid feature write bounds");
++    }
++
++    /**
++     * Finds every source/anchor chunk that could place any block into target.
++     * This is exact for anchors anywhere inside a source chunk and the declared
++     * rectangular bounds. It uses long arithmetic to avoid int overflow.
++     */
++    public Set<ChunkPos> sourceChunksForTarget(ChunkPos target) {
++        Objects.requireNonNull(target, "target");
++        long targetMinX = (long) target.x() * 16L;
++        long targetMaxX = targetMinX + 15L;
++        long targetMinZ = (long) target.z() * 16L;
++        long targetMaxZ = targetMinZ + 15L;
++
++        // anchor + [minOffset,maxOffset] intersects target block rectangle
++        long anchorMinX = targetMinX - maxOffsetX;
++        long anchorMaxX = targetMaxX - minOffsetX;
++        long anchorMinZ = targetMinZ - maxOffsetZ;
++        long anchorMaxZ = targetMaxZ - minOffsetZ;
++
++        long minChunkX = Math.floorDiv(anchorMinX, 16L);
++        long maxChunkX = Math.floorDiv(anchorMaxX, 16L);
++        long minChunkZ = Math.floorDiv(anchorMinZ, 16L);
++        long maxChunkZ = Math.floorDiv(anchorMaxZ, 16L);
++        if (minChunkX < Integer.MIN_VALUE || maxChunkX > Integer.MAX_VALUE
++                || minChunkZ < Integer.MIN_VALUE || maxChunkZ > Integer.MAX_VALUE)
++            throw new IllegalArgumentException("Feature bounds exceed supported chunk coordinates");
++
++        long count = (maxChunkX - minChunkX + 1L) * (maxChunkZ - minChunkZ + 1L);
++        if (count > 1_000_000L) throw new IllegalArgumentException("Feature dependency halo is unreasonably large: " + count);
++        Set<ChunkPos> result = new TreeSet<>();
++        for (long x = minChunkX; x <= maxChunkX; x++)
++            for (long z = minChunkZ; z <= maxChunkZ; z++) result.add(new ChunkPos((int) x, (int) z));
++        return Set.copyOf(result);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/GenerationBarrierCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/GenerationBarrierCoordinator.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..75c67c4c3d49f44b35880406430e3a82117ff06d
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/GenerationBarrierCoordinator.java
+@@ -0,0 +1,139 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.ArrayList;
++import java.util.Collection;
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Objects;
++import java.util.Set;
++import java.util.TreeSet;
++import java.util.concurrent.CompletableFuture;
++
++/**
++ * Non-blocking generation dependency coordinator.
++ *
++ * The scheduler must request/schedule every source chunk in a target's dependency
++ * set, then call sourcePopulationComplete only after that source's full feature
++ * population has committed its placement journal entries. The target may be
++ * finalized only after its returned future completes. No worker thread waits.
++ */
++public final class GenerationBarrierCoordinator {
++    public record BarrierTicket(ChunkPos target, List<ChunkPos> dependencies) {
++        public BarrierTicket {
++            Objects.requireNonNull(target, "target");
++            dependencies = List.copyOf(dependencies);
++        }
++    }
++
++    private final Map<ChunkPos, Throwable> failedSources = new HashMap<>();
++    private final Set<ChunkPos> completedSources = new HashSet<>();
++    private final Map<ChunkPos, List<Waiter>> waitersBySource = new HashMap<>();
++
++    /** Build the dependency halo from all enabled feature write bounds. */
++    public static List<ChunkPos> dependenciesFor(ChunkPos target, Collection<FeatureWriteBounds> bounds) {
++        Objects.requireNonNull(target, "target");
++        Objects.requireNonNull(bounds, "bounds");
++        Set<ChunkPos> dependencies = new TreeSet<>();
++        for (FeatureWriteBounds feature : bounds) dependencies.addAll(feature.sourceChunksForTarget(target));
++        dependencies.add(target); // target's own feature pass is always part of the barrier
++        return dependencies.stream().sorted().toList();
++    }
++
++    /**
++     * Returns immediately with a future. The future completes when all source
++     * chunks have completed feature population; failures propagate exceptionally.
++     */
++    public CompletableFuture<BarrierTicket> awaitTarget(
++            ChunkPos target, Collection<FeatureWriteBounds> enabledBounds) {
++        List<ChunkPos> dependencies = dependenciesFor(target, enabledBounds);
++        CompletableFuture<BarrierTicket> future = new CompletableFuture<>();
++        List<Throwable> failures = new ArrayList<>();
++        synchronized (this) {
++            for (ChunkPos source : dependencies) {
++                Throwable failure = failedSources.get(source);
++                if (failure != null) failures.add(failure);
++            }
++            if (!failures.isEmpty()) {
++                future.completeExceptionally(failures.get(0));
++                return future;
++            }
++            List<ChunkPos> pending = dependencies.stream().filter(source -> !completedSources.contains(source)).toList();
++            if (pending.isEmpty()) {
++                future.complete(new BarrierTicket(target, dependencies));
++                return future;
++            }
++            Waiter waiter = new Waiter(target, dependencies, new HashSet<>(pending), future);
++            for (ChunkPos source : pending)
++                waitersBySource.computeIfAbsent(source, ignored -> new ArrayList<>()).add(waiter);
++        }
++        return future;
++    }
++
++    /** Call only after all feature placements originating in source are durably committed. */
++    public void sourcePopulationComplete(ChunkPos source) {
++        Objects.requireNonNull(source, "source");
++        List<Waiter> affected;
++        synchronized (this) {
++            if (failedSources.containsKey(source)) throw new IllegalStateException("Source chunk already failed: " + source);
++            if (!completedSources.add(source)) return;
++            affected = waitersBySource.remove(source);
++        }
++        if (affected == null) return;
++        for (Waiter waiter : affected) {
++            boolean ready;
++            synchronized (this) {
++                waiter.pending.remove(source);
++                ready = waiter.pending.isEmpty() && !waiter.future.isDone();
++            }
++            if (ready) waiter.future.complete(new BarrierTicket(waiter.target, waiter.dependencies));
++        }
++    }
++
++    /** A failed source prevents dependent targets from being finalized as complete. */
++    public void sourcePopulationFailed(ChunkPos source, Throwable failure) {
++        Objects.requireNonNull(source, "source");
++        Objects.requireNonNull(failure, "failure");
++        List<Waiter> affected;
++        synchronized (this) {
++            if (completedSources.contains(source)) throw new IllegalStateException("Source chunk already completed: " + source);
++            failedSources.putIfAbsent(source, failure);
++            affected = waitersBySource.remove(source);
++        }
++        if (affected != null) {
++            for (Waiter waiter : affected) {
++                waiter.future.completeExceptionally(failure);
++                removeWaiterFromOtherSources(waiter, source);
++            }
++        }
++    }
++
++    /** Snapshot useful for diagnostics; never used as a readiness substitute. */
++    public synchronized Set<ChunkPos> completedSourcesSnapshot() { return Set.copyOf(completedSources); }
++
++    private void removeWaiterFromOtherSources(Waiter waiter, ChunkPos failedSource) {
++        synchronized (this) {
++            for (ChunkPos source : waiter.pending) {
++                if (source.equals(failedSource)) continue;
++                List<Waiter> list = waitersBySource.get(source);
++                if (list != null) {
++                    list.remove(waiter);
++                    if (list.isEmpty()) waitersBySource.remove(source);
++                }
++            }
++            waiter.pending.clear();
++        }
++    }
++
++    private static final class Waiter {
++        final ChunkPos target;
++        final List<ChunkPos> dependencies;
++        final Set<ChunkPos> pending;
++        final CompletableFuture<BarrierTicket> future;
++        Waiter(ChunkPos target, List<ChunkPos> dependencies, Set<ChunkPos> pending,
++               CompletableFuture<BarrierTicket> future) {
++            this.target = target; this.dependencies = dependencies; this.pending = pending; this.future = future;
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/PlacementKey.java b/src/main/java/org/powernukkitx/terra/crosschunk/PlacementKey.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..12ad383ca7df2672e78b870b9f4deb544f75beec
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/PlacementKey.java
+@@ -0,0 +1,77 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.nio.ByteBuffer;
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.security.NoSuchAlgorithmException;
++import java.util.HexFormat;
++import java.util.Objects;
++
++/**
++ * Stable identity of one logical structure placement. All inputs must be
++ * deterministic and independent of generation-thread scheduling.
++ */
++public final class PlacementKey implements Comparable<PlacementKey> {
++    private static final byte[] DOMAIN = "PNX-TERRA-PLACEMENT-V1".getBytes(StandardCharsets.UTF_8);
++    private final byte[] value;
++
++    private PlacementKey(byte[] value) {
++        if (value.length != 32) throw new IllegalArgumentException("SHA-256 key must be 32 bytes");
++        this.value = value.clone();
++    }
++
++    public static PlacementKey create(long worldSeed, String dimensionId,
++                                      String featureId, String structureId,
++                                      int anchorX, int anchorY, int anchorZ,
++                                      int rotation, String nestedPath) {
++        Objects.requireNonNull(dimensionId, "dimensionId");
++        Objects.requireNonNull(featureId, "featureId");
++        Objects.requireNonNull(structureId, "structureId");
++        Objects.requireNonNull(nestedPath, "nestedPath");
++        try {
++            MessageDigest digest = MessageDigest.getInstance("SHA-256");
++            digest.update(DOMAIN);
++            putLong(digest, worldSeed);
++            putString(digest, dimensionId);
++            putString(digest, featureId);
++            putString(digest, structureId);
++            putInt(digest, anchorX);
++            putInt(digest, anchorY);
++            putInt(digest, anchorZ);
++            putInt(digest, rotation);
++            putString(digest, nestedPath);
++            return new PlacementKey(digest.digest());
++        } catch (NoSuchAlgorithmException impossible) {
++            throw new AssertionError("SHA-256 is required by the Java runtime", impossible);
++        }
++    }
++
++    public static PlacementKey fromBytes(byte[] bytes) { return new PlacementKey(bytes); }
++    public byte[] bytes() { return value.clone(); }
++    public String hex() { return HexFormat.of().formatHex(value); }
++
++    @Override public int compareTo(PlacementKey other) {
++        for (int i = 0; i < value.length; i++) {
++            int a = value[i] & 0xff, b = other.value[i] & 0xff;
++            if (a != b) return Integer.compare(a, b);
++        }
++        return 0;
++    }
++    @Override public boolean equals(Object other) {
++        return other instanceof PlacementKey key && MessageDigest.isEqual(value, key.value);
++    }
++    @Override public int hashCode() { return ByteBuffer.wrap(value).getInt(); }
++    @Override public String toString() { return hex(); }
++
++    private static void putString(MessageDigest d, String value) {
++        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
++        putInt(d, bytes.length);
++        d.update(bytes);
++    }
++    private static void putInt(MessageDigest d, int value) {
++        d.update(ByteBuffer.allocate(Integer.BYTES).putInt(value).array());
++    }
++    private static void putLong(MessageDigest d, long value) {
++        d.update(ByteBuffer.allocate(Long.BYTES).putLong(value).array());
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxBlockStatePayloadCodec.java b/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxBlockStatePayloadCodec.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..feac98ddefcb209748181cc15bc1611709d9012d
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxBlockStatePayloadCodec.java
+@@ -0,0 +1,74 @@
++package org.powernukkitx.terra.crosschunk.pnx;
++
++import org.powernukkitx.block.BlockProperties;
++import org.powernukkitx.block.BlockState;
++import org.powernukkitx.registry.Registries;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.IOException;
++import java.util.Objects;
++
++/**
++ * Stable, registry-aware payload for a PNX BlockState.
++ *
++ * The payload deliberately stores identifier + specialValue, not the runtime
++ * block-state hash. The hash is an implementation detail and is not a durable
++ * cross-version identifier. The receiving server must use the same registered
++ * block definitions; unknown identifiers/states fail closed.
++ */
++public final class PnxBlockStatePayloadCodec {
++    private static final int MAGIC = 0x504E5853; // PNXS
++    private static final short VERSION = 1;
++    private static final int MAX_IDENTIFIER_CHARS = 512;
++
++    private PnxBlockStatePayloadCodec() {}
++
++    public static byte[] encode(BlockState state) throws IOException {
++        Objects.requireNonNull(state, "state");
++        String identifier = Objects.requireNonNull(state.getIdentifier(), "state identifier");
++        if (identifier.isBlank() || identifier.length() > MAX_IDENTIFIER_CHARS) {
++            throw new IOException("Invalid PNX block identifier length");
++        }
++        BlockProperties properties = Registries.BLOCK.getBlockProperties(identifier);
++        if (properties == null || !properties.containBlockState(state)) {
++            throw new IOException("Block state is not canonical in the active PNX registry: " + identifier);
++        }
++        ByteArrayOutputStream bytes = new ByteArrayOutputStream(64);
++        try (DataOutputStream out = new DataOutputStream(bytes)) {
++            out.writeInt(MAGIC);
++            out.writeShort(VERSION);
++            out.writeUTF(identifier);
++            out.writeShort(state.specialValue());
++        }
++        return bytes.toByteArray();
++    }
++
++    public static BlockState decode(byte[] payload) throws IOException {
++        Objects.requireNonNull(payload, "payload");
++        if (payload.length < 10 || payload.length > 1024) {
++            throw new IOException("Invalid PNX block-state payload length");
++        }
++        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload))) {
++            if (in.readInt() != MAGIC) throw new IOException("Invalid PNX block-state payload magic");
++            if (in.readShort() != VERSION) throw new IOException("Unsupported PNX block-state payload version");
++            String identifier = in.readUTF();
++            if (identifier.isBlank() || identifier.length() > MAX_IDENTIFIER_CHARS) {
++                throw new IOException("Invalid PNX block identifier");
++            }
++            short specialValue = in.readShort();
++            if (in.available() != 0) throw new IOException("Trailing bytes in PNX block-state payload");
++            BlockProperties properties = Registries.BLOCK.getBlockProperties(identifier);
++            if (properties == null) throw new IOException("Unregistered PNX block identifier: " + identifier);
++            BlockState state = properties.getBlockState(specialValue);
++            if (state == null || !identifier.equals(state.getIdentifier())) {
++                throw new IOException("Unknown PNX block-state value for " + identifier + ": " + specialValue);
++            }
++            return state;
++        } catch (IllegalArgumentException malformed) {
++            throw new IOException("Malformed PNX block-state payload", malformed);
++        }
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java b/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a6a4304c9f2472aea423a7dac9b6ceb993d7dab
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/pnx/PnxJournalChunkApplier.java
+@@ -0,0 +1,176 @@
++package org.powernukkitx.terra.crosschunk.pnx;
++
++import org.powernukkitx.block.Block;
++import org.powernukkitx.block.BlockState;
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.level.generator.object.BlockManager;
++import org.powernukkitx.terra.crosschunk.AppliedChunkLedger;
++import org.powernukkitx.terra.crosschunk.ChunkOperationDigest;
++import org.powernukkitx.terra.crosschunk.ChunkPos;
++import org.powernukkitx.terra.crosschunk.CrossChunkOperation;
++import org.powernukkitx.terra.crosschunk.CrossChunkPlacementJournal;
++
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Objects;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.Executor;
++import java.util.concurrent.atomic.AtomicReference;
++import java.util.function.Predicate;
++
++/**
++ * Applies the durable journal snapshot to an already-loaded/generated PNX chunk.
++ * It never requests or force-loads a target chunk. Persistence is injected so
++ * the PNX integration can use its actual provider save path and acknowledge
++ * only after that save has completed successfully.
++ */
++public final class PnxJournalChunkApplier {
++    @FunctionalInterface
++    public interface ChunkPersister {
++        CompletableFuture<Void> persist(IChunk chunk);
++    }
++
++    public record ApplyResult(ChunkPos chunk, int operationsApplied, byte[] snapshotDigest) {
++        public ApplyResult {
++            snapshotDigest = snapshotDigest.clone();
++        }
++        @Override public byte[] snapshotDigest() { return snapshotDigest.clone(); }
++    }
++
++    private final Level level;
++    private final CrossChunkPlacementJournal journal;
++    private final AppliedChunkLedger ledger;
++    private final Predicate<Block> replaceable;
++    private final Executor generationExecutor;
++    private final ConcurrentHashMap<ChunkPos, CompletableFuture<Void>> tails = new ConcurrentHashMap<>();
++
++    public PnxJournalChunkApplier(Level level, CrossChunkPlacementJournal journal,
++                                  AppliedChunkLedger ledger, Predicate<Block> replaceable,
++                                  Executor generationExecutor) {
++        this.level = Objects.requireNonNull(level, "level");
++        this.journal = Objects.requireNonNull(journal, "journal");
++        this.ledger = Objects.requireNonNull(ledger, "ledger");
++        this.replaceable = Objects.requireNonNull(replaceable, "replaceable");
++        this.generationExecutor = Objects.requireNonNull(generationExecutor, "generationExecutor");
++    }
++
++    /**
++     * Serializes applications per target chunk. If new placements arrive while
++     * the previous snapshot is being persisted, it takes and applies the newer
++     * snapshot before completing. Failed persistence leaves the ledger
++     * unacknowledged, so retry safely replays the idempotent snapshot.
++     */
++    public CompletableFuture<ApplyResult> applyLatest(ChunkPos target, ChunkPersister persister) {
++        Objects.requireNonNull(target, "target");
++        Objects.requireNonNull(persister, "persister");
++        AtomicReference<CompletableFuture<ApplyResult>> result = new AtomicReference<>();
++        tails.compute(target, (key, priorTail) -> {
++            CompletableFuture<Void> base = priorTail == null
++                    ? CompletableFuture.completedFuture(null)
++                    : priorTail.handle((ignored, failure) -> null);
++            CompletableFuture<ApplyResult> operation = base.thenComposeAsync(ignored -> applyUntilStable(key, persister), generationExecutor);
++            result.set(operation);
++            return operation.handle((ignored, failure) -> null);
++        });
++        return result.get();
++    }
++
++    private CompletableFuture<ApplyResult> applyUntilStable(ChunkPos target, ChunkPersister persister) {
++        final List<CrossChunkOperation> snapshot = journal.operationsForChunk(target.x(), target.z());
++        final byte[] digest = ChunkOperationDigest.calculate(snapshot);
++        if (ledger.isApplied(target, digest)) {
++            return CompletableFuture.completedFuture(new ApplyResult(target, 0, digest));
++        }
++
++        final IChunk chunk = level.getChunkIfLoaded(target.x(), target.z());
++        if (chunk == null) {
++            return CompletableFuture.failedFuture(new IllegalStateException(
++                    "Target chunk is not loaded; refusing to force-load " + target));
++        }
++        if (!chunk.isGenerated() || !chunk.isInitiated()) {
++            return CompletableFuture.failedFuture(new IllegalStateException(
++                    "Target chunk is not generated and initialized: " + target));
++        }
++
++        final int applied;
++        try {
++            applied = applySnapshot(chunk, snapshot);
++        } catch (Throwable failure) {
++            return CompletableFuture.failedFuture(failure);
++        }
++
++        CompletableFuture<Void> persisted;
++        try {
++            persisted = Objects.requireNonNull(persister.persist(chunk), "persister returned null future");
++        } catch (Throwable failure) {
++            return CompletableFuture.failedFuture(failure);
++        }
++        return persisted.thenComposeAsync(ignored -> {
++            try {
++                ledger.markApplied(target, digest);
++            } catch (IOException failure) {
++                return CompletableFuture.failedFuture(failure);
++            }
++            byte[] currentDigest = ChunkOperationDigest.calculate(
++                    journal.operationsForChunk(target.x(), target.z()));
++            if (!java.security.MessageDigest.isEqual(digest, currentDigest)) {
++                return applyUntilStable(target, persister);
++            }
++            return CompletableFuture.completedFuture(new ApplyResult(target, applied, digest));
++        }, generationExecutor);
++    }
++
++    private int applySnapshot(IChunk chunk, List<CrossChunkOperation> operations) throws IOException {
++        if (operations.isEmpty()) return 0;
++        Map<BlockLayer, List<CrossChunkOperation>> candidates = new HashMap<>();
++        for (CrossChunkOperation operation : operations) {
++            if (operation.targetChunkX() != chunk.getX() || operation.targetChunkZ() != chunk.getZ()) {
++                throw new IOException("Journal returned operation for the wrong target chunk");
++            }
++            if (operation.y() < chunk.getDimensionData().getMinHeight()
++                    || operation.y() > chunk.getDimensionData().getMaxHeight()) {
++                throw new IOException("Journal operation is outside dimension height: " + operation.y());
++            }
++            candidates.computeIfAbsent(new BlockLayer(operation.x(), operation.y(), operation.z(), operation.layer()),
++                    ignored -> new ArrayList<>()).add(operation);
++        }
++
++        synchronized (chunk) {
++        if (level.getChunkIfLoaded(chunk.getX(), chunk.getZ()) != chunk) {
++            throw new IOException("Target chunk was unloaded before journal application: " + chunk.getX() + "," + chunk.getZ());
++        }
++        BlockManager manager = new BlockManager(level);
++        int applied = 0;
++        List<Map.Entry<BlockLayer, List<CrossChunkOperation>>> ordered = new ArrayList<>(candidates.entrySet());
++        ordered.sort(Map.Entry.comparingByKey(Comparator.comparingInt(BlockLayer::x)
++                .thenComparingInt(BlockLayer::y).thenComparingInt(BlockLayer::z).thenComparingInt(BlockLayer::layer)));
++        for (var entry : ordered) {
++            BlockLayer position = entry.getKey();
++            BlockState baseState = chunk.getBlockState(position.x() & 15, position.y(), position.z() & 15, position.layer());
++            Block baseBlock = Block.get(baseState, level, position.x(), position.y(), position.z(), position.layer());
++            boolean canReplace = replaceable.test(baseBlock);
++            var winner = CrossChunkPlacementJournal.resolveWinner(entry.getValue(), canReplace);
++            if (winner.isEmpty()) continue;
++            BlockState targetState = PnxBlockStatePayloadCodec.decode(winner.get().statePayload());
++            manager.setBlockStateAt(position.x(), position.y(), position.z(), position.layer(), targetState);
++            applied++;
++        }
++        manager.applySubChunkUpdate();
++        return applied;
++        }
++    }
++
++    /** Remove an idle tail after the caller has completed chunk unload. */
++    public boolean forget(ChunkPos chunk) {
++        CompletableFuture<Void> tail = tails.get(chunk);
++        return tail == null || (tail.isDone() && tails.remove(chunk, tail));
++    }
++
++    private record BlockLayer(int x, int y, int z, int layer) {}
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/ChunkGenerationRequestCoordinatorTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/ChunkGenerationRequestCoordinatorTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..cdc180f79238bbd99ea77a7f3f29466a42c8f725
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/ChunkGenerationRequestCoordinatorTest.java
+@@ -0,0 +1,150 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.CompletionException;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.concurrent.Future;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.atomic.AtomicInteger;
++
++public final class ChunkGenerationRequestCoordinatorTest {
++    public static void main(String[] args) {
++        coalescesAndExtendsTarget();
++        concurrentBurstUsesSinglePipeline();
++        skipsDurablyCompletedPhases();
++        failedPhaseCanBeRetried();
++        idleSlotCanBeForgotten();
++        System.out.println("PASS: request coalescing, target extension, completed-phase skip, retry, unload cleanup");
++    }
++
++    private static void coalescesAndExtendsTarget() {
++        ChunkPos pos = new ChunkPos(-3, 7);
++        ManualDriver driver = new ManualDriver();
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        CompletableFuture<Void> generated = coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.GENERATED);
++        CompletableFuture<Void> populated = coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.POPULATED);
++        CompletableFuture<Void> finalized = coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.FINALIZED);
++        check(driver.calls(pos) == 1, "only TERRAIN should be running initially");
++        check(driver.phases(pos).equals(List.of(ChunkGenerationRequestCoordinator.Phase.TERRAIN)), "first phase order");
++        driver.completeNext(pos);
++        check(driver.phases(pos).get(1) == ChunkGenerationRequestCoordinator.Phase.GENERATED, "generated phase follows terrain");
++        driver.completeNext(pos);
++        check(generated.isDone() && !populated.isDone() && !finalized.isDone(), "waiters complete at their own requested phase");
++        driver.completeNext(pos);
++        driver.completeNext(pos);
++        check(populated.isDone() && !finalized.isDone(), "populate waiter completes without waiting for finalization");
++        driver.completeNext(pos);
++        finalized.join();
++        check(driver.phases(pos).equals(List.of(
++                ChunkGenerationRequestCoordinator.Phase.TERRAIN,
++                ChunkGenerationRequestCoordinator.Phase.GENERATED,
++                ChunkGenerationRequestCoordinator.Phase.STRUCTURES,
++                ChunkGenerationRequestCoordinator.Phase.POPULATED,
++                ChunkGenerationRequestCoordinator.Phase.FINALIZED)), "each phase runs exactly once in order");
++    }
++
++    private static void concurrentBurstUsesSinglePipeline() {
++        ChunkPos pos = new ChunkPos(-120, 85);
++        ManualDriver driver = new ManualDriver();
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        ExecutorService pool = Executors.newFixedThreadPool(8);
++        try {
++            List<Future<CompletableFuture<Void>>> submissions = new ArrayList<>();
++            ChunkGenerationRequestCoordinator.Phase[] phases = ChunkGenerationRequestCoordinator.Phase.values();
++            for (int i = 0; i < 160; i++) {
++                final var phase = phases[1 + (i % (phases.length - 1))];
++                submissions.add(pool.submit(() -> coordinator.request(pos, phase)));
++            }
++            List<CompletableFuture<Void>> waiters = new ArrayList<>();
++            for (Future<CompletableFuture<Void>> submission : submissions) waiters.add(submission.get());
++            while (waiters.stream().anyMatch(future -> !future.isDone())) driver.completeNext(pos);
++            waiters.forEach(CompletableFuture::join);
++            check(driver.phases(pos).size() == phases.length - 1, "concurrent burst must run each phase exactly once");
++            check(driver.phases(pos).get(driver.phases(pos).size() - 1) == ChunkGenerationRequestCoordinator.Phase.FINALIZED,
++                    "highest concurrent request must extend the shared pipeline");
++        } catch (Exception failure) {
++            throw new AssertionError("concurrent burst failed", failure);
++        } finally {
++            pool.shutdownNow();
++        }
++    }
++
++    private static void skipsDurablyCompletedPhases() {
++        ChunkPos pos = new ChunkPos(0, 0);
++        ManualDriver driver = new ManualDriver();
++        driver.persisted.put(pos, ChunkGenerationRequestCoordinator.Phase.POPULATED);
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.POPULATED).join();
++        check(driver.calls(pos) == 0, "already populated chunk must not be regenerated");
++        coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.FINALIZED);
++        check(driver.phases(pos).equals(List.of(ChunkGenerationRequestCoordinator.Phase.FINALIZED)), "resume at next missing phase");
++        driver.completeNext(pos);
++    }
++
++    private static void failedPhaseCanBeRetried() {
++        ChunkPos pos = new ChunkPos(4, -9);
++        ManualDriver driver = new ManualDriver();
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        CompletableFuture<Void> first = coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.POPULATED);
++        driver.failNext(pos, new IllegalStateException("simulated stage failure"));
++        check(first.isCompletedExceptionally(), "failed phase must fail current waiter");
++        CompletableFuture<Void> retry = coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.POPULATED);
++        check(driver.calls(pos) == 2, "retry starts from last durably completed phase");
++        while (!retry.isDone()) driver.completeNext(pos);
++        retry.join();
++    }
++
++    private static void idleSlotCanBeForgotten() {
++        ChunkPos pos = new ChunkPos(1, 1);
++        ManualDriver driver = new ManualDriver();
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        coordinator.request(pos, ChunkGenerationRequestCoordinator.Phase.TERRAIN);
++        check(!coordinator.forget(pos), "active slot cannot be forgotten");
++        driver.completeNext(pos);
++        check(coordinator.forget(pos), "idle slot can be forgotten after unload");
++        check(coordinator.trackedChunks() == 0, "forget releases retained slot");
++    }
++
++    private static void check(boolean condition, String message) {
++        if (!condition) throw new AssertionError(message);
++    }
++
++    private static final class ManualDriver implements ChunkGenerationRequestCoordinator.Driver {
++        private final Map<ChunkPos, ChunkGenerationRequestCoordinator.Phase> persisted = new ConcurrentHashMap<>();
++        private final Map<ChunkPos, List<ChunkGenerationRequestCoordinator.Phase>> history = new ConcurrentHashMap<>();
++        private final Map<ChunkPos, List<CompletableFuture<Void>>> pending = new ConcurrentHashMap<>();
++        private final AtomicInteger calls = new AtomicInteger();
++
++        @Override
++        public ChunkGenerationRequestCoordinator.Phase completedPhase(ChunkPos chunk) {
++            return persisted.getOrDefault(chunk, ChunkGenerationRequestCoordinator.Phase.NEW);
++        }
++
++        @Override
++        public CompletableFuture<Void> runPhase(ChunkPos chunk, ChunkGenerationRequestCoordinator.Phase phase) {
++            calls.incrementAndGet();
++            history.computeIfAbsent(chunk, ignored -> new ArrayList<>()).add(phase);
++            CompletableFuture<Void> future = new CompletableFuture<>();
++            pending.computeIfAbsent(chunk, ignored -> new ArrayList<>()).add(future);
++            return future.thenRun(() -> persisted.put(chunk, phase));
++        }
++
++        int calls(ChunkPos chunk) { return history.getOrDefault(chunk, List.of()).size(); }
++        List<ChunkGenerationRequestCoordinator.Phase> phases(ChunkPos chunk) { return history.getOrDefault(chunk, List.of()); }
++
++        void completeNext(ChunkPos chunk) {
++            List<CompletableFuture<Void>> list = pending.get(chunk);
++            CompletableFuture<Void> future = list.remove(0);
++            future.complete(null);
++        }
++
++        void failNext(ChunkPos chunk, Throwable failure) {
++            List<CompletableFuture<Void>> list = pending.get(chunk);
++            list.remove(0).completeExceptionally(failure);
++        }
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/CrossChunkDependencySchedulerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/CrossChunkDependencySchedulerTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb6b771dcca34edb7971507ba4bd89a2b4f06e67
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/CrossChunkDependencySchedulerTest.java
+@@ -0,0 +1,74 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.ConcurrentHashMap;
++
++public final class CrossChunkDependencySchedulerTest {
++    public static void main(String[] args) {
++        schedulesEveryPotentialSourceThroughPopulation();
++        propagatesSourceFailure();
++        System.out.println("PASS: dependency halo scheduling, POPULATED barrier, source failure propagation");
++    }
++
++    private static void schedulesEveryPotentialSourceThroughPopulation() {
++        ChunkPos target = new ChunkPos(-1, 2);
++        List<FeatureWriteBounds> bounds = List.of(
++                new FeatureWriteBounds("castle", -40, 55, -8, 24),
++                new FeatureWriteBounds("bridge", 0, 30, -2, 2));
++        List<ChunkPos> expected = GenerationBarrierCoordinator.dependenciesFor(target, bounds);
++        ImmediateDriver driver = new ImmediateDriver();
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        CrossChunkDependencyScheduler scheduler = new CrossChunkDependencyScheduler(coordinator, bounds);
++        GenerationBarrierCoordinator.BarrierTicket ticket = scheduler.awaitTargetPopulation(target).join();
++        check(ticket.dependencies().equals(expected), "ticket contains exact sorted dependency halo");
++        check(ticket.dependencies().contains(target), "target includes itself");
++        for (ChunkPos source : expected) {
++            List<ChunkGenerationRequestCoordinator.Phase> phases = driver.history.get(source);
++            check(phases != null, "every source chunk was scheduled: " + source);
++            check(phases.equals(List.of(
++                    ChunkGenerationRequestCoordinator.Phase.TERRAIN,
++                    ChunkGenerationRequestCoordinator.Phase.GENERATED,
++                    ChunkGenerationRequestCoordinator.Phase.STRUCTURES,
++                    ChunkGenerationRequestCoordinator.Phase.POPULATED)), "source reached POPULATED: " + source);
++        }
++    }
++
++    private static void propagatesSourceFailure() {
++        ChunkPos target = new ChunkPos(0, 0);
++        FeatureWriteBounds bounds = new FeatureWriteBounds("wide_structure", -20, 20, -20, 20);
++        FailingDriver driver = new FailingDriver();
++        ChunkGenerationRequestCoordinator coordinator = new ChunkGenerationRequestCoordinator(driver);
++        CrossChunkDependencyScheduler scheduler = new CrossChunkDependencyScheduler(coordinator, List.of(bounds));
++        CompletableFuture<GenerationBarrierCoordinator.BarrierTicket> future = scheduler.awaitTargetPopulation(target);
++        check(future.isCompletedExceptionally(), "dependency failure must fail target readiness");
++    }
++
++    private static void check(boolean condition, String message) {
++        if (!condition) throw new AssertionError(message);
++    }
++
++    private static final class ImmediateDriver implements ChunkGenerationRequestCoordinator.Driver {
++        final Map<ChunkPos, ChunkGenerationRequestCoordinator.Phase> completed = new ConcurrentHashMap<>();
++        final Map<ChunkPos, List<ChunkGenerationRequestCoordinator.Phase>> history = new ConcurrentHashMap<>();
++        @Override public ChunkGenerationRequestCoordinator.Phase completedPhase(ChunkPos chunk) {
++            return completed.getOrDefault(chunk, ChunkGenerationRequestCoordinator.Phase.NEW);
++        }
++        @Override public CompletableFuture<Void> runPhase(ChunkPos chunk, ChunkGenerationRequestCoordinator.Phase phase) {
++            history.computeIfAbsent(chunk, ignored -> new ArrayList<>()).add(phase);
++            completed.put(chunk, phase);
++            return CompletableFuture.completedFuture(null);
++        }
++    }
++
++    private static final class FailingDriver implements ChunkGenerationRequestCoordinator.Driver {
++        @Override public ChunkGenerationRequestCoordinator.Phase completedPhase(ChunkPos chunk) {
++            return ChunkGenerationRequestCoordinator.Phase.NEW;
++        }
++        @Override public CompletableFuture<Void> runPhase(ChunkPos chunk, ChunkGenerationRequestCoordinator.Phase phase) {
++            return CompletableFuture.failedFuture(new IllegalStateException("source failed"));
++        }
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/JournalSmokeTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/JournalSmokeTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..25a9fcf16d47840a6974711e32787b73069f50ee
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/JournalSmokeTest.java
+@@ -0,0 +1,40 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.List;
++
++public final class JournalSmokeTest {
++    public static void main(String[] args) throws Exception {
++        Path dir = Files.createTempDirectory("terra-cross-chunk-test");
++        Path file = dir.resolve("placements.log");
++        PlacementKey key = PlacementKey.create(42L, "minecraft:overworld", "origen:fortress",
++                "origen:fortress_large", -1, 80, 17, 2, "root/structure[0]");
++        CrossChunkOperation op = new CrossChunkOperation(-1, 80, 17, 0, 10,
++                CrossChunkOperation.ConflictPolicy.EXCLUSIVE, key, 0, new byte[]{1, 2, 3});
++        PlacementKey competing = PlacementKey.create(42L, "minecraft:overworld", "origen:village",
++                "origen:house", -1, 80, 17, 0, "root");
++        CrossChunkOperation exclusive = new CrossChunkOperation(-1, 80, 17, 0, 5,
++                CrossChunkOperation.ConflictPolicy.EXCLUSIVE, competing, 0, new byte[]{9});
++        var winnerA = CrossChunkPlacementJournal.resolveWinner(List.of(op, exclusive), true).orElseThrow();
++        var winnerB = CrossChunkPlacementJournal.resolveWinner(List.of(exclusive, op), true).orElseThrow();
++        if (!winnerA.equals(winnerB) || !winnerA.placementKey().equals(key)) {
++            throw new AssertionError("conflict winner depends on arrival order");
++        }
++        CrossChunkOperation replaceable = new CrossChunkOperation(-1, 80, 17, 0, 100,
++                CrossChunkOperation.ConflictPolicy.REPLACEABLE_ONLY, competing, 1, new byte[]{7});
++        if (CrossChunkPlacementJournal.resolveWinner(List.of(replaceable), false).isPresent()) {
++            throw new AssertionError("REPLACEABLE_ONLY ignored base terrain");
++        }
++        try (CrossChunkPlacementJournal journal = new CrossChunkPlacementJournal(file)) {
++            if (!journal.append(key, List.of(op))) throw new AssertionError("first append not stored");
++            if (journal.append(key, List.of(op))) throw new AssertionError("duplicate append not idempotent");
++            if (journal.operationsForChunk(-1, 1).size() != 1) throw new AssertionError("floorDiv target chunk wrong");
++        }
++        Files.write(file, new byte[]{0x50, 0x54}, java.nio.file.StandardOpenOption.APPEND);
++        try (CrossChunkPlacementJournal journal = new CrossChunkPlacementJournal(file)) {
++            if (journal.operationsForChunk(-1, 1).size() != 1) throw new AssertionError("recovery lost committed op");
++        }
++        System.out.println("PASS: deterministic conflict winner, replaceable-only guard, durable append, idempotency, negative-coordinate chunking, torn-tail recovery");
++    }
++}
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage4SmokeTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage4SmokeTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..863c55c6a7eb33794fb22bfe46134fff58a77dbe
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage4SmokeTest.java
+@@ -0,0 +1,77 @@
++package org.powernukkitx.terra.crosschunk;
++
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.List;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.TimeUnit;
++
++public final class Stage4SmokeTest {
++    public static void main(String[] args) throws Exception {
++        boundsIncludeEveryPotentialAnchorChunk();
++        barrierIsNonBlockingAndWaitsForAllSources();
++        failedDependencyFailsTarget();
++        appliedLedgerInvalidatesOnLateArrivalAndRecovers();
++        System.out.println("PASS: bounds, async barrier, failure propagation, late-arrival digest invalidation, ledger recovery");
++    }
++
++    private static void boundsIncludeEveryPotentialAnchorChunk() {
++        FeatureWriteBounds bounds = new FeatureWriteBounds("castle", -40, 55, -17, 31);
++        var sources = bounds.sourceChunksForTarget(new ChunkPos(-1, -1));
++        check(sources.contains(new ChunkPos(-5, -3)), "negative source chunk missing");
++        check(sources.contains(new ChunkPos(2, 1)), "positive source chunk missing");
++        check(sources.size() > 1, "large feature should create a dependency halo");
++    }
++
++    private static void barrierIsNonBlockingAndWaitsForAllSources() throws Exception {
++        GenerationBarrierCoordinator coordinator = new GenerationBarrierCoordinator();
++        ChunkPos target = new ChunkPos(0, 0);
++        List<ChunkPos> dependencies = GenerationBarrierCoordinator.dependenciesFor(target,
++                List.of(new FeatureWriteBounds("village", -20, 20, -20, 20)));
++        CompletableFuture<GenerationBarrierCoordinator.BarrierTicket> future = coordinator.awaitTarget(target,
++                List.of(new FeatureWriteBounds("village", -20, 20, -20, 20)));
++        check(!future.isDone(), "barrier completed before sources");
++        for (ChunkPos source : dependencies) {
++            if (!source.equals(target)) coordinator.sourcePopulationComplete(source);
++        }
++        check(!future.isDone(), "barrier ignored target's own feature pass");
++        coordinator.sourcePopulationComplete(target);
++        var ticket = future.get(1, TimeUnit.SECONDS);
++        check(ticket.dependencies().equals(dependencies), "ticket dependency set mismatch");
++        check(coordinator.awaitTarget(target, List.of()).isDone(), "completed source should satisfy later await");
++    }
++
++    private static void failedDependencyFailsTarget() {
++        GenerationBarrierCoordinator coordinator = new GenerationBarrierCoordinator();
++        ChunkPos target = new ChunkPos(0, 0);
++        var bounds = List.of(new FeatureWriteBounds("fortress", -48, 48, -48, 48));
++        var future = coordinator.awaitTarget(target, bounds);
++        ChunkPos failing = GenerationBarrierCoordinator.dependenciesFor(target, bounds).stream()
++                .filter(p -> !p.equals(target)).findFirst().orElseThrow();
++        coordinator.sourcePopulationFailed(failing, new IllegalStateException("synthetic generation failure"));
++        check(future.isCompletedExceptionally(), "dependent target did not fail");
++    }
++
++    private static void appliedLedgerInvalidatesOnLateArrivalAndRecovers() throws Exception {
++        Path dir = Files.createTempDirectory("pnx-terra-stage4");
++        Path file = dir.resolve("applied.ledger");
++        ChunkPos chunk = new ChunkPos(-2, 7);
++        byte[] first = new byte[32]; first[0] = 1;
++        byte[] later = new byte[32]; later[0] = 2;
++        try (AppliedChunkLedger ledger = new AppliedChunkLedger(file)) {
++            check(ledger.markApplied(chunk, first), "first ack not appended");
++            check(!ledger.markApplied(chunk, first), "duplicate ack appended");
++            check(ledger.isApplied(chunk, first), "ack not visible");
++            check(!ledger.isApplied(chunk, later), "late operation did not invalidate old snapshot");
++            ledger.markApplied(chunk, later);
++        }
++        try (AppliedChunkLedger recovered = new AppliedChunkLedger(file)) {
++            check(recovered.isApplied(chunk, later), "ledger recovery lost latest ack");
++            check(!recovered.isApplied(chunk, first), "ledger recovery restored stale ack");
++        }
++    }
++
++    private static void check(boolean condition, String message) {
++        if (!condition) throw new AssertionError(message);
++    }
++}
