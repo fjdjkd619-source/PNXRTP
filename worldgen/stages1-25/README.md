@@ -4,7 +4,7 @@ This branch is reserved for the unified procedural world-generation project. It 
 
 ## Current gate: BLOCKED
 
-The r6 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. Core and narrow contract tests pass, but full patch application to clean upstream repositories, full adapter compilation, and runtime certification remain outstanding.
+The r7 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. Core and narrow contract tests pass, but full patch application to clean upstream repositories, full adapter compilation, and runtime certification remain outstanding.
 
 ## Pinned upstream revisions
 
@@ -14,15 +14,15 @@ The r6 source overlay is not a complete upstream checkout, full modified-source 
 - Origen: `228426bb192a8d6029952aae1a77008dea5f3cda`
 - Java compile target: 21
 
-## Candidate r6
+## Candidate r7
 
 The latest recovered candidate contains 39 Java source files, 11 core test classes, 19 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
 
 Persistent Library archive:
-`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r6.zip`
+`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r7.zip`
 
 SHA-256:
-`1e5dabc10392bd727d3b7744b02e0bf1d0063edb2abfd462f654af329687b3e0`
+`9874916e2ffeaaac4a3b1c6e5c3cc3fabd815fa41cd692e6431590e03b20a0e9`
 
 The archive is a source overlay only. It is not an installable JAR.
 
