@@ -45,7 +45,7 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
     anchor_maps: dict[str, set[str]] = {}
     lines = source.splitlines()
     for index, line in enumerate(lines):
-        match = re.search(r"&([A-Za-z0-9_-]+)[ \t]*$", line)
+        match = re.search(r"&([A-Za-z0-9_-]+)(?:[ \t]+#.*)?$", line)
         if not match:
             continue
         name = match.group(1)
@@ -76,7 +76,11 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
         if value.startswith("*"):
             alias = value[1:]
             if alias in anchor_maps:
-                roots.update(anchor_maps[alias])
+                for mapped_id in anchor_maps[alias]:
+                    if mapped_id.startswith("BLOCK:"):
+                        block_targets.add(mapped_id)
+                    elif mapped_id != "blank":
+                        roots.add(mapped_id)
                 return
             value = anchor_scalars.get(alias, "")
             if not value:
@@ -113,7 +117,7 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
                 item_id = item.group(1)
                 if item_id.startswith("BLOCK:"):
                     block_targets.update(BLOCK_TARGET.findall(child))
-                else:
+                elif item_id != "blank":
                     roots.add(item_id)
             block_targets.update(BLOCK_TARGET.findall(child))
 
@@ -260,11 +264,13 @@ def main() -> int:
         source = path.read_text(encoding="utf-8")
         record_block_literals(path, source)
         ids, blocks, unresolved = extract_feature_targets(source)
-        if unresolved:
+        is_abstract = bool(re.search(r"(?m)^abstract:\\s*true\\s*$", source))
+        if unresolved and not is_abstract:
             unresolved_features.append(rel)
         block_state_targets.update(blocks)
         feature_records.append({
             "path": rel,
+            "abstract": is_abstract,
             "structure_ids": sorted(ids),
             "block_state_targets": sorted(blocks),
         })
