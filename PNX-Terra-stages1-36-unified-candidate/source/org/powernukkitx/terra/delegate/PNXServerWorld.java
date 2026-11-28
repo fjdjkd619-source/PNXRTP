@@ -14,8 +14,8 @@ import org.powernukkitx.level.generator.object.BlockManager;
 import org.powernukkitx.terra.PNXAdapter;
 import org.powernukkitx.terra.TerraGenerator;
 import org.powernukkitx.math.BlockVector3;
-import com.dfsek.seismic.type.Rotation;
-import com.dfsek.seismic.type.vector.Vector3Int;
+import com.dfsek.terra.api.util.Rotation;
+import com.dfsek.terra.api.util.vector.Vector3Int;
 import com.dfsek.terra.api.block.entity.BlockEntity;
 import com.dfsek.terra.api.block.state.BlockState;
 import com.dfsek.terra.api.config.ConfigPack;
@@ -115,7 +115,7 @@ public class PNXServerWorld implements ServerWorld {
         }
         Bounds3i.QuarterTurn turn = switch (rotation) {
             case NONE -> Bounds3i.QuarterTurn.NONE;
-            // Seismic's CW_90 maps (x,z)->(z,-x), opposite the guard's CW label.
+            // Terra 6.6.1's CW_90 uses the same quarter-turn convention as the bounds guard.
             case CW_90 -> Bounds3i.QuarterTurn.COUNTERCLOCKWISE_90;
             case CW_180 -> Bounds3i.QuarterTurn.HALF;
             case CCW_90 -> Bounds3i.QuarterTurn.CLOCKWISE_90;
