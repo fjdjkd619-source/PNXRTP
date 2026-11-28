@@ -9,14 +9,15 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
-STRUCTURE_SCALAR = re.compile(r"(?m)^structures:[ \t]*(.*?)\s*$")
-STRUCTURE_LIST_ITEM = re.compile(r"^[ \t]+-\s*([A-Za-z0-9_.:/-]+)\s*:")
-ANCHOR = re.compile(r"&([A-Za-z0-9_-]+)\s+([A-Za-z0-9_.:/-]+)")
-NESTED_LITERAL = re.compile(r"""\b(?:structure|placeStructure|place_structure)\s*\(\s*(['"])(.*?)\1""")
-NESTED_CALL = re.compile(r"\b(?:structure|placeStructure|place_structure)\s*\(")
-BLOCK_WRITE = re.compile(r"\bblock\s*\(")
-BLOCK_READ = re.compile(r"\b(?:getBlock|blockState|check)\s*\(")
-LOOP = re.compile(r"\bfor\s*\(")
+STRUCTURES_KEY = re.compile(r"^(?P<indent>[ \\t]*)structures:[ \\t]*(?P<value>.*?)\\s*$")
+STRUCTURE_LIST_ITEM = re.compile(r"^[ \\t]+-\\s*([A-Za-z0-9_.:/-]+)\\s*:")
+ANCHOR = re.compile(r"&([A-Za-z0-9_-]+)\\s+([A-Za-z0-9_.:/-]+)")
+NESTED_LITERAL = re.compile(r"""\\b(?:structure|placeStructure|place_structure)\\s*\\(\\s*(['"])(.*?)\\1""")
+NESTED_CALL = re.compile(r"\\b(?:structure|placeStructure|place_structure)\\s*\\(")
+BLOCK_WRITE = re.compile(r"\\bblock\\s*\\(")
+BLOCK_READ = re.compile(r"\\b(?:getBlock|blockState|check)\\s*\\(")
+LOOP = re.compile(r"\\bfor\\s*\\(")
+BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\\[[^]]+\\])?")
 
 
 def git_head(root: Path) -> str:
@@ -32,38 +33,48 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
     anchors = {name: value for name, value in ANCHOR.findall(source)}
     roots: set[str] = set()
     block_targets: set[str] = set()
-    unresolved = False
+    saw_structures_key = False
     lines = source.splitlines()
+
+    def add_scalar(raw: str) -> bool:
+        value = raw.split("#", 1)[0].strip()
+        if not value:
+            return False
+        if value.startswith("*"):
+            value = anchors.get(value[1:], "")
+        if value.startswith("BLOCK:"):
+            block_targets.add(value)
+            return True
+        if re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
+            roots.add(value)
+            return True
+        return False
+
     for index, line in enumerate(lines):
-        match = STRUCTURE_SCALAR.match(line)
+        match = STRUCTURES_KEY.match(line)
         if not match:
             continue
-        value = match.group(1).split("#", 1)[0].strip()
+        saw_structures_key = True
+        indent = len(match.group("indent").expandtabs(8))
+        value = match.group("value").strip()
         if value:
-            if value.startswith("*"):
-                value = anchors.get(value[1:], "")
-            if value.startswith("BLOCK:"):
-                block_targets.add(value)
-            elif re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
-                roots.add(value)
-            else:
-                unresolved = True
+            add_scalar(value)
             continue
 
-        found_in_section = False
         for child in lines[index + 1:]:
-            if child and not child[0].isspace() and not child.lstrip().startswith("#"):
-                break
+            if child.strip() and not child.lstrip().startswith("#"):
+                child_indent = len(child) - len(child.lstrip(" \\t"))
+                if child_indent <= indent:
+                    break
+            nested_key = STRUCTURES_KEY.match(child)
+            if nested_key and nested_key.group("value").strip():
+                add_scalar(nested_key.group("value").strip())
             item = STRUCTURE_LIST_ITEM.match(child)
             if item:
                 roots.add(item.group(1))
-                found_in_section = True
-            if "BLOCK:" in child:
-                block_targets.update(re.findall(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?", child))
-                found_in_section = True
-        if not found_in_section:
-            unresolved = True
-    return roots, block_targets, unresolved
+            block_targets.update(BLOCK_TARGET.findall(child))
+
+    return roots, block_targets, saw_structures_key and not roots and not block_targets
 
 
 def main() -> int:
@@ -81,16 +92,13 @@ def main() -> int:
         raise SystemExit(f"ConfigPack HEAD mismatch: expected {args.expected_head}, got {actual_head}")
 
     scripts = sorted(root.rglob("*.tesf"))
-    features = sorted(
-        p for p in root.rglob("*.yml")
-        if "features" in p.relative_to(root).parts
-    )
+    features = sorted(p for p in root.rglob("*.yml") if "features" in p.relative_to(root).parts)
     scripts_by_id: dict[str, list[str]] = defaultdict(list)
     script_records = []
     for path in scripts:
         rel = path.relative_to(root).as_posix()
         script_id = path.stem
-        scripts_by_id[script_id].append(rel)
+        scripts_by_id[script_id.lower()].append(rel)
         source = path.read_text(encoding="utf-8")
         nested = NESTED_LITERAL.findall(source)
         nested_ids = sorted({value for _, value in nested})
@@ -107,7 +115,7 @@ def main() -> int:
             "loop_count": len(LOOP.findall(source)),
             "block_write_call_count": len(BLOCK_WRITE.findall(source)),
             "block_read_or_check_call_count": len(BLOCK_READ.findall(source)),
-            "uses_random_or_math": bool(re.search(r"\b(random|randomInt|sampler|pow|sqrt)\b", source)),
+            "uses_random_or_math": bool(re.search(r"\\b(random|randomInt|sampler|pow|sqrt)\\b", source)),
             "notes": "Inventory only. No static bounds are certified by this script.",
         })
 
@@ -127,11 +135,12 @@ def main() -> int:
         })
         for script_id in ids:
             root_refs[script_id].append(rel)
+
     for record in script_records:
         record["root_feature_references"] = sorted(root_refs.get(record["id"], []))
         record["has_root_feature_reference"] = bool(record["root_feature_references"])
 
-    missing = sorted(script_id for script_id in root_refs if script_id not in scripts_by_id)
+    missing = sorted(script_id for script_id in root_refs if script_id.lower() not in scripts_by_id)
     duplicate_ids = {
         script_id: paths for script_id, paths in sorted(scripts_by_id.items()) if len(paths) > 1
     }
@@ -144,7 +153,7 @@ def main() -> int:
         "feature_yaml_count": len(features),
         "feature_structure_reference_count": sum(len(v) for v in root_refs.values()),
         "unique_feature_root_ids": len(root_refs),
-        "matched_feature_root_ids": sum(1 for key in root_refs if key in scripts_by_id),
+        "matched_feature_root_ids": sum(1 for key in root_refs if key.lower() in scripts_by_id),
         "unmatched_feature_root_ids": len(missing),
         "unresolved_feature_yaml_count": len(unresolved_features),
         "duplicate_script_id_count": len(duplicate_ids),
@@ -162,7 +171,7 @@ def main() -> int:
         "duplicate_script_ids": duplicate_ids,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(json.dumps(output, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
     print(json.dumps(summary, sort_keys=True))
     return 0
 
