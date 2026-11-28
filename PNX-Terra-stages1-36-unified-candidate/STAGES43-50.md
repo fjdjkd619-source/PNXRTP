@@ -76,11 +76,12 @@
 
 **Partial implementation committed in R15; Stage 48 is NOT complete.**
 
-- Changed unknown-script resolution from a permissive generic envelope to a deny-all profile: zero read/write/entity budgets. An unlisted structure now aborts on its first attempted operation instead of silently receiving a guessed footprint.
-- Added enabled-root validation to `BoundsCatalogValidator.validateEnabled(...)`. Release validation can now reject any enabled structure without an audited profile and reject wildcard dependencies in audited profiles.
-- Added `apply-stages1-48.sh` to install the tightened catalog and validator into the pinned adapter after stages 1–47.
-- The existing source audit manifest contains many entries marked `UNKNOWN`; these are deliberately not promoted to verified bounds. Current 12 runtime profiles are not evidence of complete coverage; three profiles that relied on wildcard nested dependencies were removed from the enabled catalog until their dependency closures are audited.
-- Still open: certify every enabled root and its transitive scripts from the exact pinned ConfigPack; derive footprints, vertical ranges, budgets, read halos and entity budgets from script behavior; verify Terra↔PNX block/property aliases against both pinned registries; wire world/stage/feature/chunk/coordinate diagnostics through all generation boundaries.
+- Changed unknown-script resolution from a permissive generic envelope to a deny-all profile: zero read/write/entity budgets.
+- Changed `PNXServerWorld.beginPlacement` to reject roots without a verified profile before opening a placement transaction or journal ticket. The warning includes stage, feature, structure, world key, chunk anchor and origin coordinates.
+- Added enabled-root validation to `BoundsCatalogValidator.validateEnabled(...)`. Release validation can reject any enabled structure without an audited profile and reject wildcard dependencies in audited profiles.
+- Added `apply-stages1-48.sh` to install the tightened catalog, validator and root-admission overlay into the pinned adapter after stages 1–47.
+- Coverage audit result: the pinned registry has 159 scripts, all 159 marked UNKNOWN; 73 are feature roots. Only 3 roots match the 12 current runtime profiles; 70 roots lack profiles. Ten scripts have dynamic nested targets. Three profiles that relied on wildcard nested dependencies were removed. Full evidence is in `history/reports/STAGE48-BOUNDS-COVERAGE-R15.md`.
+- Still open: certify every enabled root and its transitive scripts from the exact pinned ConfigPack; derive footprints, vertical ranges, budgets, read halos and entity budgets from script behavior; verify Terra↔PNX block/property aliases against both pinned registries; wire world-aware diagnostics through all generation boundaries.
 - Acceptance: the exact enabled-root set has one verified profile per root, no enabled root uses the deny-all fallback, all alias mappings are registry-verified, and diagnostic/rollback integration is complete.
 
 ## Stage 49 — Medieval-fantasy procedural content pack
