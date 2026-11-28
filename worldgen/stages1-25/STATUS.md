@@ -14,7 +14,7 @@ Regression tests were added for both scheduler races. The independent Java 21 co
 
 Local candidate archive:
 - `PNX-Terra-stages1-25-unified-candidate-2026-11-28.zip`
-- SHA-256: `adaf095ee3796981cb6d928d6950208c35aae9be8d9ae12536ab6d4b971aafdf`
+- SHA-256: `f4fcbd129180e3b5d32115afbfb206ad00ec9065f37eeca72826e40e1db98e89`
 
 This archive remains a source overlay, not a complete upstream checkout or installable plugin.
 
