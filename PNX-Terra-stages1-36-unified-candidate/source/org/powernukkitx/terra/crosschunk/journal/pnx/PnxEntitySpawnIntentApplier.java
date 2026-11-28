@@ -121,8 +121,8 @@ public final class PnxEntitySpawnIntentApplier {
             if (!entity.activateAfterGenerationCommit()) {
                 throw new IllegalStateException("Could not activate staged generation entity " + entity.getUniqueId());
             }
+            entity.spawnToAll();
         }
-        for (Entity entity : batch.stagedToActivate()) entity.spawnToAll();
     }
 
     public static void rollback(Batch batch) {
