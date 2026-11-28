@@ -1,6 +1,6 @@
 # Stages 43–50 — completion plan for R15
 
-**Status: Stages 43–46 source/adapter/core patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 47–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Status: Stages 43–47 source/adapter/core patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 45–47 remain uncompiled and untested. Stages 48–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
@@ -63,12 +63,12 @@
 **Capture and WAL integration code added — not yet built or tested.**
 
 - Replaced the unconditional spawn rejection with a placement-local Terra entity facade. It exposes mutable position/world through the Terra API but creates no live PNX entity during feature execution.
-- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to the existing WAL v4 format.
+- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to the existing WAL v4 format. Entity position changes are rechecked against the same root write envelope and horizontal coordinate range.
 - Nested placements merge staged entity captures into the root savepoint; journal-less legacy construction rejects entity spawning rather than creating a non-durable entity.
-- Extended the PNX placement record factory and committer to carry entity intents; the existing PNX finalizer/applier performs UUID validation, chunk-local staging, synchronous durable save, activation and rollback.
+- Extended the PNX placement record factory and committer to carry entity intents; the existing PNX finalizer/applier performs UUID validation, chunk-local staging, synchronous durable save, activation and rollback. Current capture records only type and position with default yaw/pitch and empty NBT payload because the pinned Terra spawn API exposes no orientation or NBT parameters.
 - Added the Stage 47 patch and ordered runner. Entity factory compatibility, restart replay, cancellation and save-failure behavior remain unverified.
 - Replace the fail-closed PNXServerWorld.spawnEntity placeholder with a Terra spawn-capture path that creates deterministic EntitySpawnIntent records.
-- Preserve stable UUID ownership, entity type, position, rotation and supported NBT payload.
+- Preserve stable UUID ownership, entity type and position. Rotation and custom NBT payloads remain unsupported by the pinned Terra spawn API/adapter capture path; they must not be claimed as implemented.
 - Integrate the deferred PNX entity construction, pre-save staging, durable chunk save, post-save Level activation and network publication sequence.
 - Roll back only entities owned by the failed placement batch; replay must recognize already persisted UUIDs.
 - Acceptance: entity-bearing structures can be generated without early Level/chunk registration; save failure, factory failure, cancelled spawn, duplicate UUID, restart and replay cases preserve transactional guarantees.
