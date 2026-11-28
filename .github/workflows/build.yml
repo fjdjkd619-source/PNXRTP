@@ -1,5 +1,5 @@
 name: R15 full Gradle build and JAR artifacts
-# Rebuild with NetherNet SourcedAddress test compatibility and Maven mirror.
+# Rebuild with Beta8 camera source overlay and validated shell syntax.
 
 on:
   push:
