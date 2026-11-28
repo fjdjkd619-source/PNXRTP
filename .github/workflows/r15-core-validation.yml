@@ -1,16 +1,7 @@
 name: R15 full source-overlay validation
 
 on:
-  push:
-    branches:
-      - R15
-    paths:
-      - "PNX-Terra-stages1-36-unified-candidate/source/**"
-      - "PNX-Terra-stages1-36-unified-candidate/tests/**"
-      - "PNX-Terra-stages1-36-unified-candidate/patches/**"
-      - "PNX-Terra-stages1-36-unified-candidate/validation/**"
-      - "PNX-Terra-stages1-36-unified-candidate/apply-stages*.sh"
-      - ".github/workflows/r15-core-validation.yml"
+  # Hold automated regression suites until the complete 50-stage implementation is ready.
   workflow_dispatch:
 
 jobs:
