@@ -1,0 +1,81 @@
+name: Build pinned upstream baselines
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - worldgen/stages1-25
+    paths:
+      - '.github/workflows/pinned-upstream-builds.yml'
+      - 'worldgen/stages1-25/UPSTREAM-SOURCE-AUDIT.md'
+
+permissions:
+  contents: read
+
+jobs:
+  pnx:
+    name: Build PNX 3.0.6 pinned source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: upstream/pnx
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify pinned commit
+        run: test "$(git -C upstream/pnx rev-parse HEAD)" = "c57499365737654eca32df008751ef6bca5af142"
+      - name: Build PNX
+        working-directory: upstream/pnx
+        run: ./gradlew --no-daemon build
+
+  terra:
+    name: Build Terra 6.6.1-BETA pinned source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/Terra
+          ref: 05ddc8b8a66e17412670647cce78ef837b091256
+          path: upstream/terra
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify pinned commit
+        run: test "$(git -C upstream/terra rev-parse HEAD)" = "05ddc8b8a66e17412670647cce78ef837b091256"
+      - name: Build Terra
+        working-directory: upstream/terra
+        run: ./gradlew --no-daemon build
+
+  pnx-terra:
+    name: Build PNX-Terra 1.0.0 pinned source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: upstream/pnx-terra
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify pinned commit
+        run: test "$(git -C upstream/pnx-terra rev-parse HEAD)" = "74318b4a1eae95322550f12d5eb8a76d92a93731"
+      - name: Build PNX-Terra
+        working-directory: upstream/pnx-terra
+        run: ./gradlew --no-daemon build
