@@ -63,3 +63,18 @@ This is a compatibility baseline only; it does not contain the stages 1–25 ove
 - Produce and verify the integrated stages 1–25 JAR.
 
 Production server and world remain untouched. Do not start stages 26–34 or deploy while the gate is BLOCKED.
+
+
+## Recovery and source-of-truth policy (2026-11-28)
+
+The candidate archive was recovered from the user's persistent ChatGPT Library and materialized successfully:
+
+- Archive: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r3.zip`
+- Size: 934,385 bytes
+- SHA-256: `ca42ec84e497fca7a9e112ff145c5f827c61b3312a6e0aebd2c7c044e01dc804`
+- ZIP integrity: PASS
+- Contents: 119 files (36 Java sources, 11 test classes, 16 active patches, validation records/scripts, historical patch/archive material).
+
+**Working policy:** this GitHub branch is the authoritative project history. Every completed source change, test, patch, and status change must be committed to `worldgen/stages1-25` before moving to the next task. Local/container copies are temporary working copies only and must never be treated as the sole copy of completed work. Preserve the existing branch history; do not force-push or rewrite commits. Do not mark the gate complete until the full upstream build and end-to-end checks pass.
+
+The recovered ZIP is currently retained in the user's persistent Library as a recovery backup. Its full binary payload has not yet been committed into this repository; the repository contains this verified identity/manifest record, not the ZIP itself.
