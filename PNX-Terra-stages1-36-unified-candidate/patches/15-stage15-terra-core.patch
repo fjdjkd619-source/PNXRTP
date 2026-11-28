@@ -60,6 +60,7 @@ diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/
  import com.dfsek.terra.api.Platform;
  import com.dfsek.terra.api.registry.Registry;
  import com.dfsek.terra.api.structure.Structure;
++import com.dfsek.terra.api.structure.IdentifiedStructure;
 -import com.dfsek.terra.api.world.PlacementDescriptor;
 -import com.dfsek.terra.api.world.PlacementScope;
 -import com.dfsek.terra.api.world.PlacementScopeProvider;
@@ -128,7 +129,7 @@ diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/
 diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 --- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 +++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
-@@ -49,7 +49,7 @@
+@@ -49,7 +49,8 @@
  import com.dfsek.terra.api.world.WritableWorld;
  
  
