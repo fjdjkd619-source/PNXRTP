@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: R15
+          fetch-depth: 0
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -36,6 +37,9 @@ jobs:
             echo "Checking $patch"
             git apply --stat "$patch" >/dev/null
           done < <(find patches -maxdepth 1 -name '*.patch' -type f | sort)
+      - name: Apply Stage 37–42 patch to exact Stage 36 overlay baseline
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/check-stage37-42-patch.sh
       - name: Compile and run platform-neutral regression suites
         working-directory: PNX-Terra-stages1-36-unified-candidate
         run: bash validation/run-core-tests.sh
