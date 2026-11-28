@@ -12,7 +12,7 @@ cat > "$STUB/com/dfsek/terra/api/util/vector/Vector3.java" <<'JAVA'
 package com.dfsek.terra.api.util.vector; public record Vector3(double x,double y,double z){public static Vector3 of(double x,double y,double z){return new Vector3(x,y,z);}}
 JAVA
 cat > "$STUB/com/dfsek/terra/api/block/entity/BlockEntity.java" <<'JAVA'
-package com.dfsek.terra.api.block.entity; import com.dfsek.seismic.type.vector.Vector3; import com.dfsek.terra.api.block.state.BlockState; public interface BlockEntity{boolean update(boolean physics);default void applyState(String state){}Vector3 getPosition();int getX();int getY();int getZ();BlockState getBlockState();Object getHandle();}
+package com.dfsek.terra.api.block.entity; import com.dfsek.terra.api.util.vector.Vector3; import com.dfsek.terra.api.block.state.BlockState; public interface BlockEntity{boolean update(boolean physics);default void applyState(String state){}Vector3 getPosition();int getX();int getY();int getZ();BlockState getBlockState();Object getHandle();}
 JAVA
 cat > "$STUB/com/dfsek/terra/api/block/BlockType.java" <<'JAVA'
 package com.dfsek.terra.api.block; public interface BlockType {}
