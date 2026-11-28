@@ -9,7 +9,9 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
-STRUCTURE_SCALAR = re.compile(r"(?m)^[ \t]*structures:[ \t]*([A-Za-z0-9_.:/-]+)[ \t]*(?:#.*)?$")
+STRUCTURE_SCALAR = re.compile(r"(?m)^structures:[ \t]*(.*?)\s*$")
+STRUCTURE_LIST_ITEM = re.compile(r"^[ \t]+-\s*([A-Za-z0-9_.:/-]+)\s*:")
+ANCHOR = re.compile(r"&([A-Za-z0-9_-]+)\s+([A-Za-z0-9_.:/-]+)")
 NESTED_LITERAL = re.compile(r"""\b(?:structure|placeStructure|place_structure)\s*\(\s*(['"])(.*?)\1""")
 NESTED_CALL = re.compile(r"\b(?:structure|placeStructure|place_structure)\s*\(")
 BLOCK_WRITE = re.compile(r"\bblock\s*\(")
@@ -24,6 +26,44 @@ def git_head(root: Path) -> str:
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
+    anchors = {name: value for name, value in ANCHOR.findall(source)}
+    roots: set[str] = set()
+    block_targets: set[str] = set()
+    unresolved = False
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        match = STRUCTURE_SCALAR.match(line)
+        if not match:
+            continue
+        value = match.group(1).split("#", 1)[0].strip()
+        if value:
+            if value.startswith("*"):
+                value = anchors.get(value[1:], "")
+            if value.startswith("BLOCK:"):
+                block_targets.add(value)
+            elif re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
+                roots.add(value)
+            else:
+                unresolved = True
+            continue
+
+        found_in_section = False
+        for child in lines[index + 1:]:
+            if child and not child[0].isspace() and not child.lstrip().startswith("#"):
+                break
+            item = STRUCTURE_LIST_ITEM.match(child)
+            if item:
+                roots.add(item.group(1))
+                found_in_section = True
+            if "BLOCK:" in child:
+                block_targets.update(re.findall(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\\[[^]]+\\])?", child))
+                found_in_section = True
+        if not found_in_section:
+            unresolved = True
+    return roots, block_targets, unresolved
 
 
 def main() -> int:
@@ -77,13 +117,16 @@ def main() -> int:
     for path in features:
         rel = path.relative_to(root).as_posix()
         source = path.read_text(encoding="utf-8")
-        ids = sorted(set(STRUCTURE_SCALAR.findall(source)))
-        if not ids and re.search(r"(?m)^[ \t]*structures:", source):
+        ids, block_targets, unresolved = extract_feature_targets(source)
+        if unresolved:
             unresolved_features.append(rel)
-        feature_records.append({"path": rel, "structure_ids": ids})
+        feature_records.append({
+            "path": rel,
+            "structure_ids": sorted(ids),
+            "block_state_targets": sorted(block_targets),
+        })
         for script_id in ids:
             root_refs[script_id].append(rel)
-
     for record in script_records:
         record["root_feature_references"] = sorted(root_refs.get(record["id"], []))
         record["has_root_feature_reference"] = bool(record["root_feature_references"])
