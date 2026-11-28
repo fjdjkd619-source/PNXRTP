@@ -250,7 +250,11 @@ public class PNXServerWorld implements ServerWorld {
         var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
         Block old = readOldBlock(tx, x, y, z);
         String oldBaseId = old.getId();
-        String oldLayerOneId = tx.staged.getBlockIdAt(x, y, z, 1);
+        BlockVector3 stagedPosition = new BlockVector3(x, y, z);
+        boolean layerOneAvailable = tx.staged.isCached(stagedPosition, 1)
+                || level.getLevel().isChunkLoaded(x >> 4, z >> 4);
+        String oldLayerOneId = layerOneAvailable
+                ? tx.staged.getBlockIdAt(x, y, z, 1) : "minecraft:air";
         boolean oldWaterLayer = Objects.equals(oldLayerOneId, BlockID.WATER)
                 || Objects.equals(oldLayerOneId, BlockID.FLOWING_WATER);
         boolean previousFluid = oldWaterLayer
