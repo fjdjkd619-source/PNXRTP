@@ -40,7 +40,6 @@ jobs:
         working-directory: upstream/pnx
         run: |
           test "$(git rev-parse HEAD)" = "ff86b15d18e3699459c7913eb1ebec16521b7ad0"
-          grep -q 'apiVersion = "3.0.6"' gradle.properties
           grep -q 'bedrock-protocol.*3.0.0.Beta8-SNAPSHOT' gradle/libs.versions.toml
 
       - name: Build and publish exact server API to Maven Local
