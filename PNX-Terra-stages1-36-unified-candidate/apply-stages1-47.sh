@@ -58,17 +58,3 @@ git -C "$PNX" diff --check
 git -C "$ADAPTER" diff --check
 
 echo "Stages 1–47 source patches applied. Entity replay, build and runtime certification remain deferred until Stage 50."
-
-# Stage 48 tightens unknown-script handling and validates enabled roots against the audited catalog.
-install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java" \
-  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java"
-install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java" \
-  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java"
-
-cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java" \
-  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java"
-cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java" \
-  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java"
-git -C "$ADAPTER" diff --check
-
-echo "Stages 1–48 source patches applied. Uncatalogued structures fail closed; full manifest certification remains open."
