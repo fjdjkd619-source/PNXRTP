@@ -1,6 +1,6 @@
 # Stages 43–50 — completion plan for R15
 
-**Status: Stage 43 source, adapter patch and apply runner added; validation is deliberately deferred. Stages 44–50 remain planned and unimplemented.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Status: Stages 43–45 source/adapter patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 46–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
@@ -21,6 +21,11 @@
 
 ## Stage 44 — Crash-safe WAL compaction and bounded retention
 
+**Code added — not yet built or tested; retention remains incomplete.**
+
+- Added a checksummed compaction marker and a recovery protocol that can finish a WAL truncate after a crash once the checkpoint and marker are durable.
+- Added a compaction integration test covering checkpoint replay, post-checkpoint WAL events, interrupted compaction and corrupt-marker fail-closed behavior. It has not been run.
+- Compaction reduces the WAL to an empty file and collapses duplicate anchor/applied event history in memory. It still retains every placement record and its entity UUID ownership index; therefore the checkpoint and indexes can continue growing. This is not yet a bounded-retention solution.
 - Write checkpoints to a new sibling file, force file contents, atomically publish it, and force the parent directory where supported.
 - Rotate the WAL only after the checkpoint is durably published; recovery must safely handle crashes at every rotation boundary.
 - Replay only WAL frames newer than the checkpoint watermark and reject sequence gaps or conflicting duplicate identities.
@@ -30,6 +35,11 @@
 
 ## Stage 45 — Live PNX physics executor
 
+**Code and adapter patch added — not yet built or tested.**
+
+- PnxChunkHandle now dispatches deterministic PhysicsIntentBatch work through the owning Level scheduler path used by PnxCrossChunkFinalizer.
+- Before calling PNX updateAround(), it verifies that the target and all cross-chunk neighbour chunks needed by the six-direction update are already loaded; it refuses to force-load missing neighbours.
+- Added the ordered adapter patch and apply-stages1-45.sh runner. Runtime correctness and failure/retry behavior remain unverified.
 - Connect PhysicsIntentBatch to the actual PNX Level scheduler/executor used by the target chunk.
 - Keep deterministic ordering, deduplication and target-chunk ownership checks.
 - Never read or mutate unloaded neighboring chunks; schedule dependencies explicitly or fail the placement transaction closed.
