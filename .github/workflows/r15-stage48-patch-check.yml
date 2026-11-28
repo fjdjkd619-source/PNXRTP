@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
           bash -n "$CANDIDATE/apply-stages1-48.sh"
-          bash -n "$CANDIDATE/apply-stages1-48.sh"
+          bash -n "$CANDIDATE/apply-stages1-47.sh"
           bash -n "$CANDIDATE/apply-stages1-46.sh"
           PNX_EXPECTED_REF=c57499365737654eca32df008751ef6bca5af142 \
             bash "$CANDIDATE/apply-stages1-48.sh" \
