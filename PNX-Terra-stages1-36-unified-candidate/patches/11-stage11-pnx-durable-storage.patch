@@ -1,23 +1,23 @@
 diff --git a/src/main/java/org/powernukkitx/level/format/leveldb/LevelDBStorage.java b/src/main/java/org/powernukkitx/level/format/leveldb/LevelDBStorage.java
 --- a/src/main/java/org/powernukkitx/level/format/leveldb/LevelDBStorage.java
 +++ b/src/main/java/org/powernukkitx/level/format/leveldb/LevelDBStorage.java
-@@ -90,6 +90,17 @@ public final class LevelDBStorage {
-     public void writeChunk(IChunk chunk) throws IOException {
-         try (WriteBatch writeBatch = createBatch()) {
-             LevelDBChunkSerializer.INSTANCE.serialize(writeBatch, chunk);
-             writeBatch(writeBatch);
+@@ -94,6 +94,19 @@
          }
      }
-+
+ 
 +    /**
 +     * Writes one chunk and waits for LevelDB's synchronous durability boundary.
-+     * The normal autosave path intentionally uses sync(false); journal
-+     * finalization needs this stronger guarantee before acknowledging its WAL.
++     * Journal finalization must not acknowledge a chunk before this write is durable.
 +     */
 +    public void writeChunkDurable(IChunk chunk) throws IOException {
 +        try (WriteBatch writeBatch = createBatch()) {
 +            LevelDBChunkSerializer.INSTANCE.serialize(writeBatch, chunk);
-+            this.db.write(writeBatch, new WriteOptions().sync(true));
++            WriteOptions writeOptions = new WriteOptions();
++            writeOptions.sync(true);
++            this.db.write(writeBatch, writeOptions);
 +        }
 +    }
-*** End Patch
++
+     void writeBatch(WriteBatch writeBatch) {
+         WriteOptions writeOptions = new WriteOptions();
+         writeOptions.sync(false);
