@@ -1,28 +1,104 @@
+--- a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
++++ b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
+@@ -20,7 +20,7 @@
+  * A {@link WritableWorld} implementation which delegates read/write operations to
+  * another {@link WritableWorld}, at an offset.
+  */
+-public class BufferedWorld implements WritableWorld, PlacementScopeProvider {
++public class BufferedWorld implements WritableWorld, PlacementScopeProvider, PlacementGuardHost {
+     private final WritableWorld delegate;
+     private final int offsetX, offsetY, offsetZ;
+ 
+@@ -114,9 +114,51 @@
+         return PlacementScope.noop();
+     }
+ 
++    @Override
++    public PlacementScope beginPlacement(String featureId, String structureId,
++                                          com.dfsek.seismic.type.vector.Vector3Int origin,
++                                          com.dfsek.seismic.type.Rotation rotation) {
++        if (delegate instanceof PlacementGuardHost host) return host.beginPlacement(featureId, structureId, origin, rotation);
++        return PlacementScope.rejected();
++    }
+ 
++    @Override
++    public PlacementScope beginNestedPlacement(String structureId) {
++        if (delegate instanceof PlacementGuardHost host) return host.beginNestedPlacement(structureId);
++        return PlacementScope.rejected();
++    }
++
++
+     public static final class Builder {
+         private final WritableWorld delegate;
++package com.dfsek.terra.api.world;
++
++import com.dfsek.seismic.type.Rotation;
++import com.dfsek.seismic.type.vector.Vector3Int;
++
++/** Optional platform SPI for atomic, bounded feature placements. */
++public interface PlacementGuardHost {
++    PlacementScope beginPlacement(String featureId, String structureId, Vector3Int origin, Rotation rotation);
++
++    /** Opens a nested savepoint inside the currently active root placement. */
++    PlacementScope beginNestedPlacement(String structureId);
++
++    interface PlacementScope extends AutoCloseable {
++        boolean accepted();
++        boolean commit();
++        void abort();
++        @Override void close();
++
++        static PlacementScope rejected() {
++            return new PlacementScope() {
++                @Override public boolean accepted() { return false; }
++                @Override public boolean commit() { return false; }
++                @Override public void abort() { }
++                @Override public void close() { }
++            };
++        }
++    }
++}
+         private ReadInterceptor readInterceptor;
+         private WriteInterceptor writeInterceptor;
+ 
+
 --- a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
 +++ b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
-@@ -20,6 +20,8 @@
+@@ -20,9 +20,8 @@
  import com.dfsek.terra.api.properties.PropertyKey;
  import com.dfsek.terra.api.registry.key.StringIdentifiable;
  import com.dfsek.terra.api.world.WritableWorld;
+-import com.dfsek.terra.api.world.PlacementDescriptor;
+-import com.dfsek.terra.api.world.PlacementScope;
+-import com.dfsek.terra.api.world.PlacementScopeProvider;
 +import com.dfsek.terra.api.world.PlacementGuardHost;
 +import com.dfsek.terra.api.structure.IdentifiedStructure;
  import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
  import com.dfsek.terra.api.world.chunk.generation.stage.GenerationStage;
  import com.dfsek.terra.api.world.chunk.generation.util.Column;
-@@ -82,14 +84,27 @@
-                                         if(feature.getDistributor().matches(x, z, seed)) {
-                                             feature.getLocator()
+@@ -87,25 +86,23 @@
                                                  .getSuitableCoordinates(column.clamp(min, max))
--                                                .forEach(y -> feature.getStructure(world, x, y, z)
--                                                    .generate(Vector3Int.of(x, y, z),
--                                                        world,
--                                                        RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
--                                                                "Xoroshiro128PlusPlus")
--                                                            .create(coordinateSeed * 31 + y),
--                                                        Rotation.NONE)
--                                                );
-+                                                .forEach(y -> {
-+                                                    var structure = feature.getStructure(world, x, y, z);
+                                                 .forEach(y -> {
+                                                     var structure = feature.getStructure(world, x, y, z);
+-                                                    var descriptor = new PlacementDescriptor(
+-                                                        feature.getID(),
+-                                                        structure instanceof StringIdentifiable identifiable
+-                                                            ? identifiable.getID()
+-                                                            : structure.getClass().getName(),
+-                                                        Vector3Int.of(x, y, z),
+-                                                        Rotation.NONE
+-                                                    );
+-                                                    PlacementScope placement = world instanceof PlacementScopeProvider provider
+-                                                        ? provider.beginPlacement(descriptor)
+-                                                        : PlacementScope.noop();
+-                                                    try(placement) {
+-                                                        boolean generated = structure.generate(Vector3Int.of(x, y, z),
+-                                                            world,
+-                                                            RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
+-                                                                    "Xoroshiro128PlusPlus")
+-                                                                .create(coordinateSeed * 31 + y),
+-                                                            Rotation.NONE);
+-                                                        if(generated) placement.commit();
 +                                                    var origin = Vector3Int.of(x, y, z);
 +                                                    var random = RandomGeneratorFactory.<RandomGenerator.SplittableGenerator>of(
 +                                                            "Xoroshiro128PlusPlus")
@@ -40,11 +116,82 @@
 +                                                        }
 +                                                    } else if(!(world instanceof PlacementGuardHost)) {
 +                                                        structure.generate(origin, world, random, Rotation.NONE);
-+                                                    }
-+                                                });
+                                                     }
+                                                 });
                                          }
-                                         platform.getProfiler().pop(feature.getID());
-                                     });
+
+--- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
++++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
+@@ -25,9 +25,8 @@
+ import com.dfsek.terra.api.Platform;
+ import com.dfsek.terra.api.registry.Registry;
+ import com.dfsek.terra.api.structure.Structure;
+-import com.dfsek.terra.api.world.PlacementDescriptor;
+-import com.dfsek.terra.api.world.PlacementScope;
+-import com.dfsek.terra.api.world.PlacementScopeProvider;
++import com.dfsek.terra.api.structure.IdentifiedStructure;
++import com.dfsek.terra.api.world.PlacementGuardHost;
+ 
+ 
+ public class StructureFunction implements Function<Boolean> {
+@@ -78,37 +77,30 @@
+                 return false;
+             }
+ 
+-            int offsetX = FloatingPointFunctions.round(xz.getX());
+-            int offsetY = y.apply(implementationArguments, scope).intValue();
+-            int offsetZ = FloatingPointFunctions.round(xz.getZ());
+-            var nestedWorld = arguments.getWorld().buffer(offsetX, offsetY, offsetZ);
+-            var nestedRotation = arguments.getRotation().rotate(rotation1);
+-            var descriptor = new PlacementDescriptor(
+-                "terrascript:nested",
+-                script instanceof com.dfsek.terra.api.registry.key.StringIdentifiable identifiable
+-                    ? identifiable.getID()
+-                    : script.getClass().getName(),
+-                arguments.getOrigin(),
+-                nestedRotation
+-            );
+-            PlacementScope placement = nestedWorld instanceof PlacementScopeProvider provider
+-                ? provider.beginPlacement(descriptor)
+-                : PlacementScope.noop();
+-            try(placement) {
+-                boolean generated;
+-                if(script instanceof StructureScript structureScript) {
+-                    generated = structureScript.generate(arguments.getOrigin(), nestedWorld,
+-                        arguments.getRandom(), nestedRotation, arguments.getRecursions() + 1);
+-                } else {
+-                    generated = script.generate(arguments.getOrigin(), nestedWorld,
+-                        arguments.getRandom(), nestedRotation);
++            var childWorld = arguments.getWorld().buffer(FloatingPointFunctions.round(xz.getX()),
++                y.apply(implementationArguments, scope).intValue(), FloatingPointFunctions.round(xz.getZ()));
++            Rotation childRotation = arguments.getRotation().rotate(rotation1);
++            if (arguments.getWorld() instanceof PlacementGuardHost host) {
++                if (!(script instanceof IdentifiedStructure identified)) return false;
++                try (PlacementGuardHost.PlacementScope nested = host.beginNestedPlacement(identified.getID())) {
++                    if (!nested.accepted()) return false;
++                    boolean generated = script instanceof StructureScript structureScript
++                        ? structureScript.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation, arguments.getRecursions() + 1)
++                        : script.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation);
++                    return generated && nested.commit();
+                 }
+-                if(generated) placement.commit();
+-                return generated;
+             }
++            if(script instanceof StructureScript structureScript) {
++                return structureScript.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation, arguments.getRecursions() + 1);
++            }
++            return script.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation);
+         }).orElseGet(() -> {
+             LOGGER.error("No such structure {}", app);
+             return false;
++package com.dfsek.terra.api.structure;
++
++/** A structure exposing its stable registry identifier to platform generation hooks. */
++public interface IdentifiedStructure { String getID(); }
+         });
+     }
+ 
+
 --- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 +++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 @@ -45,12 +45,13 @@
@@ -74,122 +221,3 @@
      @SuppressWarnings("try")
      public boolean generate(Vector3Int location, WritableWorld world, RandomGenerator random, Rotation rotation) {
          platform.getProfiler().push(profile);
---- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
-+++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
-@@ -25,6 +25,8 @@
- import com.dfsek.terra.api.Platform;
- import com.dfsek.terra.api.registry.Registry;
- import com.dfsek.terra.api.structure.Structure;
-+import com.dfsek.terra.api.structure.IdentifiedStructure;
-+import com.dfsek.terra.api.world.PlacementGuardHost;
- 
- 
- public class StructureFunction implements Function<Boolean> {
-@@ -75,22 +77,23 @@
-                 return false;
-             }
- 
-+            var childWorld = arguments.getWorld().buffer(FloatingPointFunctions.round(xz.getX()),
-+                y.apply(implementationArguments, scope).intValue(), FloatingPointFunctions.round(xz.getZ()));
-+            Rotation childRotation = arguments.getRotation().rotate(rotation1);
-+            if (arguments.getWorld() instanceof PlacementGuardHost host) {
-+                if (!(script instanceof IdentifiedStructure identified)) return false;
-+                try (PlacementGuardHost.PlacementScope nested = host.beginNestedPlacement(identified.getID())) {
-+                    if (!nested.accepted()) return false;
-+                    boolean generated = script instanceof StructureScript structureScript
-+                        ? structureScript.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation, arguments.getRecursions() + 1)
-+                        : script.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation);
-+                    return generated && nested.commit();
-+                }
-+            }
-             if(script instanceof StructureScript structureScript) {
--                return structureScript.generate(arguments.getOrigin(),
--                    arguments.getWorld()
--                        .buffer(FloatingPointFunctions.round(xz.getX()),
--                            y.apply(implementationArguments, scope).intValue(),
--                            FloatingPointFunctions.round(xz.getZ())),
--                    arguments.getRandom(),
--                    arguments.getRotation().rotate(rotation1), arguments.getRecursions() + 1);
-+                return structureScript.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation, arguments.getRecursions() + 1);
-             }
--            return script.generate(arguments.getOrigin(),
--                arguments.getWorld()
--                    .buffer(FloatingPointFunctions.round(xz.getX()),
--                        y.apply(implementationArguments, scope).intValue(),
--                        FloatingPointFunctions.round(xz.getZ())),
--                arguments.getRandom(),
--                arguments.getRotation().rotate(rotation1));
-+            return script.generate(arguments.getOrigin(), childWorld, arguments.getRandom(), childRotation);
-         }).orElseGet(() -> {
-             LOGGER.error("No such structure {}", app);
-             return false;
---- /dev/null
-+++ b/common/api/src/main/java/com/dfsek/terra/api/structure/IdentifiedStructure.java
-@@ -0,0 +1,4 @@
-+package com.dfsek.terra.api.structure;
-+
-+/** A structure exposing its stable registry identifier to platform generation hooks. */
-+public interface IdentifiedStructure { String getID(); }
---- a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
-+++ b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
-@@ -20,7 +20,7 @@
-  * A {@link WritableWorld} implementation which delegates read/write operations to
-  * another {@link WritableWorld}, at an offset.
-  */
--public class BufferedWorld implements WritableWorld {
-+public class BufferedWorld implements WritableWorld, PlacementGuardHost {
-     private final WritableWorld delegate;
-     private final int offsetX, offsetY, offsetZ;
- 
-@@ -106,6 +106,20 @@
-         return delegate;
-     }
- 
-+    @Override
-+    public PlacementScope beginPlacement(String featureId, String structureId,
-+                                          com.dfsek.seismic.type.vector.Vector3Int origin,
-+                                          com.dfsek.seismic.type.Rotation rotation) {
-+        if (delegate instanceof PlacementGuardHost host) return host.beginPlacement(featureId, structureId, origin, rotation);
-+        return PlacementScope.rejected();
-+    }
-+
-+    @Override
-+    public PlacementScope beginNestedPlacement(String structureId) {
-+        if (delegate instanceof PlacementGuardHost host) return host.beginNestedPlacement(structureId);
-+        return PlacementScope.rejected();
-+    }
-+
- 
-     public static final class Builder {
-         private final WritableWorld delegate;
---- /dev/null
-+++ b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementGuardHost.java
-@@ -0,0 +1,28 @@
-+package com.dfsek.terra.api.world;
-+
-+import com.dfsek.seismic.type.Rotation;
-+import com.dfsek.seismic.type.vector.Vector3Int;
-+
-+/** Optional platform SPI for atomic, bounded feature placements. */
-+public interface PlacementGuardHost {
-+    PlacementScope beginPlacement(String featureId, String structureId, Vector3Int origin, Rotation rotation);
-+
-+    /** Opens a nested savepoint inside the currently active root placement. */
-+    PlacementScope beginNestedPlacement(String structureId);
-+
-+    interface PlacementScope extends AutoCloseable {
-+        boolean accepted();
-+        boolean commit();
-+        void abort();
-+        @Override void close();
-+
-+        static PlacementScope rejected() {
-+            return new PlacementScope() {
-+                @Override public boolean accepted() { return false; }
-+                @Override public boolean commit() { return false; }
-+                @Override public void abort() { }
-+                @Override public void close() { }
-+            };
-+        }
-+    }
-+}
