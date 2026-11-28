@@ -18,38 +18,10 @@ mapfile -t SOURCES < <(find "$ROOT/source" "$ROOT/tests" -name '*.java' \
   | grep -v '/delegate/PNXStagedBlockEntityDelegate.java$' \
   | grep -v '/delegate/PNXStagedSignDelegate.java$' \
   | grep -v '/delegate/PNXStagedMobSpawnerDelegate.java$' \
-  | grep -v '/delegate/PNXStagedContainerDelegate.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD" "${SOURCES[@]}"
-for test in $(find "$ROOT/tests" -name '*Test.java' | sort); do
-  package="$(sed -n 's/^package \(.*\);/\1/p' "$test" | head -n 1)"
-  class="$(basename "$test" .java)"
-  java -cp "$BUILD" "$package.$class"
-done
- \
-  | grep -v '/delegate/PNXStagedEntityDelegate.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD" "${SOURCES[@]}"
-for test in $(find "$ROOT/tests" -name '*Test.java' | sort); do
-  package="$(sed -n 's/^package \(.*\);/\1/p' "$test" | head -n 1)"
-  class="$(basename "$test" .java)"
-  java -cp "$BUILD" "$package.$class"
-done
- \
-  | grep -v '/delegate/PNXProtoChunk.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD" "${SOURCES[@]}"
-for test in $(find "$ROOT/tests" -name '*Test.java' | sort); do
-  package="$(sed -n 's/^package \(.*\);/\1/p' "$test" | head -n 1)"
-  class="$(basename "$test" .java)"
-  java -cp "$BUILD" "$package.$class"
-done
- \
-  | grep -v '/delegate/PNXStagedInventory.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD" "${SOURCES[@]}"
-for test in $(find "$ROOT/tests" -name '*Test.java' | sort); do
-  package="$(sed -n 's/^package \(.*\);/\1/p' "$test" | head -n 1)"
-  class="$(basename "$test" .java)"
-  java -cp "$BUILD" "$package.$class"
-done
-)
+  | grep -v '/delegate/PNXStagedContainerDelegate.java$' \
+  | grep -v '/delegate/PNXStagedEntityDelegate.java$' \
+  | grep -v '/delegate/PNXProtoChunk.java$' \
+  | grep -v '/delegate/PNXStagedInventory.java$')
 javac --release 21 -Xlint:all -Werror -d "$BUILD" "${SOURCES[@]}"
 for test in $(find "$ROOT/tests" -name '*Test.java' | sort); do
   package="$(sed -n 's/^package \(.*\);/\1/p' "$test" | head -n 1)"
