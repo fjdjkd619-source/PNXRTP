@@ -26,7 +26,7 @@ done
 [[ -d "$PNX/.git" ]] || { echo "PNX directory is not a git checkout: $PNX" >&2; exit 2; }
 [[ -d "$ADAPTER/.git" ]] || { echo "Adapter directory is not a git checkout: $ADAPTER" >&2; exit 2; }
 
-"$ROOT/apply-stages1-46.sh" "$@"
+bash "$ROOT/apply-stages1-46.sh" "$@"
 
 PNX_PATCH="$ROOT/patches/47-pnx-entity-generation-state-query.patch"
 ADAPTER_PATCH="$ROOT/patches/47-transactional-terra-entity-capture.patch"
