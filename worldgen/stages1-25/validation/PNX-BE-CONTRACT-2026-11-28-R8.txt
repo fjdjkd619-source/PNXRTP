@@ -1,0 +1,8 @@
+PnxBlockEntityNbtContractTest: PASS
+PnxBlockEntityIntentApplierContractTest: PASS
+PnxStagedSignContractTest: PASS
+PnxStagedSpawnerContainerContractTest: PASS
+Java 21 compile: PASS (--release 21 -Xlint:all -Werror)
+Covered: pinned little-endian NBT contract; identity/coordinate checks; SHA-256 intent marker; source-tag immutability; payload-hash tampering rejection; trailing-byte rejection; sign text0..text3 mapping; spawner entity registry mapping and all Terra MobSpawner properties including Delay; unknown entity IDs fail closed; staged container slot/item serialization to PNX Items list; same-marker replay idempotency; type collision refusal; rollback after a PNX-like factory swallows a subclass constructor exception after base registration.
+The core Stage 25 finalization test additionally covers Level-scheduler dispatch, durable save before scheduler heartbeat returns, and rollback when that early durable save fails.
+Limitation: narrow API stubs only; not a full Cloudburst NBT dependency, PNX/Terra compile, or Bedrock runtime test.
