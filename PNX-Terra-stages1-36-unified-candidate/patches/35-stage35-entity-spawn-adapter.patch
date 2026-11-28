@@ -181,3 +181,35 @@ index 0000000..b4785d2
 +        }
 +    }
 +}
+
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage27EntitySpawnFinalizationTest.java
+@@ -18,6 +18,8 @@
+             if(future.isDone() || tasks.size()!=1) throw new AssertionError("spawn work did not wait for Level executor");
+             tasks.remove(0).run(); var prepared=future.join();
+             if(fake.spawnCount!=1 || !fake.saved || fake.confirmCount!=1) throw new AssertionError("spawn was not saved and confirmed before executor returned");
++            if(!fake.phases.equals(List.of("apply", "chunk-save-stage", "durable-save", "activate")))
++                throw new AssertionError("entity activation crossed the durable-save boundary in the wrong order: " + fake.phases);
+             coordinator.persist(prepared,()->fake);
+             if(!journal.isChunkApplied("world",target,prepared.digest())) throw new AssertionError("spawn digest not acknowledged after save");
+             var failTarget=new ChunkPos(1,0);
+@@ -33,13 +35,14 @@
+         System.out.println("Stage27EntitySpawnFinalizationTest: PASS");
+     }
+     private static final class FakeChunk implements ChunkFinalizationCoordinator.ChunkHandle {
+-        int spawnCount,rollbackCount,confirmCount; boolean saved,failSave; final int chunkX,chunkZ;
++        int spawnCount,rollbackCount,confirmCount; boolean saved,failSave; final int chunkX,chunkZ; final List<String> phases=new ArrayList<>();
+         FakeChunk(){this(0,0);} FakeChunk(int chunkX,int chunkZ){this.chunkX=chunkX;this.chunkZ=chunkZ;}
+         public ChunkPos position(){return new ChunkPos(chunkX,chunkZ);} public boolean isLoaded(){return true;} public boolean isGenerated(){return true;} public boolean isInitiated(){return true;}
+         public void applyProjection(NavigableMap<PlacementProjection.Position,PlacementProjection.Winner> p) { }
+-        public void applyEntitySpawnIntents(List<EntitySpawnIntent> intents) { spawnCount=intents.size(); }
++        public void applyEntitySpawnIntents(List<EntitySpawnIntent> intents) { spawnCount=intents.size(); phases.add("apply"); }
++        public void prepareEntitySpawnIntentsForSave(){phases.add("chunk-save-stage");}
+         public void rollbackEntitySpawnIntents(){rollbackCount++;spawnCount=0;}
+-        public void confirmEntitySpawnIntents(){confirmCount++;}
+-        public void saveDurably() throws java.io.IOException {if(failSave)throw new java.io.IOException("simulated save failure");saved=true;}
++        public void confirmEntitySpawnIntents(){confirmCount++;phases.add("activate");}
++        public void saveDurably() throws java.io.IOException {phases.add("durable-save");if(failSave)throw new java.io.IOException("simulated save failure");saved=true;}
+     }
+ }
