@@ -10,14 +10,21 @@ diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.ja
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
-@@ -110,1 +110,1 @@
--    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
-+    public com.dfsek.terra.api.world.PlacementScope beginPlacement(PlacementDescriptor descriptor) {
-@@ -113,7 +113,25 @@
--        return PlacementScope.noop();
-+        return com.dfsek.terra.api.world.PlacementScope.noop();
+@@ -104,14 +104,31 @@
+     public WritableWorld getDelegate() {
+         return delegate;
      }
  
+     @Override
+-    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++    public com.dfsek.terra.api.world.PlacementScope beginPlacement(PlacementDescriptor descriptor) {
+         if (delegate instanceof PlacementScopeProvider provider) {
+             return provider.beginPlacement(descriptor.offset(offsetX, offsetY, offsetZ));
+         }
+-        return PlacementScope.noop();
++        return com.dfsek.terra.api.world.PlacementScope.noop();
++    }
++
 +    @Override
 +    public PlacementGuardHost.PlacementScope beginPlacement(String featureId, String structureId,
 +                                          com.dfsek.terra.api.util.vector.Vector3Int origin,
@@ -29,18 +36,15 @@ diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.ja
 +        }
 +        return PlacementGuardHost.PlacementScope.rejected();
 +    }
- 
++
 +    @Override
 +    public PlacementGuardHost.PlacementScope beginNestedPlacement(String structureId) {
 +        if (delegate instanceof PlacementGuardHost host) return host.beginNestedPlacement(structureId);
 +        return PlacementGuardHost.PlacementScope.rejected();
-+    }
-+
+     }
+ 
 +
      public static final class Builder {
-         private final WritableWorld delegate;
-         private ReadInterceptor readInterceptor;
-
 diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
 --- a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
 +++ b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
