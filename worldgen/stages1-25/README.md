@@ -19,10 +19,10 @@ The r8 source overlay is not a complete upstream checkout, full modified-source 
 The latest recovered candidate contains 44 Java source files, 11 core test classes, 21 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
 
 Persistent Library archive:
-`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8.zip`
+`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8-complete.zip`
 
 SHA-256:
-`9874916e2ffeaaac4a3b1c6e5c3cc3fabd815fa41cd692e6431590e03b20a0e9`
+`d845c9520d5e06fbfa97f59a04b5949974b0fd317569e5b0d4b6a150ba19a111`
 
 The archive is a source overlay only. It is not an installable JAR.
 
@@ -39,10 +39,10 @@ Added to this branch:
 - `source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityNbtCodec.java`
 - `source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java`
 - `source/org/powernukkitx/terra/crosschunk/runtime/PnxLevelExecutor.java`
-- Three patches: NBT/level-executor, transactional intent applier, and finalizer wiring.
-- Contract test result: `validation/PNX-BE-CONTRACT-2026-11-28-R6.txt`
+- Five patches: NBT/hash marker, transactional applier, finalizer/early-save wiring, TerraScript staged Sign/MobSpawner/Container capture, and PNX MobSpawner Delay persistence.
+- Contract test result: `validation/PNX-BE-CONTRACT-2026-11-28-R8.txt`
 
-The applier preflights all intents, resolves PNX registry types, rejects collisions, treats byte-identical persisted entities as replay-safe, and rolls back entities registered before a constructor failure is swallowed by the PNX factory. The coordinator now separates compute-pool block projection from PNX Level-scheduler intent application.
+The applier preflights all intents, resolves PNX registry types, rejects collisions, uses a SHA-256 intent marker to accept normalized persisted entities as replay-safe, and rolls back entities registered before a constructor failure is swallowed by the PNX factory. The coordinator now separates compute-pool block projection from PNX Level-scheduler intent application.
 
 Contract tests pass, including constructor-failure rollback. Still open: Terra structures/populators do not yet emit BlockEntity intents into the journal; full upstream dependency compilation and runtime save/restart certification remain pending.
 
@@ -61,3 +61,6 @@ Do not deploy this branch to the production server. The existing world remains u
 
 
 Stage 22 now includes detached TerraScript Sign, MobSpawner, and Container capture, journaled BlockEntity intents, PNX spawner Delay persistence, and an early durable save on the Level scheduler. See `TERRA-STRUCTURE-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md` and the R8 contract reports. The full r8 ZIP is in the ChatGPT Library; the binary ZIP is not committed to this branch.
+
+
+Stage 22 r8 also adds `PNXStagedSignDelegate`, `PNXStagedMobSpawnerDelegate`, `PNXStagedContainerDelegate`, and `PNXStagedInventory`. `PNXServerWorld` records their immutable BlockEntity intents in the active placement journal. The PNX spawner-delay patch and early Level-scheduler durable save/rollback are included. See `TERRA-STRUCTURE-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md`. Full r8 ZIP is in the ChatGPT Library; binary ZIP is not committed to this branch.
