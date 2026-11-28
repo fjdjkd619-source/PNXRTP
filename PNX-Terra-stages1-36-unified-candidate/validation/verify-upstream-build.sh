@@ -62,7 +62,18 @@ POM
 # (camera API migration + matching Beta8 dependency pin) to this isolated build tree.
 PNX_PROTOCOL_COMPAT_COMMIT="ff86b15d18e3699459c7913eb1ebec16521b7ad0"
 git -C "$PNX" fetch --no-tags origin "$PNX_PROTOCOL_COMPAT_COMMIT"
-git -C "$PNX" show --format= --binary "$PNX_PROTOCOL_COMPAT_COMMIT" > "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+# Generate the migration diff against the exact pinned source revision rather than
+# the target commit's immediate parent (the upstream change was committed after two
+# documentation-only commits, and the pinned checkout may be shallow).
+git -C "$PNX" diff --binary "$PNX_REF" "$PNX_PROTOCOL_COMPAT_COMMIT" -- \
+  gradle/libs.versions.toml \
+  src/main/java/org/powernukkitx/camera/CameraProgressKeyFrame.java \
+  src/main/java/org/powernukkitx/camera/CameraRotationKeyFrame.java \
+  src/main/java/org/powernukkitx/camera/PlayerCamera.java \
+  src/main/java/org/powernukkitx/command/defaults/CameraCommand.java \
+  src/test/java/org/powernukkitx/utils/DefaultCameraPresetsTest.java \
+  > "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+[[ -s "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch" ]] || { echo "Empty PNX Beta8 compatibility diff" >&2; exit 1; }
 git -C "$PNX" apply --check "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
 git -C "$PNX" apply "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
 # Keep snapshot dependencies on the repository's moving snapshot coordinates so Gradle
