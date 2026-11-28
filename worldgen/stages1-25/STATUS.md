@@ -35,7 +35,7 @@ Audited `PowerNukkitX/PowerNukkitX@c57499365737654eca32df008751ef6bca5af142` and
 - `Chunk.addBlockEntity` closes an existing tile at the same coordinate, so collisions must be rejected before creation.
 - The pinned little-endian NBT codec, transactional intent applier, and level-scheduler executor are implemented. The finalizer now keeps block projection on the compute pool and dispatches BE/physics intents through the owning level scheduler.
 
-The adapter intentionally remains fail-closed for BlockEntity mutation until Terra-side intent capture and full durable recovery are implemented. Full audit: [BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md](BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md).
+The adapter remains read-only for existing BlockEntities outside active placement. Inside an active guarded placement it creates detached staged Sign/MobSpawner/Container views and journals their intents; unsupported types remain fail-closed. Full audit: [BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md](BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md).
 
 ## Latest recovery archive
 
@@ -46,11 +46,9 @@ The adapter intentionally remains fail-closed for BlockEntity mutation until Ter
 - The r8 ZIP, checksum sidecar, and new Terra BlockEntity capture audit are saved under `/PNX-Terra-Backups/`.
 - Earlier r3–r7 archives remain preserved; no prior copy was deleted or overwritten.
 
-### Stage 22 Terra-side capture audit (r8)
+### Historical r5 Terra API gap audit (superseded by r8)
 
-Pinned Terra API inspection found that `WritableWorld` can write block states and spawn entities but has no BlockEntity creation/write method. `ReadableWorld.getBlockEntity` is read-only; Terra's BlockEntity interface exposes no canonical PNX type ID or NBT payload. The pinned `SpongeStructure.generate` writes only palette block states, and TerraScript delegates through buffered `WritableWorld` without a BlockEntity channel. PNX-Terra's `PNXServerWorld.setBlockState` likewise has no journal capture path.
-
-Therefore the existing r7 PNX NBT codec/applier is only the consumer side; it cannot receive correct BlockEntity intents from ordinary Terra structures. Do not infer tile data from block IDs. Required next work: add a PNX-Terra structure-input capture extension for explicitly supported formats, route immutable typed NBT records through the same placement journal, then apply on the Level scheduler before durable save/ack. Full source audit: [STAGE22-TERRA-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md](STAGE22-TERRA-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md).
+The original audit found that generic Terra `WritableWorld` has no universal BlockEntity write API and that generic BlockEntity reads are read-only. The r8 implementation does not add a generic Terra API method; it implements the concrete TerraScript `StateFunction` and `LootFunction` call paths through `PNXServerWorld.getBlockEntity` inside an active guarded placement transaction. See [TERRA-STRUCTURE-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md](TERRA-STRUCTURE-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md).
 
 ### Stage 22 groundwork added in r5
 
@@ -108,7 +106,7 @@ Production server and world remain untouched. Do not start stages 26–34 or dep
 
 This branch is the authoritative project history. Commit completed source changes, tests, patches, and status changes to `worldgen/stages1-25` before moving to the next task. Preserve branch history; do not force-push or rewrite commits.
 
-Persistent Library copies are additional recovery copies, not a substitute for the GitHub source history. Keep older copies until newer copies have been independently verified. The r5 archive's full binary payload is stored in the Library backup folder; it is not yet a binary asset in this repository.
+Persistent Library copies are additional recovery copies, not a substitute for the GitHub source history. Keep older copies until newer copies have been independently verified. The complete r8 binary archive is stored in the Library backup folder; the ZIP itself is not committed to this GitHub branch.
 
 
 ### Stage 22 TerraScript BlockEntity capture (r8)
