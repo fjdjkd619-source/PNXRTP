@@ -29,9 +29,16 @@ grep -q 'type == "platform" && it.name == "allay"' "$TERRA/settings.gradle.kts" 
 LIFECYCLE_BIOME_UTIL="$TERRA/platforms/mixin-lifecycle/src/main/java/com/dfsek/terra/lifecycle/util/LifecycleBiomeUtil.java"
 [[ -f "$LIFECYCLE_BIOME_UTIL" ]] || { echo "Missing pinned Terra lifecycle biome utility" >&2; exit 1; }
 grep -q 'import net.minecraft.registry.Registry;' "$LIFECYCLE_BIOME_UTIL" || { echo "Unexpected LifecycleBiomeUtil imports" >&2; exit 1; }
-grep -q 'villagerMap.getOrDefault(vanilla, VillagerType.PLAINS)' "$LIFECYCLE_BIOME_UTIL" || { echo "Unexpected pinned Terra VillagerType fallback expression" >&2; exit 1; }
-sed -i '/import net.minecraft.registry.Registry;/a import net.minecraft.registry.Registries;' "$LIFECYCLE_BIOME_UTIL"
-sed -i 's/villagerMap.getOrDefault(vanilla, VillagerType.PLAINS)/villagerMap.getOrDefault(vanilla, Objects.requireNonNull(Registries.VILLAGER_TYPE.get(VillagerType.PLAINS)))/' "$LIFECYCLE_BIOME_UTIL"
+if grep -q 'villagerMap.getOrDefault(vanilla, VillagerType.PLAINS)' "$LIFECYCLE_BIOME_UTIL"; then
+  grep -q 'import net.minecraft.registry.Registries;' "$LIFECYCLE_BIOME_UTIL" || \
+    sed -i '/import net.minecraft.registry.Registry;/a import net.minecraft.registry.Registries;' "$LIFECYCLE_BIOME_UTIL"
+  sed -i 's/villagerMap.getOrDefault(vanilla, VillagerType.PLAINS)/villagerMap.getOrDefault(vanilla, Objects.requireNonNull(Registries.VILLAGER_TYPE.get(VillagerType.PLAINS)))/' "$LIFECYCLE_BIOME_UTIL"
+elif grep -q 'villagerMap.getOrDefault(vanilla, Objects.requireNonNull(Registries.VILLAGER_TYPE.get(VillagerType.PLAINS)))' "$LIFECYCLE_BIOME_UTIL"; then
+  grep -q 'import net.minecraft.registry.Registries;' "$LIFECYCLE_BIOME_UTIL" || { echo "Missing Registries import after compatibility patch" >&2; exit 1; }
+else
+  echo "Unexpected pinned Terra VillagerType fallback expression" >&2
+  exit 1
+fi
 # Build the exact Terra 6.6.1 Bukkit-common distribution consumed by the PNX adapter.
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
 (cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build --stacktrace)
@@ -58,6 +65,20 @@ git -C "$PNX" fetch --no-tags origin "$PNX_PROTOCOL_COMPAT_COMMIT"
 git -C "$PNX" show --format= --binary "$PNX_PROTOCOL_COMPAT_COMMIT" > "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
 git -C "$PNX" apply --check "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
 git -C "$PNX" apply "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+# Keep snapshot dependencies on the repository's moving snapshot coordinates so Gradle
+# resolves the currently published timestamp rather than an expired timestamped build.
+sed -i 's/2.0.0.CR6-20261026.130552-16/2.0.0.CR6-SNAPSHOT/g' "$PNX/gradle/libs.versions.toml"
+sed -i 's/0.24.6.0-20261023.142230-9/0.24.6.0-SNAPSHOT/g' "$PNX/gradle/libs.versions.toml"
+# Add the current PNX-compatible RakNet transport version, superseding the obsolete
+# 1.1.0.CR4-SNAPSHOT transitive edge from the protocol snapshot.
+grep -q 'netty-transport-raknet:2.0.0.CR4-20260922.202324-5' "$PNX/build.gradle.kts" || \
+  sed -i '/api(libs.bundles.nethernet)/a\    api("org.cloudburstmc.netty:netty-transport-raknet:2.0.0.CR4-20260922.202324-5")' "$PNX/build.gradle.kts"
+# These legacy transitive artifacts are published outside Maven Central.
+grep -q 'repo.minebench.de' "$PNX/settings.gradle.kts" || \
+  sed -i '/maven("https:\/\/repo.powernukkitx.org\/releases")/a\        maven("https://repo.minebench.de/")' "$PNX/settings.gradle.kts"
+# Cloudburst's immutable 2.0 release replaces the no-longer-published 2.0-SNAPSHOT.
+grep -q 'force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts" || \
+  sed -i '/cacheChangingModulesFor(10, TimeUnit.MINUTES)/a\        force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts"
 # Publish the modified PNX API to Maven Local so the adapter compiles against the patched source, not a remote snapshot.
 (cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean test build publishToMavenLocal --stacktrace)
 # mavenLocal() is first in the adapter's repositories; both dependencies above are now the patched exact-ref builds.
