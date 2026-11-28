@@ -1,0 +1,72 @@
+name: Compatibility build — PNX 3.0.6 API successor
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - worldgen/stages1-25
+    paths:
+      - '.github/workflows/pnx-306-compatible-build.yml'
+      - 'worldgen/stages1-25/UPSTREAM-SOURCE-AUDIT.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build-server-and-adapter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout PNX API 3.0.6 successor with Protocol Beta8 migration
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: ff86b15d18e3699459c7913eb1ebec16521b7ad0
+          path: upstream/pnx
+      - name: Checkout pinned PNX-Terra adapter
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: upstream/pnx-terra
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify server API version and protocol migration
+        working-directory: upstream/pnx
+        run: |
+          test "$(git rev-parse HEAD)" = "ff86b15d18e3699459c7913eb1ebec16521b7ad0"
+          grep -q 'apiVersion = "3.0.6"' gradle.properties
+          grep -q 'bedrock-protocol.*3.0.0.Beta8-SNAPSHOT' gradle/libs.versions.toml
+
+      - name: Build and publish exact server API to Maven Local
+        working-directory: upstream/pnx
+        run: ./gradlew --no-daemon -PbuildVersion=3.0.6-SNAPSHOT publishToMavenLocal
+
+      - name: Replace floating nightly dependency with exact local server API
+        working-directory: upstream/pnx-terra
+        run: |
+          sed -i 's#compileOnly("org.powernukkitx:server:nightly-SNAPSHOT")#compileOnly("org.powernukkitx:server:3.0.6-SNAPSHOT")#' build.gradle.kts
+          grep -q 'compileOnly("org.powernukkitx:server:3.0.6-SNAPSHOT")' build.gradle.kts
+          ! grep -q 'nightly-SNAPSHOT' build.gradle.kts
+
+      - name: Build PNX-Terra against exact server API
+        working-directory: upstream/pnx-terra
+        run: ./gradlew --no-daemon clean build
+
+      - name: Verify adapter JAR
+        run: test -s upstream/pnx-terra/build/libs/PNX-Terra-1.0.0.jar
+
+      - name: Upload compatibility artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnx-306-protocol-beta8-compatibility
+          path: |
+            upstream/pnx/build/libs/*.jar
+            upstream/pnx-terra/build/libs/PNX-Terra-1.0.0.jar
+          if-no-files-found: error
+          retention-days: 7
