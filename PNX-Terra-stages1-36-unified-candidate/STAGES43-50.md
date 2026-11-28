@@ -105,6 +105,9 @@ Added and registered six Terra feature families in the pinned ConfigPack:
 - Rare compact castle keeps.
 - Small timber homesteads.
 - Underground crypt chambers.
+- Ancient stone sanctuaries with pillars and central altars.
+- Stone bridges spanning water channels.
+- Larger underground halls and chamber complexes.
 
 Each feature points to a finite TerraScript structure. The current bounds generator certifies all six scripts; CI verifies feature-to-script references, YAML parsing, root inventory and generated catalog membership.
 
