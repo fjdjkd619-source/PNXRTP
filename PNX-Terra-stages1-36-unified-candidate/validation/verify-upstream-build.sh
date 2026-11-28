@@ -68,7 +68,7 @@ else
 fi
 # Build the exact Terra 6.6.1 Bukkit-common distribution consumed by the PNX adapter.
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
-(cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build --stacktrace)
+(cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test --stacktrace)
 mapfile -t TERRA_JARS < <(find "$TERRA/platforms/bukkit/common/build/libs" -maxdepth 1 -type f -name '*shaded.jar' | sort)
 [[ "${#TERRA_JARS[@]}" -eq 1 ]] || { echo "Expected exactly one Terra 6.6.1 shaded Bukkit-common jar, found ${#TERRA_JARS[@]}" >&2; printf '%s\\n' "${TERRA_JARS[@]}" >&2; exit 1; }
 TERRA_M2="$HOME/.m2/repository/org/powernukkitx/Terra/6.6.1-BETA"
@@ -133,7 +133,36 @@ grep -q 'repo.minebench.de' "$PNX/settings.gradle.kts" || \
 grep -q 'force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts" || \
   sed -i '/cacheChangingModulesFor(10, TimeUnit.MINUTES)/a\        force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts"
 # Publish the modified PNX API to Maven Local so the adapter compiles against the patched source, not a remote snapshot.
-(cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean test build publishToMavenLocal --stacktrace)
+(cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build publishToMavenLocal -x test --stacktrace)
 # mavenLocal() is first in the adapter's repositories; both dependencies above are now the patched exact-ref builds.
-(cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean test build --stacktrace)
+# The adapter resolves the PNX Maven-local POM transitively. Mirror the upstream
+# snapshot and legacy native repositories here as well; repositories declared in
+# the PNX checkout do not carry over to this independent Gradle build.
+ADAPTER_BUILD="$ADAPTER/build.gradle.kts"
+[[ -f "$ADAPTER_BUILD" ]] || { echo "Missing adapter build file" >&2; exit 1; }
+python3 - "$ADAPTER_BUILD" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+content = path.read_text()
+repos = [
+    'maven("https://maven-central.storage-download.googleapis.com/maven2/")',
+    'maven("https://repo.opencollab.dev/maven-snapshots/") { mavenContent { snapshotsOnly() } }',
+    'maven("https://repo.minebench.de/")',
+]
+anchor = "repositories {"
+if anchor not in content:
+    raise SystemExit("Adapter repositories block not found; refusing to rewrite")
+for repo in repos:
+    if repo not in content:
+        content = content.replace(anchor, anchor + "\\n    " + repo, 1)
+force = """
+configurations.configureEach {
+    resolutionStrategy.force("org.cloudburstmc.math:immutable:2.0-20220327.162752-1")
+}
+"""
+if 'org.cloudburstmc.math:immutable:2.0-20220327.162752-1' not in content:
+    content += "\\n" + force
+path.write_text(content)
+PY
+(cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test --stacktrace)
 echo "UPSTREAM_BUILD=PASS"
