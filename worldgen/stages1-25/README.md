@@ -4,7 +4,7 @@ This branch is reserved for the unified world-generation project. It is isolated
 
 ## Current gate: BLOCKED
 
-The current recovered source candidate is an audit/overlay, not yet a complete Gradle project. The independent Java 21 core tests pass, but the complete PNX/Terra/PNX-Terra builds and runtime integration have not been performed.
+The current recovered source candidate is an audit/overlay, not yet a complete Gradle project. The independent Java 21 core tests pass (11 suites × 10 rounds in the latest rerun). Full upstream build attempts have been made but failed: pinned PNX source has a Bedrock Protocol snapshot API mismatch; pinned PNX-Terra resolves a Java 25 nightly artifact while targeting Java 21; pinned Terra's multi-platform build failed in an Architectury Loom access-widener task with ClosedFileSystemException. A separate PNX API 3.0.6 successor experiment built and published the server API, but the adapter then failed dependency resolution because of legacy OpenCollab repository endpoints. The CI workflow has been corrected to canonical OpenCollab Maven endpoints and a fresh run was triggered, but its result is not yet confirmed. No integrated JAR exists.
 
 ## Pinned upstream revisions
 
