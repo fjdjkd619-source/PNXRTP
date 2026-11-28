@@ -1,0 +1,6 @@
+PnxBlockEntityNbtContractTest: PASS
+PnxBlockEntityIntentApplierContractTest: PASS
+Java 21 compile: PASS (--release 21 -Xlint:all -Werror)
+Covered: NBT identity/coordinate round-trip, source tag immutability, drift/trailing-byte rejection, same-payload replay idempotency, type collision refusal, rollback after a PNX-like factory swallows a subclass constructor exception after base registration, and Level scheduler dispatch.
+Stage 22 patch chain: 3/3 patches pass git apply --check/application against reconstructed post-r5 adapter baseline; all six resulting source files match r7 overlay.
+Limitation: narrow API stubs only; not a full Cloudburst NBT dependency or PNX/Terra runtime test.
