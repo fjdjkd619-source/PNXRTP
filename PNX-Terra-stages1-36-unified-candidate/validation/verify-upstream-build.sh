@@ -23,6 +23,19 @@ grep -q 'includeImmediateChildren(file("platforms")' "$TERRA/settings.gradle.kts
 }
 grep -q 'type == "platform" && it.name == "allay"' "$TERRA/settings.gradle.kts" || \
   sed -i '/if (!it.isDirectory || !File(it, "build.gradle.kts").exists()) return@forEach/a\        if (type == "platform" && it.name == "allay") return@forEach' "$TERRA/settings.gradle.kts"
+# Prefer Google's Maven Central mirror in CI to avoid transient Maven Central HTTP 429s.
+MAVEN_CENTRAL_MIRROR='https://maven-central.storage-download.googleapis.com/maven2/'
+for settings_file in "$TERRA/settings.gradle.kts" "$PNX/settings.gradle.kts"; do
+  [[ -f "$settings_file" ]] || { echo "Missing Gradle settings file: $settings_file" >&2; exit 1; }
+  if ! grep -q "$MAVEN_CENTRAL_MIRROR" "$settings_file"; then
+    sed -i '/repositories {/a\\        maven("'"$MAVEN_CENTRAL_MIRROR"'")' "$settings_file"
+  fi
+done
+TERRA_BUILDSRC="$TERRA/buildSrc/build.gradle.kts"
+[[ -f "$TERRA_BUILDSRC" ]] || { echo "Missing Terra buildSrc build file" >&2; exit 1; }
+if ! grep -q "$MAVEN_CENTRAL_MIRROR" "$TERRA_BUILDSRC"; then
+  sed -i '/repositories {/a\\    maven("'"$MAVEN_CENTRAL_MIRROR"'")' "$TERRA_BUILDSRC"
+fi
 # The pinned Terra revision targets Minecraft 1.21.5. In that mapping VillagerType.PLAINS
 # is a RegistryKey<VillagerType>, while the biome-to-villager map stores VillagerType values.
 # Resolve the key through the built-in registry before inserting the fallback value.
