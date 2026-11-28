@@ -9,7 +9,7 @@
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
-@@ -114,7 +114,24 @@
+@@ -114,7 +114,25 @@
          return com.dfsek.terra.api.world.PlacementScope.noop();
      }
  
