@@ -10,8 +10,12 @@ diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.ja
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
+@@ -108,1 +108,1 @@
+-    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++    public com.dfsek.terra.api.world.PlacementScope beginPlacement(PlacementDescriptor descriptor) {
 @@ -113,7 +113,25 @@
-         return PlacementScope.noop();
+-        return PlacementScope.noop();
++        return com.dfsek.terra.api.world.PlacementScope.noop();
      }
  
 +    @Override
