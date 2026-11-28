@@ -70,7 +70,10 @@ def main() -> None:
         require(len(matched) == 1, f"{feature_id}: expected exactly one YAML feature definition")
         path, data = matched[0]
         require(data.get("type") == "FEATURE", f"{feature_id}: type must be FEATURE")
-        require(data.get("structures") == structure_id,
+        structure_config = data.get("structures")
+        require(isinstance(structure_config, dict),
+                f"{feature_id}: structures configuration must be a mapping")
+        require(structure_config.get("structures") == structure_id,
                 f"{feature_id}: structure target must be {structure_id}")
         require(structure_id in script_records, f"{structure_id}: script missing from audit inventory")
         require(script_records[structure_id].get("has_root_feature_reference") is True,
