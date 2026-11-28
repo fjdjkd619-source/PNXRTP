@@ -20,7 +20,7 @@ jobs:
       - name: Checkout Stage 50 candidate
         uses: actions/checkout@v4
         with:
-          ref: R15-stage50-prep
+          ref: ${{ github.ref_name }}
           path: candidate
           fetch-depth: 0
 
