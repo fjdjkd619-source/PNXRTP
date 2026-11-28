@@ -58,6 +58,7 @@ final class JournalCompactionMarker {
     }
 
     static long read(Path marker) throws IOException {
+        if (Files.size(marker) != FILE_BYTES) throw new IOException("Invalid compaction marker length");
         byte[] bytes = Files.readAllBytes(marker);
         if (bytes.length != FILE_BYTES) throw new IOException("Invalid compaction marker length");
         ByteBuffer frame = ByteBuffer.wrap(bytes);
