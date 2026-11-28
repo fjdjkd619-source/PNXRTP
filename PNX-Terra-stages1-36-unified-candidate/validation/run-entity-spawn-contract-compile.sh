@@ -45,7 +45,7 @@ public final class Entity {
  public static Entity createEntityForGeneration(String type,IChunk chunk,CompoundTag nbt){Entity e=new Entity(chunk,type,nbt,nbt.x(),nbt.y(),nbt.z(),nbt.yaw(),nbt.pitch());if(cancelNext){cancelNext=false;e.closed=true;e.pending=false;}return e;}
  public boolean registerForGenerationSave(){if(closed||!pending||registered)return false;registered=true;((TestChunk)chunk).add(this);return true;}
  public boolean activateAfterGenerationCommit(){if(closed||!pending||!registered)return false;pending=false;active=true;return true;}
- public UUID getUniqueId(){return uuid;} public String getIdentifier(){return type;} public double getX(){return x;} public double getY(){return y;} public double getZ(){return z;} public float getYaw(){return yaw;} public float getPitch(){return pitch;} public boolean isClosed(){return closed;} public void spawnToAll(){if(!closed&&active)spawned++;} public void closeForGenerationRollback(){if(!closed){closed=true;if(registered)((TestChunk)chunk).remove(this);}}
+ public UUID getUniqueId(){return uuid;} public String getIdentifier(){return type;} public double getX(){return x;} public double getY(){return y;} public double getZ(){return z;} public float getYaw(){return yaw;} public float getPitch(){return pitch;} public boolean isClosed(){return closed;} public boolean isGenerationActivationPending(){return pending;} public boolean isGenerationRegisteredForSave(){return registered;} public void spawnToAll(){if(!closed&&active)spawned++;} public void closeForGenerationRollback(){if(!closed){closed=true;if(registered)((TestChunk)chunk).remove(this);}}
 }
 JAVA
 cat > "$STUB/org/powernukkitx/level/format/TestChunk.java" <<'JAVA'
