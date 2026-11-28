@@ -1,0 +1,9 @@
+Pinned source: PowerNukkitX/PowerNukkitX@c57499365737654eca32df008751ef6bca5af142
+File: src/main/java/org/powernukkitx/blockentity/BlockEntityMobSpawner.java
+loadNBT context: exact source match at line 70
+saveNBT context: exact source match at line 201
+Patch: 22-stage22-pnx-spawner-delay.patch
+Patch syntax: PASS (git apply --stat)
+Hunk context: PASS against exact pinned source excerpts retrieved from GitHub
+Change: read/write short NBT field "Delay" to preserve Terra MobSpawner.setDelay across chunk save/load.
+Limitation: this checks exact pinned source context and patch structure; it is not a full PNX core compile.
