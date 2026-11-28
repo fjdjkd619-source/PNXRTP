@@ -4,7 +4,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD_DIR:-$ROOT/validation/pnx-be-contract-build}"
 STUB="$BUILD/stubs"
 rm -rf "$BUILD"
-mkdir -p "$STUB/org/cloudburstmc/nbt" "$STUB/org/powernukkitx/nbt/tag" "$STUB/org/powernukkitx/level" "$STUB/org/powernukkitx/level/format" "$STUB/org/powernukkitx/scheduler" "$STUB/org/powernukkitx/terra/crosschunk/journal/pnx"
+mkdir -p "$STUB/com/dfsek/terra/api/util/vector" "$STUB/org/cloudburstmc/nbt"
+cat > "$STUB/com/dfsek/terra/api/util/vector/Vector3.java" <<'JAVA'
+package com.dfsek.terra.api.util.vector;
+public record Vector3(double x,double y,double z) { public static Vector3 of(double x,double y,double z){return new Vector3(x,y,z);} }
+JAVA
+ "$STUB/org/powernukkitx/nbt/tag" "$STUB/org/powernukkitx/level" "$STUB/org/powernukkitx/level/format" "$STUB/org/powernukkitx/scheduler" "$STUB/org/powernukkitx/terra/crosschunk/journal/pnx"
 cat > "$STUB/org/cloudburstmc/nbt/NbtMap.java" <<'JAVA'
 package org.cloudburstmc.nbt;
 import java.util.LinkedHashMap;
@@ -189,7 +194,7 @@ public final class SerialState {public static Map<String,String> parse(String st
 JAVA
 cat > "$STUB/org/powernukkitx/utils/DyeColor.java" <<'JAVA'
 package org.powernukkitx.utils;
-public enum DyeColor {BLACK;public int getSignColor(){return 0xff000000;}}
+public enum DyeColor {BLACK;public SignColor getSignColor(){return new SignColor();}public static final class SignColor{public int getARGB(){return 0xff000000;}}}
 JAVA
 cat > "$STUB/org/powernukkitx/terra/crosschunk/journal/pnx/PnxStagedSignContractTest.java" <<'JAVA'
 package org.powernukkitx.terra.crosschunk.journal.pnx;
