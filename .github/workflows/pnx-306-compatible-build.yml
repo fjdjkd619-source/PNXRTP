@@ -52,6 +52,11 @@ jobs:
           sed -i 's#compileOnly("org.powernukkitx:server:nightly-SNAPSHOT")#compileOnly("org.powernukkitx:server:3.0.6-SNAPSHOT")#' build.gradle.kts
           grep -q 'compileOnly("org.powernukkitx:server:3.0.6-SNAPSHOT")' build.gradle.kts
           ! grep -q 'nightly-SNAPSHOT' build.gradle.kts
+          # Match the canonical snapshot/release repository endpoints used by the PNX build.
+          sed -i 's#https://repo.opencollab.dev/releases#https://repo.opencollab.dev/maven-releases/#g' build.gradle.kts
+          sed -i 's#https://repo.opencollab.dev/snapshots#https://repo.opencollab.dev/maven-snapshots/#g' build.gradle.kts
+          grep -q 'https://repo.opencollab.dev/maven-releases/' build.gradle.kts
+          grep -q 'https://repo.opencollab.dev/maven-snapshots/' build.gradle.kts
 
       - name: Build PNX-Terra against exact server API
         working-directory: upstream/pnx-terra
