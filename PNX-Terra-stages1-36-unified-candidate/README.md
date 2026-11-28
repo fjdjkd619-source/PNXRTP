@@ -122,6 +122,10 @@ Stage 26 is now part of the active patch sequence. `AnchorSession` allocates a u
 
 A path audit also found that the Stage 21–25 patch had package paths rooted at `org/` rather than the adapter's Maven source root. The active patch now targets `src/main/java/org/`; Stage 26 targets `src/main/java/org/` and `src/test/java/`. This corrects patch placement but does not replace the still-pending clean upstream patch-chain application and full build.
 
+## Stage 43 — versioned WAL checkpoint snapshot
+
+The Stage 43 source overlay and adapter patch add a bounded, versioned checkpoint format with SHA-256 integrity validation and crash-safe atomic publication. `PlacementJournal.checkpointSnapshot()` captures the event list and sequence watermark under one lock; `writeCheckpoint(Path)` publishes that exact prefix. Stage 43 deliberately does not truncate or rotate the WAL. That is Stage 44 work. The Stage 43 integration test is present but remains unrun until the full 50-stage implementation is ready.
+
 ## Stages 27–36 integration overlay
 
 The candidate includes the Stage 27–34 core overlay, Stage 35 entity adapter/rollback seam, and Stage 36 deferred PNX entity lifecycle. Stage 36 fixes an important Stage 35 flaw: before the durable chunk write an entity is absent from the ticking Level; it is staged in the chunk save set, then activated and published only after the synchronous save succeeds. UUID-based replay matching and transaction-owned rollback remain. Terra’s `ServerWorld.spawnEntity` capture path still fails closed, so entity-bearing Origen structures remain disabled. Physics callbacks are still fail-closed. See `STAGES27-34.md`, `STAGE35.md`, and `STAGE36.md`. This is not an installable release.
