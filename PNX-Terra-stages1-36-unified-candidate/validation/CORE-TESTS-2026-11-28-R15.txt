@@ -1,0 +1,27 @@
+R15 independent Java 21 core validation
+Workflow run: https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146027245
+Commit under test: 26f73b2c4d12a4cc425bcf7458655ea59bb275ff
+Result: PASS
+
+Stage15AdapterGuardContractTest: PASS
+Stage16JournalTest: PASS
+Stage17DependencySchedulerTest: PASS
+Stage18FinalizationTest: PASS (16 assertions)
+Stage19RecoveryTest: PASS (12 assertions)
+Stage20StressTest: PASS (14 assertions)
+Stage21StateBridgeTest: PASS
+Stage22IntentJournalTest: PASS
+Stage23WaterPhysicsTest: PASS
+Stage24DiagnosticsTest: PASS
+Stage25IntentFinalizationTest: PASS
+Stage27EntitySpawnFinalizationTest: PASS
+Stage27EntitySpawnJournalTest: PASS
+Stage37WalRecoveryTest: PASS (28 assertions)
+Stage30StageGuardTest: PASS
+Stage32CloseSequenceTest: PASS
+Stage28PhysicsBatchTest: PASS
+Stage31BoundsCatalogValidatorTest: PASS
+
+Compiler: Java 21, javac --release 21 -Xlint:all -Werror.
+Scope: independent source-overlay core compilation and main-method regression suites only.
+Not covered: full upstream PNX/Terra/adapter Gradle builds, patch application to clean upstream checkouts, live server generation, crash/restart replay, Bedrock persistence, or runtime certification.
