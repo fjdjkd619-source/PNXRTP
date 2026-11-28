@@ -4,7 +4,7 @@
 
 ## Latest candidate overlay (2026-11-28, r8)
 
-The r8 candidate is the r7 overlay plus a pinned Terra BlockEntity capture-gap audit. The underlying candidate contains 44 Java source files, 11 test classes, 21 active patches, an exact-ref patch-application script, validation scripts/results, and 13 original archives.
+The r8 candidate adds staged TerraScript BlockEntity capture for supported signs, mob spawners and loot containers; hash-protected journal intents; Level-scheduler finalization with early durable save/rollback; and the pinned PNX spawner-delay persistence fix. The underlying candidate contains 44 Java source files, 11 test classes, 21 active patches, an exact-ref patch-application script, validation scripts/results, and 13 original archives.
 
 Latest corrections carried in the candidate:
 
@@ -13,7 +13,7 @@ Latest corrections carried in the candidate:
 3. **No force-load during Terra reads:** `PNXServerWorld.getChunkAt` uses `Level.getChunkIfLoaded` and rejects absent/uninitiated chunks.
 4. **Unknown Origen scripts:** unknown structure IDs use a hard runtime-bounded fallback (x/z +/-32, y +/-128, 65,536 reads/writes, zero entity spawns). Nested scripts share the root guard; any out-of-envelope operation aborts the placement. Namespaced IDs resolve to audited profiles where available. This is runtime containment, not static proof of every script's theoretical bounds.
 5. **Durability and ordering:** chunk persistence uses LevelDB `WriteOptions.sync(true)` before WAL acknowledgement; placement records use the per-anchor ticket ordinal.
-6. **PNX delegates:** `PNXChunkDelegate` returns actual chunk X/Z. `PNXBlockStateDelegate` supports exact matching property schemas and fails closed on mismatches. `PNXServerWorld.getBlockEntity` reads only already-loaded chunks through a read-only wrapper; BE updates and NBT state mutations remain fail-closed.
+6. **PNX delegates:** `PNXChunkDelegate` returns actual chunk X/Z. `PNXBlockStateDelegate` supports exact matching property schemas and fails closed on mismatches. `PNXServerWorld.getBlockEntity` remains read-only outside an active placement. Inside a placement, staged sign/spawner/container blocks receive detached Terra delegates; `update(false)` records immutable journal intents. Unknown types and unsupported inventory capacities remain fail-closed.
 
 ## Local validation
 
@@ -122,3 +122,16 @@ Persistent Library copies are additional recovery copies, not a substitute for t
 - Full PNX/Terra upstream compilation, Bedrock runtime generation, and crash/restart certification remain pending.
 
 The r8 archive itself is stored in ChatGPT Library at `/PNX-Terra-Backups/PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8-complete.zip`. The binary ZIP is not committed to this GitHub branch; the branch contains the relevant source files, patch files, and audit/validation reports.
+
+
+### Stage 22 TerraScript BlockEntity capture — current r8 implementation
+
+- Four adapter patches plus `22-stage22-pnx-spawner-delay.patch` are committed in this branch.
+- `PNXStagedSignDelegate` maps Terra `Sign` state properties `text0..text3` into PNX front-sign NBT.
+- `PNXStagedMobSpawnerDelegate` maps Terra's documented spawner properties and requires the entity identifier to resolve in the pinned PNX registry.
+- `PNXStagedContainerDelegate` and `PNXStagedInventory` stage loot inventory through PNX `ItemHelper.write`.
+- `PNXServerWorld.PlacementTransaction` journals these detached BlockEntity intents and merges nested transaction savepoints.
+- `PnxBlockEntityNbtCodec` adds a SHA-256 marker so PNX default-field normalization does not break replay detection. `PnxBlockEntityIntentApplier` validates the marker, canonical registry ID, coordinates and collisions; it rolls back entities registered before a constructor failure is swallowed by PNX.
+- The coordinator applies intents on the owning Level scheduler, durably saves before the next spawner heartbeat, and rolls back newly registered entities if that early save fails.
+- Narrow Java 21 contract tests pass for hash tampering, sign state, spawner properties, container serialization, replay, collision refusal, constructor rollback and early-save rollback. Full upstream compile, Bedrock runtime generation and crash/restart certification remain pending.
+
