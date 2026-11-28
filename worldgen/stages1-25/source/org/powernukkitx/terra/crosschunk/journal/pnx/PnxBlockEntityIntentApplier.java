@@ -23,12 +23,12 @@ import java.util.Objects;
 public final class PnxBlockEntityIntentApplier {
     private PnxBlockEntityIntentApplier() { }
 
-    public static void apply(IChunk chunk,
+    public static List<BlockEntity> apply(IChunk chunk,
                              NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> intents)
             throws IOException {
         Objects.requireNonNull(chunk, "chunk");
         Objects.requireNonNull(intents, "intents");
-        if (intents.isEmpty()) return;
+        if (intents.isEmpty()) return List.of();
         if (!chunk.isLoaded() || !chunk.isGenerated() || !chunk.isInitiated()) {
             throw new IOException("BlockEntity intents require a loaded, generated, initiated target chunk");
         }
@@ -39,6 +39,7 @@ public final class PnxBlockEntityIntentApplier {
         List<PreparedEntity> prepared = preflight(chunk, level, intents);
         Set<BlockEntity> preexisting = Collections.newSetFromMap(new IdentityHashMap<>());
         preexisting.addAll(chunk.getBlockEntities().values());
+        List<BlockEntity> created = new ArrayList<>();
         try {
             for (PreparedEntity entity : prepared) {
                 if (entity.alreadyPresent) continue;
@@ -46,6 +47,7 @@ public final class PnxBlockEntityIntentApplier {
                 if (blockEntity == null) {
                     throw new IOException("PNX factory returned null for BlockEntity type " + entity.canonicalType);
                 }
+                created.add(blockEntity);
                 if (!entity.type.isInstance(blockEntity)
                         || blockEntity.chunk != chunk
                         || blockEntity.getLevel() != level
@@ -55,12 +57,12 @@ public final class PnxBlockEntityIntentApplier {
                     throw new IOException("PNX BlockEntity factory returned an object with mismatched type, world, or coordinates");
                 }
                 blockEntity.saveNBT();
-                byte[] actual = PnxBlockEntityNbtCodec.encode(blockEntity.getNbt());
-                if (!Arrays.equals(entity.canonicalPayload, actual)) {
-                    throw new IOException("PNX BlockEntity constructor normalized NBT differently from its durable intent at "
+                if (!entity.intentHash.equals(blockEntity.getNbt().getString(PnxBlockEntityNbtCodec.INTENT_HASH_TAG))) {
+                    throw new IOException("PNX BlockEntity constructor discarded its durable intent hash at "
                             + entity.x + "," + entity.y + "," + entity.z);
                 }
             }
+            return List.copyOf(created);
         } catch (Exception failure) {
             // The PNX factory can swallow constructor failures after the base constructor has
             // already registered the object. Snapshot the chunk registry so even an object whose
@@ -99,12 +101,11 @@ public final class PnxBlockEntityIntentApplier {
             Class<? extends BlockEntity> type = Registries.BLOCKENTITY.get(intent.type());
             if (type == null) throw new IOException("Unknown PNX BlockEntity type: " + intent.type());
             String canonicalType = Registries.BLOCKENTITY.getSaveId(type);
-            if (canonicalType == null || canonicalType.isBlank()) {
-                throw new IOException("PNX BlockEntity type has no canonical save ID: " + intent.type());
+            if (canonicalType == null || canonicalType.isBlank() || !canonicalType.equals(intent.type())) {
+                throw new IOException("BlockEntity intent must use the canonical PNX save ID: " + intent.type());
             }
             CompoundTag tag = PnxBlockEntityNbtCodec.fromIntent(intent);
-            tag.putString("id", canonicalType);
-            byte[] canonicalPayload = PnxBlockEntityNbtCodec.encode(tag);
+            String intentHash = tag.getString(PnxBlockEntityNbtCodec.INTENT_HASH_TAG);
             BlockEntity existing = chunk.getTile(position.x() & 15, position.y(), position.z() & 15);
             boolean alreadyPresent = false;
             if (existing != null) {
@@ -112,19 +113,18 @@ public final class PnxBlockEntityIntentApplier {
                     throw new IOException("Conflicting BlockEntity already occupies " + position);
                 }
                 existing.saveNBT();
-                byte[] existingPayload = PnxBlockEntityNbtCodec.encode(existing.getNbt());
-                if (!Arrays.equals(canonicalPayload, existingPayload)) {
+                if (!intentHash.equals(existing.getNbt().getString(PnxBlockEntityNbtCodec.INTENT_HASH_TAG))) {
                     throw new IOException("Existing BlockEntity differs from the durable intent at " + position);
                 }
                 alreadyPresent = true;
             }
             prepared.add(new PreparedEntity(position.x(), position.y(), position.z(), type, canonicalType,
-                    tag, canonicalPayload, alreadyPresent));
+                    tag, intentHash, alreadyPresent));
         }
         return List.copyOf(prepared);
     }
 
     private record PreparedEntity(int x, int y, int z, Class<? extends BlockEntity> type,
-                                  String canonicalType, CompoundTag tag, byte[] canonicalPayload,
+                                  String canonicalType, CompoundTag tag, String intentHash,
                                   boolean alreadyPresent) { }
 }
