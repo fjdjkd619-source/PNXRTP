@@ -2,7 +2,7 @@
 
 **Status: BLOCKED — the complete modified stages 1–25 chain has not yet passed a full upstream build or runtime certification. It is not deployable.**
 
-## Latest candidate overlay (2026-11-28, r6)
+## Latest candidate overlay (2026-11-28, r7)
 
 The candidate contains 39 Java source files, 11 test classes, 19 active patches, an exact-ref patch-application script, validation scripts/results, 13 original archives, and a new pinned PNX BlockEntity lifecycle audit.
 
@@ -19,8 +19,8 @@ Latest corrections carried in the candidate:
 
 - Java 21 core compile: PASS, `--release 21 -Xlint:all -Werror`.
 - 11 core test suites x 10 complete rounds in the earlier recorded validation: **110/110 PASS**.
-- Fresh r6 rerun: all 11 core test suites PASS.
-- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r6.
+- Fresh r7 rerun: all 11 core test suites PASS.
+- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r7.
 - PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations; freshly rerun for r5.
 - Active patch syntax: **19/19 PASS** using `git apply --stat`.
 - Supplemental hardening patch: clean `git apply --check` and application PASS against the reconstructed Stage 21–25 baseline overlay.
@@ -39,11 +39,11 @@ The adapter intentionally remains fail-closed for BlockEntity mutation until Ter
 
 ## Latest recovery archive
 
-- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r6.zip`
-- Size: 1,357,561 bytes
-- SHA-256: `1e5dabc10392bd727d3b7744b02e0bf1d0063edb2abfd462f654af329687b3e0`
+- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r7.zip`
+- Size: 1,360,756 bytes
+- SHA-256: `9874916e2ffeaaac4a3b1c6e5c3cc3fabd815fa41cd692e6431590e03b20a0e9`
 - ZIP integrity: PASS
-- The r6 ZIP, checksum sidecar, and updated BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/` and the ZIP was re-downloaded and re-verified by SHA-256 and ZIP CRC.
+- The r7 ZIP, checksum sidecar, and updated BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/` and the ZIP was re-downloaded and re-verified by SHA-256 and ZIP CRC.
 - Earlier r3 archive and verified duplicate remain preserved; no prior copy was deleted or overwritten.
 
 
