@@ -1,0 +1,14 @@
+diff --git a/src/main/java/org/powernukkitx/entity/Entity.java b/src/main/java/org/powernukkitx/entity/Entity.java
+--- a/src/main/java/org/powernukkitx/entity/Entity.java
++++ b/src/main/java/org/powernukkitx/entity/Entity.java
+@@ -780,1 +780,7 @@
++    /** True while the entity is staged and not yet exposed to Level ticking. */
++    public final boolean isGenerationActivationPending() {
++        return this.generationActivationPending;
++    }
++
++    /** True after the entity has been inserted into its chunk's durable save set. */
++    public final boolean isGenerationRegisteredForSave() {
++        return this.generationRegisteredForSave;
++    }
+     public Set<String> typeFamily() {
