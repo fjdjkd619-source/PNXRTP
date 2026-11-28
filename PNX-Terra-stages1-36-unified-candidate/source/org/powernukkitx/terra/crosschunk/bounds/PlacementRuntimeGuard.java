@@ -76,6 +76,12 @@ public final class PlacementRuntimeGuard {
         if (++entities > profile.maxEntitySpawns()) fail("entity budget", x, y, z, writeWorldBounds);
     }
 
+    /** Position changes on a staged entity must remain inside the same root write envelope. */
+    public void beforeEntityMove(int x, int y, int z) {
+        ensureOpen();
+        if (!writeWorldBounds.contains(x, y, z)) fail("entity move", x, y, z, writeWorldBounds);
+    }
+
     /** Call only after the backing in-memory placement transaction has accepted its writes. Durable journal acknowledgement is a separate step. */
     public Snapshot complete() {
         ensureOpen();
