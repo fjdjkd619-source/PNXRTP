@@ -292,269 +292,6 @@ diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHa
      }
  
      private record DecodedWrite(int localX, int y, int localZ, int layer, BlockState state) {}
-diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
---- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
-+++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
-@@ -7,6 +7,7 @@
- import java.util.*;
- import java.util.concurrent.*;
- import java.util.concurrent.atomic.AtomicInteger;
-+import java.util.concurrent.atomic.AtomicBoolean;
- 
- public final class Stage17DependencySchedulerTest {
-     public static void main(String[] args) throws Exception {
-@@ -22,6 +23,9 @@
-             check(!ready.isDone(),"target initially blocked");
-             CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
-             var ticket=session.beginPlacement();
-+            var secondTicket=session.beginPlacement();
-+            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
-+            secondTicket.abort();
-             session.finishPopulation();
-             check(!ready.isDone(),"population cannot complete with in-flight root placement");
-             PlacementKey key=new PlacementKey("world",1,new ChunkPos(0,0),"feature","structure",1,64,1,0,0);
-@@ -58,6 +62,63 @@
-             check(attempts.get()==2,"queue-rejected anchor can be requested again");
-         }
- 
-+        Path activeWal=Files.createTempDirectory("pnx-stage17-active-").resolve("world.wal");
-+        try(PlacementJournal journal=new PlacementJournal(activeWal)){
-+            AtomicInteger requests=new AtomicInteger();
-+            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
-+                    anchor -> { requests.incrementAndGet(); return true; });
-+            var activeSession=scheduler.openAnchor(new ChunkPos(0,0));
-+            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
-+            check(requests.get()==0,"currently populating target anchor is not recursively requested");
-+            check(!ready.isDone(),"target barrier waits for its active anchor session");
-+            activeSession.finishPopulation();
-+            check(ready.isDone(),"active anchor completion releases its own target barrier");
-+            scheduler.close();
-+        }
-+
-+        Path acceptedWal=Files.createTempDirectory("pnx-stage17-accepted-").resolve("world.wal");
-+        try(PlacementJournal journal=new PlacementJournal(acceptedWal)){
-+            AtomicInteger acceptedCalls=new AtomicInteger();
-+            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
-+                    anchor -> { acceptedCalls.incrementAndGet(); return true; });
-+            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
-+            check(acceptedCalls.get()==1,"accepted anchor request is submitted once");
-+            Thread.sleep(650L); // allow multiple 250 ms retry windows to elapse
-+            check(acceptedCalls.get()==1,"accepted in-flight anchor is not resubmitted by retry loop");
-+            var session=scheduler.openAnchor(new ChunkPos(0,0));
-+            session.finishPopulation();
-+            check(ready.isDone(),"accepted anchor completion releases target");
-+            scheduler.close();
-+        }
-+
-+
-+        Path failedAcceptedWal=Files.createTempDirectory("pnx-stage17-failed-accepted-").resolve("world.wal");
-+        try(PlacementJournal journal=new PlacementJournal(failedAcceptedWal)){
-+            AtomicInteger acceptedAttempts=new AtomicInteger();
-+            AtomicBoolean pnxQueueOwnsRequest=new AtomicBoolean(true);
-+            CountDownLatch retried=new CountDownLatch(1);
-+            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
-+                    new CrossChunkDependencyScheduler.AnchorRequester() {
-+                        @Override public boolean request(ChunkPos anchor) {
-+                            int attempt=acceptedAttempts.incrementAndGet();
-+                            if(attempt==2) retried.countDown();
-+                            pnxQueueOwnsRequest.set(true);
-+                            return true;
-+                        }
-+                        @Override public boolean isInFlight(ChunkPos anchor) { return pnxQueueOwnsRequest.get(); }
-+                    });
-+            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
-+            check(acceptedAttempts.get()==1,"first accepted request is submitted once");
-+            Thread.sleep(350L);
-+            check(acceptedAttempts.get()==1,"accepted request is not duplicated while PNX queue owns it");
-+            pnxQueueOwnsRequest.set(false); // PNX released the slot after a failed generation attempt.
-+            check(retried.await(2,TimeUnit.SECONDS),"accepted-but-failed request is retried after PNX releases its queue slot");
-+            var recoveredSession=scheduler.openAnchor(new ChunkPos(0,0));
-+            recoveredSession.finishPopulation();
-+            check(ready.isDone(),"retried anchor completion releases target barrier");
-+            scheduler.close();
-+        }
-+
-         Path abortWal=Files.createTempDirectory("pnx-stage17-abort-").resolve("world.wal");
-         try(PlacementJournal journal=new PlacementJournal(abortWal)){
-             CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal);
-diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
---- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
-+++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
-@@ -29,18 +29,31 @@
-             coordinator.persist(prepared,()->supported);
-             check(supported.saved,"chunk persisted after complete intent application");
-             check(journal.isChunkApplied("world",target,prepared.digest()),"acknowledgement follows durable save");
-+            check(supported.saved, "save completed before acknowledgement is visible");
-+            ChunkPos failureTarget = new ChunkPos(1,0);
-+            PlacementKey failureKey = new PlacementKey("world",1,failureTarget,"feature-failure","structure",16,64,0,0,1);
-+            journal.appendPlacement(new PlacementRecord(failureKey,List.of(new BlockWrite(16,64,0,0,new byte[]{3}))));
-+            ChunkFinalizationCoordinator<FakeChunk> failureCoordinator = new ChunkFinalizationCoordinator<>("world",journal,Runnable::run);
-+            FakeChunk saveFailure = new FakeChunk(true,1,0);
-+            saveFailure.failSave = true;
-+            var failedPrepared = failureCoordinator.prepare(failureTarget,CompletableFuture.completedFuture(null),()->saveFailure).join();
-+            boolean saveRejected=false;
-+            try { failureCoordinator.persist(failedPrepared,()->saveFailure); } catch (java.io.IOException expected) { saveRejected=true; }
-+            check(saveRejected, "durable save failure propagates");
-+            check(!journal.isChunkApplied("world",failureTarget,failedPrepared.digest()), "failed durable save cannot publish digest acknowledgement");
-         }
-         System.out.println("Stage25IntentFinalizationTest: PASS");
-     }
-     private static final class FakeChunk implements ChunkFinalizationCoordinator.ChunkHandle {
--        private final boolean supports; int blocks,entities,physics; boolean saved;
--        FakeChunk(boolean supports){this.supports=supports;}
--        public ChunkPos position(){return new ChunkPos(0,0);} public boolean isLoaded(){return true;}
-+        private final boolean supports; private final int chunkX,chunkZ; int blocks,entities,physics; boolean saved; boolean failSave;
-+        FakeChunk(boolean supports){this(supports,0,0);}
-+        FakeChunk(boolean supports,int chunkX,int chunkZ){this.supports=supports;this.chunkX=chunkX;this.chunkZ=chunkZ;}
-+        public ChunkPos position(){return new ChunkPos(chunkX,chunkZ);} public boolean isLoaded(){return true;}
-         public boolean isGenerated(){return true;} public boolean isInitiated(){return true;}
-         public void applyProjection(NavigableMap<PlacementProjection.Position,PlacementProjection.Winner> p){blocks=p.size();}
-         public void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position,PlacementProjection.EntityWinner> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();entities=p.size();}
-         public void applyPhysicsIntents(List<PhysicsIntent> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();physics=p.size();}
--        public void saveDurably(){saved=true;}
-+        public void saveDurably() throws java.io.IOException {if(failSave)throw new java.io.IOException("simulated durable write failure");saved=true;}
-     }
-     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
- }
-diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
---- a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
-+++ b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
-@@ -1,30 +1,68 @@
- package org.powernukkitx.terra.delegate;
- 
- import org.powernukkitx.block.BlockAir;
-+import org.powernukkitx.block.BlockProperties;
-+import org.powernukkitx.block.property.type.BlockPropertyType;
-+import org.powernukkitx.registry.Registries;
- import com.dfsek.terra.api.block.BlockType;
- import com.dfsek.terra.api.block.state.BlockState;
- import com.dfsek.terra.api.block.state.properties.Property;
--import lombok.extern.slf4j.Slf4j;
- 
--@Slf4j
-+import java.util.Comparator;
-+import java.util.HashSet;
-+import java.util.List;
-+import java.util.Objects;
-+
-+/** Terra state view over a canonical PNX state. Only exactly matching property schemas are exposed. */
- public record PNXBlockStateDelegate(org.powernukkitx.block.BlockState innerBlockState) implements BlockState {
-     @Override
-     public boolean matches(BlockState blockState) {
--        return ((PNXBlockStateDelegate) blockState).innerBlockState.equals(this.innerBlockState);
-+        return blockState instanceof PNXBlockStateDelegate other
-+                && other.innerBlockState.equals(this.innerBlockState);
-     }
- 
-     @Override
-     public <T extends Comparable<T>> boolean has(Property<T> property) {
--        return false;
-+        return resolveProperty(property) != null;
-     }
- 
-     @Override
-     public <T extends Comparable<T>> T get(Property<T> property) {
--        return null;
-+        BlockPropertyType<T> pnxProperty = requireProperty(property);
-+        return innerBlockState.getPropertyValue(pnxProperty);
-     }
- 
-     @Override
--    public <T extends Comparable<T>> BlockState set(Property<T> property, T t) {
-+    public <T extends Comparable<T>> BlockState set(Property<T> property, T value) {
-+        BlockPropertyType<T> pnxProperty = requireProperty(property);
-+        if (!pnxProperty.getValidValues().contains(value)) {
-+            throw new IllegalArgumentException("Unsupported value " + value + " for PNX property " + pnxProperty.getName());
-+        }
-+        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
-+        return new PNXBlockStateDelegate(innerBlockState.setPropertyValue(properties, pnxProperty, value));
-+    }
-+
-+    private <T extends Comparable<T>> BlockPropertyType<T> requireProperty(Property<T> property) {
-+        BlockPropertyType<T> result = resolveProperty(property);
-+        if (result == null) {
-+            throw new IllegalArgumentException("PNX block " + innerBlockState.getIdentifier()
-+                    + " does not expose a compatible Terra property " + property.getID());
-+        }
-+        return result;
-+    }
-+
-+    @SuppressWarnings("unchecked")
-+    private <T extends Comparable<T>> BlockPropertyType<T> resolveProperty(Property<T> property) {
-+        Objects.requireNonNull(property, "property");
-+        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
-+        if (properties == null) return null;
-+        for (BlockPropertyType<?> candidate : properties.getPropertyTypeSet()) {
-+            if (!candidate.getName().equals(property.getID())) continue;
-+            Object defaultValue = candidate.getDefaultValue();
-+            if (defaultValue == null || !property.getType().equals(defaultValue.getClass())) continue;
-+            if (!new HashSet<>(candidate.getValidValues()).equals(new HashSet<>(property.values()))) continue;
-+            return (BlockPropertyType<T>) candidate;
-+        }
-         return null;
-     }
- 
-@@ -35,17 +73,22 @@
- 
-     @Override
-     public String getAsString(boolean properties) {
--        var name = innerBlockState.getIdentifier();
--        return switch (name) {
-+        String name = switch (innerBlockState.getIdentifier()) {
-             case "minecraft:snow_layer" -> "minecraft:snow";
-             case "minecraft:snow" -> "minecraft:snow_block";
--            default -> name;
-+            default -> innerBlockState.getIdentifier();
-         };
-+        if (!properties || innerBlockState.getBlockPropertyValues().isEmpty()) return name;
-+        List<String> encoded = innerBlockState.getBlockPropertyValues().stream()
-+                .sorted(Comparator.comparing(value -> value.getPropertyType().getName()))
-+                .map(value -> value.getPropertyType().getName() + "=" + value.getSerializedValue())
-+                .toList();
-+        return name + "[" + String.join(",", encoded) + "]";
-     }
- 
-     @Override
-     public boolean isAir() {
--        return innerBlockState == BlockAir.STATE;
-+        return innerBlockState == BlockAir.STATE || innerBlockState.equals(BlockAir.STATE);
-     }
- 
-     @Override
-diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
---- a/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
-+++ b/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
-@@ -9,22 +9,22 @@
- 
- public record PNXChunkDelegate(ServerWorld world, IChunk chunk) implements Chunk {
-     @Override
--    public void setBlock(int i, int i1, int i2, BlockState blockState, boolean b) {
--        setBlock(i, i1, i2, blockState);
-+    public void setBlock(int x, int y, int z, BlockState blockState, boolean physics) {
-+        setBlock(x, y, z, blockState);
-     }
- 
-     @Override
--    public void setBlock(int i, int i1, int i2, @NotNull BlockState blockState) {
--        chunk.setBlockState(i, i1, i2, ((PNXBlockStateDelegate) blockState).getHandle());
-+    public void setBlock(int x, int y, int z, @NotNull BlockState blockState) {
-+        chunk.setBlockState(x, y, z, ((PNXBlockStateDelegate) blockState).getHandle());
-     }
- 
-     @Override
--    public @NotNull BlockState getBlock(int i, int i1, int i2) {
--        return PNXAdapter.adapt(chunk.getBlockState(i, i1, i2));
-+    public @NotNull BlockState getBlock(int x, int y, int z) {
-+        return PNXAdapter.adapt(chunk.getBlockState(x, y, z));
-     }
- 
--    @Override public int getX() { return 0; }
--    @Override public int getZ() { return 0; }
-+    @Override public int getX() { return chunk.getX(); }
-+    @Override public int getZ() { return chunk.getZ(); }
-     @Override public ServerWorld getWorld() { return world; }
-     @Override public Object getHandle() { return chunk; }
- }
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java
 --- a/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java
 +++ b/src/main/java/org/powernukkitx/terra/crosschunk/bounds/ScriptBoundsProfile.java
@@ -669,4 +406,419 @@ new file mode 100644
 +    }
 +
 +    @Override public Object getHandle() { return handle; }
++}
+
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
+@@ -1,30 +1,68 @@
+ package org.powernukkitx.terra.delegate;
+ 
+ import org.powernukkitx.block.BlockAir;
++import org.powernukkitx.block.BlockProperties;
++import org.powernukkitx.block.property.type.BlockPropertyType;
++import org.powernukkitx.registry.Registries;
+ import com.dfsek.terra.api.block.BlockType;
+ import com.dfsek.terra.api.block.state.BlockState;
+ import com.dfsek.terra.api.block.state.properties.Property;
+-import lombok.extern.slf4j.Slf4j;
+ 
+-@Slf4j
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Objects;
++
++/** Terra state view over a canonical PNX state. Only exactly matching property schemas are exposed. */
+ public record PNXBlockStateDelegate(org.powernukkitx.block.BlockState innerBlockState) implements BlockState {
+     @Override
+     public boolean matches(BlockState blockState) {
+-        return ((PNXBlockStateDelegate) blockState).innerBlockState.equals(this.innerBlockState);
++        return blockState instanceof PNXBlockStateDelegate other
++                && other.innerBlockState.equals(this.innerBlockState);
+     }
+ 
+     @Override
+     public <T extends Comparable<T>> boolean has(Property<T> property) {
+-        return false;
++        return resolveProperty(property) != null;
+     }
+ 
+     @Override
+     public <T extends Comparable<T>> T get(Property<T> property) {
+-        return null;
++        BlockPropertyType<T> pnxProperty = requireProperty(property);
++        return innerBlockState.getPropertyValue(pnxProperty);
+     }
+ 
+     @Override
+-    public <T extends Comparable<T>> BlockState set(Property<T> property, T t) {
++    public <T extends Comparable<T>> BlockState set(Property<T> property, T value) {
++        BlockPropertyType<T> pnxProperty = requireProperty(property);
++        if (!pnxProperty.getValidValues().contains(value)) {
++            throw new IllegalArgumentException("Unsupported value " + value + " for PNX property " + pnxProperty.getName());
++        }
++        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
++        return new PNXBlockStateDelegate(innerBlockState.setPropertyValue(properties, pnxProperty, value));
++    }
++
++    private <T extends Comparable<T>> BlockPropertyType<T> requireProperty(Property<T> property) {
++        BlockPropertyType<T> result = resolveProperty(property);
++        if (result == null) {
++            throw new IllegalArgumentException("PNX block " + innerBlockState.getIdentifier()
++                    + " does not expose a compatible Terra property " + property.getID());
++        }
++        return result;
++    }
++
++    @SuppressWarnings("unchecked")
++    private <T extends Comparable<T>> BlockPropertyType<T> resolveProperty(Property<T> property) {
++        Objects.requireNonNull(property, "property");
++        BlockProperties properties = Registries.BLOCK.getBlockProperties(innerBlockState.getIdentifier());
++        if (properties == null) return null;
++        for (BlockPropertyType<?> candidate : properties.getPropertyTypeSet()) {
++            if (!candidate.getName().equals(property.getID())) continue;
++            Object defaultValue = candidate.getDefaultValue();
++            if (defaultValue == null || !property.getType().equals(defaultValue.getClass())) continue;
++            if (!new HashSet<>(candidate.getValidValues()).equals(new HashSet<>(property.values()))) continue;
++            return (BlockPropertyType<T>) candidate;
++        }
+         return null;
+     }
+ 
+@@ -35,30 +73,22 @@
+ 
+     @Override
+     public String getAsString(boolean properties) {
+-//        JeBlockState jeBlock = MappingRegistries.BLOCKS.getJEBlock(innerBlockState);
+-//        if (properties) {
+-//            return jeBlock;
+-//        } else {
+-//            int i = jeBlock.indexOf('[');
+-//            if (i != -1) {
+-//                return jeBlock.substring(0, jeBlock.indexOf('['));
+-//            } else {
+-//                return jeBlock;
+-//            }
+-//        }
+-        //todo support properties
+-        var name = innerBlockState.getIdentifier();
+-        //对于一些特殊方块的HACK
+-        return switch (name) {
++        String name = switch (innerBlockState.getIdentifier()) {
+             case "minecraft:snow_layer" -> "minecraft:snow";
+             case "minecraft:snow" -> "minecraft:snow_block";
+-            default -> name;
++            default -> innerBlockState.getIdentifier();
+         };
++        if (!properties || innerBlockState.getBlockPropertyValues().isEmpty()) return name;
++        List<String> encoded = innerBlockState.getBlockPropertyValues().stream()
++                .sorted(Comparator.comparing(value -> value.getPropertyType().getName()))
++                .map(value -> value.getPropertyType().getName() + "=" + value.getSerializedValue())
++                .toList();
++        return name + "[" + String.join(",", encoded) + "]";
+     }
+ 
+     @Override
+     public boolean isAir() {
+-        return innerBlockState == BlockAir.STATE;
++        return innerBlockState == BlockAir.STATE || innerBlockState.equals(BlockAir.STATE);
+     }
+ 
+     @Override
+
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
+@@ -9,38 +9,22 @@
+ 
+ public record PNXChunkDelegate(ServerWorld world, IChunk chunk) implements Chunk {
+     @Override
+-    public void setBlock(int i, int i1, int i2, BlockState blockState, boolean b) {
+-        setBlock(i, i1, i2, blockState);
+-    }
+-
+-    @Override
+-    public void setBlock(int i, int i1, int i2, @NotNull BlockState blockState) {
+-        chunk.setBlockState(i, i1, i2, ((PNXBlockStateDelegate) blockState).getHandle());
+-    }
+-
+-    @Override
+-    public @NotNull
+-    BlockState getBlock(int i, int i1, int i2) {
+-        return PNXAdapter.adapt(chunk.getBlockState(i, i1, i2));
+-    }
+-
+-    @Override
+-    public int getX() {
+-        return 0;
++    public void setBlock(int x, int y, int z, BlockState blockState, boolean physics) {
++        setBlock(x, y, z, blockState);
+     }
+ 
+     @Override
+-    public int getZ() {
+-        return 0;
++    public void setBlock(int x, int y, int z, @NotNull BlockState blockState) {
++        chunk.setBlockState(x, y, z, ((PNXBlockStateDelegate) blockState).getHandle());
+     }
+ 
+     @Override
+-    public ServerWorld getWorld() {
+-        return world;
++    public @NotNull BlockState getBlock(int x, int y, int z) {
++        return PNXAdapter.adapt(chunk.getBlockState(x, y, z));
+     }
+ 
+-    @Override
+-    public Object getHandle() {
+-        return chunk;
+-    }
++    @Override public int getX() { return chunk.getX(); }
++    @Override public int getZ() { return chunk.getZ(); }
++    @Override public ServerWorld getWorld() { return world; }
++    @Override public Object getHandle() { return chunk; }
+ }
+
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
+new file mode 100644
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
+@@ -0,0 +1,146 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.journal.*;
++import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
++import java.nio.file.*;
++import java.nio.charset.StandardCharsets;
++import java.util.*;
++import java.util.concurrent.*;
++import java.util.concurrent.atomic.AtomicInteger;
++import java.util.concurrent.atomic.AtomicBoolean;
++
++public final class Stage17DependencySchedulerTest {
++    public static void main(String[] args) throws Exception {
++        check(CrossChunkDependencyScheduler.expectedAnchors(new ChunkPos(0,0),0,0).equals(Set.of(new ChunkPos(0,0))),"zero reach anchor set");
++        Set<ChunkPos> neg=CrossChunkDependencyScheduler.expectedAnchors(new ChunkPos(-1,-1),16,16);
++        check(neg.contains(new ChunkPos(-2,-2))&&neg.contains(new ChunkPos(-1,-1))&&neg.contains(new ChunkPos(0,0)),"negative and positive overlap envelope");
++
++        Path wal=Files.createTempDirectory("pnx-stage17-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(wal)){
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal);
++            Set<ChunkPos> expected=CrossChunkDependencyScheduler.expectedAnchors(new ChunkPos(0,0),0,0);
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0);
++            check(!ready.isDone(),"target initially blocked");
++            CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
++            var ticket=session.beginPlacement();
++            var secondTicket=session.beginPlacement();
++            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
++            secondTicket.abort();
++            var mismatchedTicket=session.beginPlacement();
++            long sequenceBeforeMismatch=journal.lastSequence();
++            boolean ordinalMismatchRejected=false;
++            try {
++                PlacementKey wrongOrdinal=new PlacementKey("world",1,new ChunkPos(0,0),"feature-mismatch","structure",2,64,2,0,3);
++                mismatchedTicket.commit(new PlacementRecord(wrongOrdinal,List.of()));
++            } catch(IllegalArgumentException expectedFailure) {
++                ordinalMismatchRejected=true;
++            }
++            check(ordinalMismatchRejected,"ticket rejects a journal record carrying another placement ordinal");
++            check(journal.lastSequence()==sequenceBeforeMismatch,"ordinal mismatch is rejected before any WAL append");
++            mismatchedTicket.abort();
++            session.finishPopulation();
++            check(!ready.isDone(),"population cannot complete with in-flight root placement");
++            PlacementKey key=new PlacementKey("world",1,new ChunkPos(0,0),"feature","structure",1,64,1,0,0);
++            ticket.commit(new PlacementRecord(key,List.of(new BlockWrite(1,64,1,0,"stone".getBytes(StandardCharsets.UTF_8)))));
++            check(ready.isDone(),"target releases only after durable placement and anchor marker");
++            check(scheduler.isAnchorComplete(new ChunkPos(0,0)),"anchor marker persisted");
++        }
++        try(PlacementJournal recovered=new PlacementJournal(wal)){
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",recovered);
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0);
++            check(ready.isDone(),"completed dependencies restored after restart");
++        }
++        Path wideWal=Files.createTempDirectory("pnx-stage17-wide-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(wideWal)){
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal);
++            var ready=scheduler.registerTarget(new ChunkPos(0,0),16,16,false);
++            Set<ChunkPos> anchors=CrossChunkDependencyScheduler.expectedAnchors(new ChunkPos(0,0),16,16);
++            check(anchors.size()==9,"wide dependency envelope includes all overlapping anchor chunks");
++            int completed=0;
++            for(ChunkPos anchor:anchors){var session=scheduler.openAnchor(anchor);session.finishPopulation();completed++;if(completed<anchors.size())check(!ready.isDone(),"target remains blocked until every source anchor completes");}
++            check(ready.isDone(),"wide target barrier releases after final source anchor");
++        }
++
++        Path requestWal=Files.createTempDirectory("pnx-stage17-request-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(requestWal)){
++            AtomicInteger attempts=new AtomicInteger();
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    anchor -> attempts.incrementAndGet()>1);
++            scheduler.registerTarget(new ChunkPos(0,0),0,0,false);
++            check(attempts.get()==0,"dependency-prefetch registration does not recurse");
++            scheduler.activateTarget(new ChunkPos(0,0));
++            check(attempts.get()==1,"activation retries one missing source anchor");
++            scheduler.activateTarget(new ChunkPos(0,0));
++            check(attempts.get()==2,"queue-rejected anchor can be requested again");
++        }
++
++        Path activeWal=Files.createTempDirectory("pnx-stage17-active-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(activeWal)){
++            AtomicInteger requests=new AtomicInteger();
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    anchor -> { requests.incrementAndGet(); return true; });
++            var activeSession=scheduler.openAnchor(new ChunkPos(0,0));
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
++            check(requests.get()==0,"currently populating target anchor is not recursively requested");
++            check(!ready.isDone(),"target barrier waits for its active anchor session");
++            activeSession.finishPopulation();
++            check(ready.isDone(),"active anchor completion releases its own target barrier");
++            scheduler.close();
++        }
++
++        Path acceptedWal=Files.createTempDirectory("pnx-stage17-accepted-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(acceptedWal)){
++            AtomicInteger acceptedCalls=new AtomicInteger();
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    anchor -> { acceptedCalls.incrementAndGet(); return true; });
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
++            check(acceptedCalls.get()==1,"accepted anchor request is submitted once");
++            Thread.sleep(650L); // allow multiple 250 ms retry windows to elapse
++            check(acceptedCalls.get()==1,"accepted in-flight anchor is not resubmitted by retry loop");
++            var session=scheduler.openAnchor(new ChunkPos(0,0));
++            session.finishPopulation();
++            check(ready.isDone(),"accepted anchor completion releases target");
++            scheduler.close();
++        }
++
++
++        Path failedAcceptedWal=Files.createTempDirectory("pnx-stage17-failed-accepted-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(failedAcceptedWal)){
++            AtomicInteger acceptedAttempts=new AtomicInteger();
++            AtomicBoolean pnxQueueOwnsRequest=new AtomicBoolean(true);
++            CountDownLatch retried=new CountDownLatch(1);
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal,
++                    new CrossChunkDependencyScheduler.AnchorRequester() {
++                        @Override public boolean request(ChunkPos anchor) {
++                            int attempt=acceptedAttempts.incrementAndGet();
++                            if(attempt==2) retried.countDown();
++                            pnxQueueOwnsRequest.set(true);
++                            return true;
++                        }
++                        @Override public boolean isInFlight(ChunkPos anchor) { return pnxQueueOwnsRequest.get(); }
++                    });
++            CompletableFuture<Void> ready=scheduler.registerTarget(new ChunkPos(0,0),0,0,true);
++            check(acceptedAttempts.get()==1,"first accepted request is submitted once");
++            Thread.sleep(350L);
++            check(acceptedAttempts.get()==1,"accepted request is not duplicated while PNX queue owns it");
++            pnxQueueOwnsRequest.set(false); // PNX released the slot after a failed generation attempt.
++            check(retried.await(2,TimeUnit.SECONDS),"accepted-but-failed request is retried after PNX releases its queue slot");
++            var recoveredSession=scheduler.openAnchor(new ChunkPos(0,0));
++            recoveredSession.finishPopulation();
++            check(ready.isDone(),"retried anchor completion releases target barrier");
++            scheduler.close();
++        }
++
++        Path abortWal=Files.createTempDirectory("pnx-stage17-abort-").resolve("world.wal");
++        try(PlacementJournal journal=new PlacementJournal(abortWal)){
++            CrossChunkDependencyScheduler scheduler=new CrossChunkDependencyScheduler("world",journal);
++            var ready=scheduler.registerTarget(new ChunkPos(0,0),0,0);
++            var session=scheduler.openAnchor(new ChunkPos(0,0));
++            var ticket=session.beginPlacement();ticket.abort();session.finishPopulation();
++            check(ready.isDone(),"empty but successfully populated anchor can complete");
++            check(journal.placementsFor(new ChunkPos(0,0)).isEmpty(),"aborted root writes absent from WAL");
++        }
++        System.out.println("Stage17DependencySchedulerTest: PASS");
++    }
++    static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
++}
+
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
+new file mode 100644
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage25IntentFinalizationTest.java
+@@ -0,0 +1,85 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.finalize.ChunkFinalizationCoordinator;
++import org.powernukkitx.terra.crosschunk.journal.*;
++import java.nio.file.*;
++import java.util.*;
++import java.util.concurrent.*;
++
++public final class Stage25IntentFinalizationTest {
++    public static void main(String[] args) throws Exception {
++        Path wal=Files.createTempDirectory("pnx-stage25-").resolve("finalize.wal");
++        ChunkPos target=new ChunkPos(0,0);
++        PlacementKey key=new PlacementKey("world",1,target,"feature","structure",0,64,0,0,1);
++        PlacementRecord record=new PlacementRecord(key,List.of(new BlockWrite(0,64,0,0,new byte[]{1})),
++                List.of(new BlockEntityIntent(1,64,1,"Chest",new byte[]{2})),
++                List.of(new PhysicsIntent(0,64,0,true)));
++        try(PlacementJournal journal=new PlacementJournal(wal)){
++            journal.appendPlacement(record);
++            ChunkFinalizationCoordinator<FakeChunk> coordinator=new ChunkFinalizationCoordinator<>("world",journal,Runnable::run);
++            FakeChunk unsupported=new FakeChunk(false);
++            boolean failed=false;
++            try { coordinator.prepare(target,CompletableFuture.completedFuture(null),()->unsupported).join(); }
++            catch(CompletionException expected){failed=true;}
++            check(failed,"adapter without entity support fails closed");
++            check(!journal.isChunkApplied("world",target,PlacementDigest.compute(journal.placementsFor(target),target)),"unsupported intents never acknowledged");
++            FakeChunk supported=new FakeChunk(true);
++            List<Runnable> levelTasks=new ArrayList<>();
++            ChunkFinalizationCoordinator<FakeChunk> splitCoordinator =
++                    new ChunkFinalizationCoordinator<>("world",journal,Runnable::run,levelTasks::add);
++            CompletableFuture<ChunkFinalizationCoordinator.Prepared<FakeChunk>> prepareFuture =
++                    splitCoordinator.prepare(target,CompletableFuture.completedFuture(null),()->supported);
++            check(supported.blocks==1&&supported.entities==0&&supported.physics==0,
++                    "block projection runs before PNX-owned intent executor");
++            check(!prepareFuture.isDone()&&levelTasks.size()==1,
++                    "finalization waits asynchronously for PNX-owned intent execution");
++            levelTasks.remove(0).run();
++            var prepared=prepareFuture.join();
++            check(supported.blocks==1&&supported.entities==1&&supported.physics==1,"all intent classes reach adapter before save");
++            check(supported.saved&&supported.confirmed==1,
++                    "BlockEntity batch is durably saved and rollback window closed on the Level scheduler before its heartbeat returns");
++            splitCoordinator.persist(prepared,()->supported);
++            check(supported.saved,"chunk persisted after complete intent application");
++            check(journal.isChunkApplied("world",target,prepared.digest()),"acknowledgement follows durable save");
++            check(supported.saved, "save completed before acknowledgement is visible");
++            ChunkPos failureTarget = new ChunkPos(1,0);
++            PlacementKey failureKey = new PlacementKey("world",1,failureTarget,"feature-failure","structure",16,64,0,0,1);
++            journal.appendPlacement(new PlacementRecord(failureKey,List.of(new BlockWrite(16,64,0,0,new byte[]{3}))));
++            ChunkFinalizationCoordinator<FakeChunk> failureCoordinator = new ChunkFinalizationCoordinator<>("world",journal,Runnable::run);
++            FakeChunk saveFailure = new FakeChunk(true,1,0);
++            saveFailure.failSave = true;
++            var failedPrepared = failureCoordinator.prepare(failureTarget,CompletableFuture.completedFuture(null),()->saveFailure).join();
++            boolean saveRejected=false;
++            try { failureCoordinator.persist(failedPrepared,()->saveFailure); } catch (java.io.IOException expected) { saveRejected=true; }
++            check(saveRejected, "durable save failure propagates");
++            check(!journal.isChunkApplied("world",failureTarget,failedPrepared.digest()), "failed durable save cannot publish digest acknowledgement");
++            ChunkPos beFailureTarget = new ChunkPos(2,0);
++            PlacementKey beFailureKey = new PlacementKey("world",1,beFailureTarget,"feature-be-failure","structure",32,64,0,0,1);
++            journal.appendPlacement(new PlacementRecord(beFailureKey,List.of(new BlockWrite(32,64,0,0,new byte[]{4})),
++                    List.of(new BlockEntityIntent(33,64,1,"Chest",new byte[]{5})),List.of()));
++            FakeChunk beSaveFailure = new FakeChunk(true,2,0);
++            beSaveFailure.failSave = true;
++            boolean bePrepareRejected=false;
++            try { new ChunkFinalizationCoordinator<FakeChunk>("world",journal,Runnable::run)
++                    .prepare(beFailureTarget,CompletableFuture.completedFuture(null),()->beSaveFailure).join(); }
++            catch (CompletionException expected) { bePrepareRejected=true; }
++            check(bePrepareRejected&&beSaveFailure.rollbackCount==1&&beSaveFailure.entities==0,
++                    "failed early durable save rolls back newly registered BlockEntities before scheduler task completes");
++        }
++        System.out.println("Stage25IntentFinalizationTest: PASS");
++    }
++    private static final class FakeChunk implements ChunkFinalizationCoordinator.ChunkHandle {
++        private final boolean supports; private final int chunkX,chunkZ; int blocks,entities,physics; int rollbackCount,confirmed; boolean saved; boolean failSave;
++        FakeChunk(boolean supports){this(supports,0,0);}
++        FakeChunk(boolean supports,int chunkX,int chunkZ){this.supports=supports;this.chunkX=chunkX;this.chunkZ=chunkZ;}
++        public ChunkPos position(){return new ChunkPos(chunkX,chunkZ);} public boolean isLoaded(){return true;}
++        public boolean isGenerated(){return true;} public boolean isInitiated(){return true;}
++        public void applyProjection(NavigableMap<PlacementProjection.Position,PlacementProjection.Winner> p){blocks=p.size();}
++        public void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position,PlacementProjection.EntityWinner> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();entities=p.size();}
++        public void applyPhysicsIntents(List<PhysicsIntent> p){if(!supports&&!p.isEmpty())throw new UnsupportedOperationException();physics=p.size();}
++        public void rollbackBlockEntityIntents(){rollbackCount++;entities=0;}
++        public void confirmBlockEntityIntents(){confirmed++;}
++        public void saveDurably() throws java.io.IOException {if(failSave)throw new java.io.IOException("simulated durable write failure");saved=true;}
++    }
++    private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
 +}
