@@ -60,6 +60,13 @@
 
 ## Stage 47 — Transactional Terra entity capture and finalization
 
+**Capture and WAL integration code added — not yet built or tested.**
+
+- Replaced the unconditional spawn rejection with a placement-local Terra entity facade. It exposes mutable position/world through the Terra API but creates no live PNX entity during feature execution.
+- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to the existing WAL v4 format.
+- Nested placements merge staged entity captures into the root savepoint; journal-less legacy construction rejects entity spawning rather than creating a non-durable entity.
+- Extended the PNX placement record factory and committer to carry entity intents; the existing PNX finalizer/applier performs UUID validation, chunk-local staging, synchronous durable save, activation and rollback.
+- Added the Stage 47 patch and ordered runner. Entity factory compatibility, restart replay, cancellation and save-failure behavior remain unverified.
 - Replace the fail-closed PNXServerWorld.spawnEntity placeholder with a Terra spawn-capture path that creates deterministic EntitySpawnIntent records.
 - Preserve stable UUID ownership, entity type, position, rotation and supported NBT payload.
 - Integrate the deferred PNX entity construction, pre-save staging, durable chunk save, post-save Level activation and network publication sequence.
