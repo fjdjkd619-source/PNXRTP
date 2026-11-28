@@ -1,7 +1,7 @@
 diff --git a/src/main/java/org/powernukkitx/entity/Entity.java b/src/main/java/org/powernukkitx/entity/Entity.java
 --- a/src/main/java/org/powernukkitx/entity/Entity.java
 +++ b/src/main/java/org/powernukkitx/entity/Entity.java
-@@ -780,1 +780,10 @@
+@@ -780,1 +820,10 @@
 +    /** True while the entity is staged and not yet exposed to Level ticking. */
 +    public final boolean isGenerationActivationPending() {
 +        return this.generationActivationPending;
