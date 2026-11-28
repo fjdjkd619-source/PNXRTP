@@ -284,6 +284,7 @@ public final class JournalCheckpoint {
     }
 
     private static PlacementRecord readPlacement(DataInputStream input) throws IOException {
+        try {
         PlacementKey key = new PlacementKey(readString(input), input.readLong(),
                 new ChunkPos(input.readInt(), input.readInt()), readString(input), readString(input),
                 input.readInt(), input.readInt(), input.readInt(), input.readInt(), input.readLong());
@@ -322,8 +323,7 @@ public final class JournalCheckpoint {
             entities.add(new EntitySpawnIntent(uuid, type, x, y, z, yaw, pitch,
                     readBytes(input, MAX_INTENT_BYTES, true)));
         }
-        try {
-            return new PlacementRecord(key, writes, blockEntities, physics, entities);
+        return new PlacementRecord(key, writes, blockEntities, physics, entities);
         } catch (IllegalArgumentException invalid) {
             throw new IOException("Invalid placement record in checkpoint", invalid);
         }
