@@ -1,0 +1,831 @@
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -1,396 +1,431 @@
+-package org.powernukkitx.terra.delegate;
+-
+-import org.powernukkitx.block.Block;
+-import org.powernukkitx.block.BlockEntityHolder;
+-import org.powernukkitx.block.BlockID;
+-import org.powernukkitx.level.Level;
+-import org.powernukkitx.level.format.IChunk;
+-import org.powernukkitx.nbt.tag.CompoundTag;
+-import org.powernukkitx.blockentity.BlockEntitySign;
+-import org.powernukkitx.blockentity.BlockEntityMobSpawner;
+-import org.powernukkitx.blockentity.BlockEntityInventoryHolder;
+-import org.powernukkitx.level.generator.object.BlockManager;
+-import org.powernukkitx.terra.PNXAdapter;
+-import org.powernukkitx.terra.TerraGenerator;
+-import org.powernukkitx.math.BlockVector3;
+-import com.dfsek.seismic.type.Rotation;
+-import com.dfsek.seismic.type.vector.Vector3Int;
+-import com.dfsek.terra.api.block.entity.BlockEntity;
+-import com.dfsek.terra.api.block.state.BlockState;
+-import com.dfsek.terra.api.config.ConfigPack;
+-import com.dfsek.terra.api.entity.Entity;
+-import com.dfsek.terra.api.entity.EntityType;
+-import com.dfsek.terra.api.world.PlacementGuardHost;
+-import com.dfsek.terra.api.world.ServerWorld;
+-import com.dfsek.terra.api.world.biome.generation.BiomeProvider;
+-import com.dfsek.terra.api.world.chunk.Chunk;
+-import com.dfsek.terra.api.world.chunk.generation.ChunkGenerator;
+-import org.powernukkitx.terra.crosschunk.bounds.Bounds3i;
+-import org.powernukkitx.terra.crosschunk.bounds.OrigenBoundsCatalog;
+-import org.powernukkitx.terra.crosschunk.bounds.PlacementGuardContext;
+-import org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard;
+-import org.powernukkitx.terra.crosschunk.bounds.ScriptBoundsProfile;
+-import org.powernukkitx.terra.crosschunk.diagnostics.DiagnosticSink;
+-import org.powernukkitx.terra.crosschunk.diagnostics.GenerationDiagnostic;
+-import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
+-import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+-import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
+-import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
+-import org.powernukkitx.terra.crosschunk.journal.pnx.PnxPlacementCommitter;
+-import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
+-
+-import java.io.IOException;
+-import java.time.Instant;
+-import java.util.ArrayList;
+-import java.util.List;
+-import java.util.Objects;
+-
+-public class PNXServerWorld implements ServerWorld {
+-
+-    private final TerraGenerator generatorWrapper;
+-    private final BlockManager level;
+-    private PlacementTransaction activePlacement;
+-    private final CrossChunkDependencyScheduler.AnchorSession anchorSession;
+-    private final String worldKey;
+-    private final DiagnosticSink diagnostics;
+-
+-    public PNXServerWorld(TerraGenerator generatorWrapper, Level level) {
+-        this(generatorWrapper, level, null, null, DiagnosticSink.ignoring());
+-    }
+-
+-    public PNXServerWorld(TerraGenerator generatorWrapper, Level level,
+-                          CrossChunkDependencyScheduler.AnchorSession anchorSession, String worldKey) {
+-        this(generatorWrapper, level, anchorSession, worldKey, DiagnosticSink.ignoring());
+-    }
+-
+-    public PNXServerWorld(TerraGenerator generatorWrapper, Level level,
+-                          CrossChunkDependencyScheduler.AnchorSession anchorSession, String worldKey,
+-                          DiagnosticSink diagnostics) {
+-        this.generatorWrapper = generatorWrapper;
+-        this.level = new BlockManager(level);
+-        this.anchorSession = anchorSession;
+-        this.worldKey = worldKey;
+-        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+-        if ((anchorSession == null) != (worldKey == null)) {
+-            throw new IllegalArgumentException("Anchor session and world key must be supplied together");
+-        }
+-    }
+-
+-    public TerraGenerator generatorWrapper() { return generatorWrapper; }
+-    public Level level() { return level.getLevel(); }
+-
+-    public void apply(IChunk chunk) {
+-        // The WAL owns cross-chunk writes. This stage-local manager may contain only anchor writes.
+-        // Never force-load a neighbouring chunk from this generation worker; Stage18 applies WAL projections.
+-        for (Block block : level.getBlocks()) {
+-            if (block.getChunkX() != chunk.getX() || block.getChunkZ() != chunk.getZ()) {
+-                throw new IllegalStateException("Cross-chunk Terra writes reached PNX apply before journal integration");
+-            }
+-        }
+-        level.applySubChunkUpdate();
+-    }
+-
+-    /** Begin a root feature placement. Unknown profiles and entity-bearing profiles fail closed. */
+-    public PlacementGuardHost.PlacementScope beginPlacement(String featureId, String structureId,
+-                                                             Vector3Int origin, Rotation rotation) {
+-        if (activePlacement != null) {
+-            throw new IllegalStateException("A root Terra placement is already active on this world adapter");
+-        }
+-        ScriptBoundsProfile profile;
+-        try {
+-            profile = OrigenBoundsCatalog.resolveRuntimeProfile(structureId);
+-        } catch (IllegalArgumentException invalidId) {
+-            publishUnsupported(featureId, structureId, origin, "Structure has no usable identifier; placement skipped");
+-            return PlacementGuardHost.PlacementScope.rejected();
+-        }
+-        // Entity intents are not yet deferred/committed atomically by this adapter.
+-        if (profile.maxEntitySpawns() != 0) {
+-            publishUnsupported(featureId, structureId, origin, "Structure entity intents are not enabled in this adapter build");
+-            return PlacementGuardHost.PlacementScope.rejected();
+-        }
+-
+-        Bounds3i.QuarterTurn turn = switch (rotation) {
+-            case NONE -> Bounds3i.QuarterTurn.NONE;
+-            // Seismic's CW_90 maps (x,z)->(z,-x), opposite the guard's CW label.
+-            case CW_90 -> Bounds3i.QuarterTurn.COUNTERCLOCKWISE_90;
+-            case CW_180 -> Bounds3i.QuarterTurn.HALF;
+-            case CCW_90 -> Bounds3i.QuarterTurn.CLOCKWISE_90;
+-        };
+-        PlacementRuntimeGuard guard = new PlacementRuntimeGuard(profile, origin.getX(), origin.getY(), origin.getZ(), turn);
+-        PlacementGuardContext.Scope guardScope = PlacementGuardContext.installRoot(guard);
+-        CrossChunkDependencyScheduler.PlacementTicket journalTicket = anchorSession == null ? null : anchorSession.beginPlacement();
+-        PlacementKey journalKey = anchorSession == null ? null : new PlacementKey(worldKey, level.getSeed(),
+-                anchorSession.anchor(), featureId, structureId,
+-                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
+-        PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
+-                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
+-                Thread.currentThread(), journalTicket, journalKey);
+-        activePlacement = root;
+-        return scopeFor(root, true);
+-    }
+-
+-
+-    private void publishUnsupported(String featureId, String structureId, Vector3Int origin, String message) {
+-        diagnostics.publish(new GenerationDiagnostic(Instant.now(), GenerationDiagnostic.Severity.WARNING,
+-                "terra_populate", featureId, structureId,
+-                new ChunkPos(origin.getX() >> 4, origin.getZ() >> 4), origin.getX(), origin.getY(), origin.getZ(),
+-                message, "none"));
+-    }
+-
+-    /** Nested TerraScript structures are savepoints under the same root guard and envelope. */
+-    public PlacementGuardHost.PlacementScope beginNestedPlacement(String structureId) {
+-        PlacementTransaction parent = requirePlacement();
+-        if (structureId == null || !parent.guard.profile().allowsNestedStructure(structureId)) {
+-            return PlacementGuardHost.PlacementScope.rejected();
+-        }
+-        PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
+-                parent.originX, parent.originY, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent,
+-                new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
+-        activePlacement = child;
+-        return scopeFor(child, false);
+-    }
+-
+-    private PlacementGuardHost.PlacementScope scopeFor(PlacementTransaction transaction, boolean root) {
+-        return new PlacementGuardHost.PlacementScope() {
+-            private boolean finished;
+-
+-            @Override public boolean accepted() { return !finished && activePlacement == transaction; }
+-
+-            @Override
+-            public boolean commit() {
+-                ensureOwner();
+-                if (finished) return false;
+-                if (transaction.guard.snapshot().state() != PlacementRuntimeGuard.State.OPEN) {
+-                    abort();
+-                    return false;
+-                }
+-                if (!root) {
+-                    transaction.parent.staged.merge(transaction.staged);
+-                    transaction.parent.blockEntities.addAll(transaction.blockEntities);
+-                    transaction.parent.physics.addAll(transaction.physics);
+-                    finish();
+-                    return true;
+-                }
+-                int anchorChunkX = transaction.originX >> 4;
+-                int anchorChunkZ = transaction.originZ >> 4;
+-                if (transaction.journalTicket == null) {
+-                    // Legacy construction remains fail-closed until the PopulateStage journal service is supplied.
+-                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()) { abort(); return false; }
+-                    for (Block block : transaction.staged.getBlocks()) {
+-                        if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
+-                            abort();
+-                            return false;
+-                        }
+-                    }
+-                    level.merge(transaction.staged);
+-                } else if (transaction.staged.getBlocks().isEmpty()
+-                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()) {
+-                    transaction.journalTicket.abort();
+-                } else {
+-                    // Durable WAL first. Only anchor-local writes enter this stage's BlockManager;
+-                    // cross-chunk writes are left for the Stage18 journal applier after its barrier.
+-                    try {
+-                        PnxPlacementCommitter.commit(transaction.journalTicket, transaction.journalKey,
+-                                transaction.staged, transaction.blockEntities, transaction.physics);
+-                    } catch (IOException journalFailure) {
+-                        diagnostics.publish(GenerationDiagnostic.failure("terra_populate", transaction.featureId,
+-                                transaction.structureId, new ChunkPos(anchorChunkX, anchorChunkZ),
+-                                transaction.originX, transaction.originY, transaction.originZ, journalFailure));
+-                        abort();
+-                        throw new IllegalStateException("Failed to durably commit Terra placement", journalFailure);
+-                    }
+-                    BlockManager anchorWrites = new BlockManager(level.getLevel());
+-                    for (Block block : transaction.staged.getBlocks()) {
+-                        if (block.getChunkX() == anchorChunkX && block.getChunkZ() == anchorChunkZ) {
+-                            anchorWrites.setBlockStateAt(block.getFloorX(), block.getFloorY(), block.getFloorZ(),
+-                                    block.layer, block.getBlockState());
+-                        }
+-                    }
+-                    level.merge(anchorWrites);
+-                }
+-                transaction.guard.complete();
+-                finish();
+-                return true;
+-            }
+-
+-            @Override
+-            public void abort() {
+-                ensureOwner();
+-                if (finished) return;
+-                if (root && transaction.guard.snapshot().state() != PlacementRuntimeGuard.State.COMPLETED) {
+-                    transaction.guard.abort();
+-                }
+-                if (root && transaction.journalTicket != null) transaction.journalTicket.abort();
+-                finish();
+-            }
+-
+-            @Override public void close() { if (!finished) abort(); }
+-
+-            private void ensureOwner() {
+-                if (Thread.currentThread() != transaction.owner) throw new IllegalStateException("Placement is thread-confined");
+-                if (activePlacement != transaction) throw new IllegalStateException("Placement scopes must close LIFO");
+-            }
+-
+-            private void finish() {
+-                finished = true;
+-                activePlacement = transaction.parent;
+-                if (root) transaction.guardScope.close();
+-            }
+-        };
+-    }
+-
+-    @Override
+-    public void setBlockState(int x, int y, int z, BlockState blockState, boolean physics) {
+-        PlacementTransaction tx = requirePlacement();
+-        tx.guard.beforeWrite(x, y, z);
+-        if (physics) tx.physics.add(new PhysicsIntent(x, y, z, true));
+-        var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
+-        if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)) {
+-            tx.staged.setBlockStateAt(x, y, z, innerBlockState);
+-            tx.staged.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+-            return;
+-        }
+-        Block old = readOldBlock(tx, x, y, z);
+-        if (Objects.equals(old.getId(), BlockID.WATERLILY)
+-                || Objects.equals(old.getId(), BlockID.WATER)
+-                || Objects.equals(old.getId(), BlockID.FLOWING_WATER)) {
+-            tx.staged.setBlockStateAt(x, y, z, innerBlockState);
+-            tx.staged.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+-        } else {
+-            tx.staged.setBlockStateAt(x, y, z, innerBlockState);
+-        }
+-    }
+-
+-    private Block readOldBlock(PlacementTransaction tx, int x, int y, int z) {
+-        BlockVector3 position = new BlockVector3(x, y, z);
+-        PlacementTransaction cachedIn = findCached(tx, position);
+-        boolean inBatch = level.isCached(position);
+-        boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
+-        tx.guard.beforeImplicitWriteRead(x, y, z, cachedIn != null || inBatch || loaded);
+-        if (cachedIn != null) return cachedIn.staged.getCachedBlock(x, y, z);
+-        if (inBatch) return level.getCachedBlock(x, y, z);
+-        return level.getBlockIfCachedOrLoaded(x, y, z);
+-    }
+-
+-    @Override
+-    public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
+-        PlacementTransaction tx = requirePlacement();
+-        tx.guard.beforeEntitySpawn((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
+-        throw new UnsupportedOperationException("Entity spawn intents are not transactionally committed in this stage");
+-    }
+-
+-    @Override
+-    public BlockState getBlockState(int x, int y, int z) {
+-        PlacementTransaction tx = requirePlacement();
+-        BlockVector3 position = new BlockVector3(x, y, z);
+-        PlacementTransaction cachedIn = findCached(tx, position);
+-        boolean inBatch = level.isCached(position);
+-        boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
+-        tx.guard.beforeRead(x, y, z, cachedIn != null || inBatch || loaded);
+-        if (cachedIn != null) return PNXAdapter.adapt(cachedIn.staged.getCachedBlock(x, y, z).getBlockState());
+-        if (inBatch) return PNXAdapter.adapt(level.getCachedBlock(x, y, z).getBlockState());
+-        return PNXAdapter.adapt(level.getBlockIfCachedOrLoaded(x, y, z).getBlockState());
+-    }
+-
+-    private PlacementTransaction findCached(PlacementTransaction from, BlockVector3 position) {
+-        for (PlacementTransaction cursor = from; cursor != null; cursor = cursor.parent) {
+-            if (cursor.staged.isCached(position)) return cursor;
+-        }
+-        return null;
+-    }
+-
+-    private PlacementTransaction requirePlacement() {
+-        PlacementTransaction tx = activePlacement;
+-        if (tx == null) throw new IllegalStateException("Terra block operation outside a guarded root placement");
+-        if (Thread.currentThread() != tx.owner) throw new IllegalStateException("Placement accessed from another thread");
+-        return tx;
+-    }
+-
+-    @Override
+-    public BlockEntity getBlockEntity(int x, int y, int z) {
+-        if (y < getMinHeight() || y >= getMaxHeight())
+-            throw new IllegalArgumentException("Block entity read outside world height: " + y);
+-        PlacementTransaction transaction = activePlacement;
+-        if (transaction != null) {
+-            if (Thread.currentThread() != transaction.owner)
+-                throw new IllegalStateException("Block entity read from another thread during placement");
+-            BlockVector3 position = new BlockVector3(x, y, z);
+-            PlacementTransaction cachedIn = findCached(transaction, position);
+-            boolean inBatch = level.isCached(position);
+-            boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
+-            transaction.guard.beforeRead(x, y, z, cachedIn != null || inBatch || loaded);
+-            Block block = cachedIn != null ? cachedIn.staged.getCachedBlock(x, y, z)
+-                    : inBatch ? level.getCachedBlock(x, y, z)
+-                    : loaded ? level.getBlockIfCachedOrLoaded(x, y, z) : null;
+-            if ((cachedIn != null || inBatch) && block instanceof BlockEntityHolder<?> holder) {
+-                Class<? extends org.powernukkitx.blockentity.BlockEntity> blockEntityClass = holder.getBlockEntityClass();
+-                if (blockEntityClass != null) {
+-                    String type = holder.getBlockEntityType();
+-                    CompoundTag initial = new CompoundTag();
+-                    if (BlockEntitySign.class.isAssignableFrom(blockEntityClass)) {
+-                        return new PNXStagedSignDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
+-                                initial, intent -> recordBlockEntityIntent(transaction, intent));
+-                    }
+-                    if (BlockEntityMobSpawner.class.isAssignableFrom(blockEntityClass)) {
+-                        return new PNXStagedMobSpawnerDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
+-                                initial, intent -> recordBlockEntityIntent(transaction, intent));
+-                    }
+-                    if (BlockEntityInventoryHolder.class.isAssignableFrom(blockEntityClass)) {
+-                        int inventorySize = stagedInventorySize(blockEntityClass);
+-                        return new PNXStagedContainerDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
+-                                initial, inventorySize, null,
+-                                intent -> recordBlockEntityIntent(transaction, intent));
+-                    }
+-                }
+-            }
+-        }
+-        IChunk chunk = level.getLevel().getChunkIfLoaded(x >> 4, z >> 4);
+-        if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
+-            throw new IllegalStateException("Terra requested a block entity from an unloaded/uninitiated chunk; refusing force-load at "
+-                    + x + "," + y + "," + z);
+-        }
+-        org.powernukkitx.blockentity.BlockEntity blockEntity = chunk.getTile(x & 15, y, z & 15);
+-        return blockEntity == null ? null : new PNXBlockEntityDelegate(blockEntity);
+-    }
+-
+-    private static int stagedInventorySize(Class<? extends org.powernukkitx.blockentity.BlockEntity> type) {
+-        String name = type.getSimpleName().toLowerCase(java.util.Locale.ROOT);
+-        if (name.contains("chest") || name.contains("barrel") || name.contains("shulker")) return 27;
+-        if (name.contains("dispenser") || name.contains("dropper") || name.contains("crafter")) return 9;
+-        if (name.contains("hopper")) return 5;
+-        if (name.contains("brewingstand")) return 5;
+-        if (name.contains("furnace") || name.contains("smoker")) return 3;
+-        throw new UnsupportedOperationException("No safe Terra inventory size mapping for PNX BlockEntity " + type.getName());
+-    }
+-
+-    private static void recordBlockEntityIntent(PlacementTransaction transaction, BlockEntityIntent intent) {
+-        transaction.guard.beforeWrite(intent.x(), intent.y(), intent.z());
+-        transaction.blockEntities.removeIf(existing -> existing.x() == intent.x()
+-                && existing.y() == intent.y() && existing.z() == intent.z());
+-        transaction.blockEntities.add(intent);
+-    }
+-
+-    @Override public ChunkGenerator getGenerator() { return generatorWrapper.getHandle(); }
+-    @Override public BiomeProvider getBiomeProvider() { return generatorWrapper.getBiomeProvider(); }
+-    @Override public ConfigPack getPack() { return generatorWrapper.getConfigPack(); }
+-    @Override public long getSeed() { return level.getSeed(); }
+-    @Override public int getMaxHeight() { return generatorWrapper.getDimensionData().getMaxHeight(); }
+-    @Override public int getMinHeight() { return generatorWrapper.getDimensionData().getMinHeight(); }
+-    @Override public Level getHandle() { return level.getLevel(); }
+-    @Override public Chunk getChunkAt(int x, int z) {
+-        // Level.getChunk(x,z) calls forceLoadChunk when the chunk is absent, even with create=false.
+-        // Terra's guarded placement path must never synchronously load a neighbour from a worker.
+-        IChunk chunk = level.getLevel().getChunkIfLoaded(x, z);
+-        if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
+-            throw new IllegalStateException("Terra requested an unloaded/uninitiated chunk; refusing force-load at "
+-                    + x + "," + z);
+-        }
+-        return new PNXChunkDelegate(this, chunk);
+-    }
+-
+-    private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
+-                                        PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
+-                                        List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics,
+-                                        PlacementGuardContext.Scope guardScope, Thread owner,
+-                                        CrossChunkDependencyScheduler.PlacementTicket journalTicket, PlacementKey journalKey) { }
+-}
++package org.powernukkitx.terra.delegate;
++
++import org.powernukkitx.block.Block;
++import org.powernukkitx.block.BlockAir;
++import org.powernukkitx.block.BlockEntityHolder;
++import org.powernukkitx.block.BlockID;
++import org.powernukkitx.level.Level;
++import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.blockentity.BlockEntitySign;
++import org.powernukkitx.blockentity.BlockEntityMobSpawner;
++import org.powernukkitx.blockentity.BlockEntityInventoryHolder;
++import org.powernukkitx.level.generator.object.BlockManager;
++import org.powernukkitx.terra.PNXAdapter;
++import org.powernukkitx.terra.TerraGenerator;
++import org.powernukkitx.math.BlockVector3;
++import com.dfsek.seismic.type.Rotation;
++import com.dfsek.seismic.type.vector.Vector3Int;
++import com.dfsek.terra.api.block.entity.BlockEntity;
++import com.dfsek.terra.api.block.state.BlockState;
++import com.dfsek.terra.api.config.ConfigPack;
++import com.dfsek.terra.api.entity.Entity;
++import com.dfsek.terra.api.entity.EntityType;
++import com.dfsek.terra.api.world.PlacementGuardHost;
++import com.dfsek.terra.api.world.ServerWorld;
++import com.dfsek.terra.api.world.biome.generation.BiomeProvider;
++import com.dfsek.terra.api.world.chunk.Chunk;
++import com.dfsek.terra.api.world.chunk.generation.ChunkGenerator;
++import org.powernukkitx.terra.crosschunk.bounds.Bounds3i;
++import org.powernukkitx.terra.crosschunk.bounds.OrigenBoundsCatalog;
++import org.powernukkitx.terra.crosschunk.bounds.PlacementGuardContext;
++import org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard;
++import org.powernukkitx.terra.crosschunk.bounds.ScriptBoundsProfile;
++import org.powernukkitx.terra.crosschunk.diagnostics.DiagnosticSink;
++import org.powernukkitx.terra.crosschunk.diagnostics.GenerationDiagnostic;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
++import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
++import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
++import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
++import org.powernukkitx.terra.crosschunk.journal.pnx.PnxPlacementCommitter;
++import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
++import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
++import org.powernukkitx.terra.crosschunk.water.WaterLayerPolicy;
++
++import java.io.IOException;
++import java.time.Instant;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Objects;
++
++public class PNXServerWorld implements ServerWorld {
++
++    private final TerraGenerator generatorWrapper;
++    private final BlockManager level;
++    private PlacementTransaction activePlacement;
++    private final CrossChunkDependencyScheduler.AnchorSession anchorSession;
++    private final String worldKey;
++    private final DiagnosticSink diagnostics;
++
++    public PNXServerWorld(TerraGenerator generatorWrapper, Level level) {
++        this(generatorWrapper, level, null, null, DiagnosticSink.ignoring());
++    }
++
++    public PNXServerWorld(TerraGenerator generatorWrapper, Level level,
++                          CrossChunkDependencyScheduler.AnchorSession anchorSession, String worldKey) {
++        this(generatorWrapper, level, anchorSession, worldKey, DiagnosticSink.ignoring());
++    }
++
++    public PNXServerWorld(TerraGenerator generatorWrapper, Level level,
++                          CrossChunkDependencyScheduler.AnchorSession anchorSession, String worldKey,
++                          DiagnosticSink diagnostics) {
++        this.generatorWrapper = generatorWrapper;
++        this.level = new BlockManager(level);
++        this.anchorSession = anchorSession;
++        this.worldKey = worldKey;
++        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
++        if ((anchorSession == null) != (worldKey == null)) {
++            throw new IllegalArgumentException("Anchor session and world key must be supplied together");
++        }
++    }
++
++    public TerraGenerator generatorWrapper() { return generatorWrapper; }
++    public Level level() { return level.getLevel(); }
++
++    public void apply(IChunk chunk) {
++        // The WAL owns cross-chunk writes. This stage-local manager may contain only anchor writes.
++        // Never force-load a neighbouring chunk from this generation worker; Stage18 applies WAL projections.
++        for (Block block : level.getBlocks()) {
++            if (block.getChunkX() != chunk.getX() || block.getChunkZ() != chunk.getZ()) {
++                throw new IllegalStateException("Cross-chunk Terra writes reached PNX apply before journal integration");
++            }
++        }
++        level.applySubChunkUpdate();
++    }
++
++    /** Begin a root feature placement. Unknown profiles and entity-bearing profiles fail closed. */
++    public PlacementGuardHost.PlacementScope beginPlacement(String featureId, String structureId,
++                                                             Vector3Int origin, Rotation rotation) {
++        if (activePlacement != null) {
++            throw new IllegalStateException("A root Terra placement is already active on this world adapter");
++        }
++        ScriptBoundsProfile profile;
++        try {
++            profile = OrigenBoundsCatalog.resolveRuntimeProfile(structureId);
++        } catch (IllegalArgumentException invalidId) {
++            publishUnsupported(featureId, structureId, origin, "Structure has no usable identifier; placement skipped");
++            return PlacementGuardHost.PlacementScope.rejected();
++        }
++        // Entity intents are not yet deferred/committed atomically by this adapter.
++        if (profile.maxEntitySpawns() != 0) {
++            publishUnsupported(featureId, structureId, origin, "Structure entity intents are not enabled in this adapter build");
++            return PlacementGuardHost.PlacementScope.rejected();
++        }
++
++        Bounds3i.QuarterTurn turn = switch (rotation) {
++            case NONE -> Bounds3i.QuarterTurn.NONE;
++            // Seismic's CW_90 maps (x,z)->(z,-x), opposite the guard's CW label.
++            case CW_90 -> Bounds3i.QuarterTurn.COUNTERCLOCKWISE_90;
++            case CW_180 -> Bounds3i.QuarterTurn.HALF;
++            case CCW_90 -> Bounds3i.QuarterTurn.CLOCKWISE_90;
++        };
++        PlacementRuntimeGuard guard = new PlacementRuntimeGuard(profile, origin.getX(), origin.getY(), origin.getZ(), turn);
++        PlacementGuardContext.Scope guardScope = PlacementGuardContext.installRoot(guard);
++        CrossChunkDependencyScheduler.PlacementTicket journalTicket = anchorSession == null ? null : anchorSession.beginPlacement();
++        PlacementKey journalKey = anchorSession == null ? null : new PlacementKey(worldKey, level.getSeed(),
++                anchorSession.anchor(), featureId, structureId,
++                origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
++        PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
++                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
++                Thread.currentThread(), journalTicket, journalKey);
++        activePlacement = root;
++        return scopeFor(root, true);
++    }
++
++
++    private void publishUnsupported(String featureId, String structureId, Vector3Int origin, String message) {
++        diagnostics.publish(new GenerationDiagnostic(Instant.now(), GenerationDiagnostic.Severity.WARNING,
++                "terra_populate", featureId, structureId,
++                new ChunkPos(origin.getX() >> 4, origin.getZ() >> 4), origin.getX(), origin.getY(), origin.getZ(),
++                message, "none"));
++    }
++
++    /** Nested TerraScript structures are savepoints under the same root guard and envelope. */
++    public PlacementGuardHost.PlacementScope beginNestedPlacement(String structureId) {
++        PlacementTransaction parent = requirePlacement();
++        if (structureId == null || !parent.guard.profile().allowsNestedStructure(structureId)) {
++            return PlacementGuardHost.PlacementScope.rejected();
++        }
++        PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
++                parent.originX, parent.originY, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent,
++                new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
++        activePlacement = child;
++        return scopeFor(child, false);
++    }
++
++    private PlacementGuardHost.PlacementScope scopeFor(PlacementTransaction transaction, boolean root) {
++        return new PlacementGuardHost.PlacementScope() {
++            private boolean finished;
++
++            @Override public boolean accepted() { return !finished && activePlacement == transaction; }
++
++            @Override
++            public boolean commit() {
++                ensureOwner();
++                if (finished) return false;
++                if (transaction.guard.snapshot().state() != PlacementRuntimeGuard.State.OPEN) {
++                    abort();
++                    return false;
++                }
++                if (!root) {
++                    transaction.parent.staged.merge(transaction.staged);
++                    transaction.parent.blockEntities.addAll(transaction.blockEntities);
++                    transaction.parent.physics.addAll(transaction.physics);
++                    finish();
++                    return true;
++                }
++                int anchorChunkX = transaction.originX >> 4;
++                int anchorChunkZ = transaction.originZ >> 4;
++                if (transaction.journalTicket == null) {
++                    // Legacy construction remains fail-closed until the PopulateStage journal service is supplied.
++                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()) { abort(); return false; }
++                    for (Block block : transaction.staged.getBlocks()) {
++                        if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
++                            abort();
++                            return false;
++                        }
++                    }
++                    level.merge(transaction.staged);
++                } else if (transaction.staged.getBlocks().isEmpty()
++                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()) {
++                    transaction.journalTicket.abort();
++                } else {
++                    // Durable WAL first. Only anchor-local writes enter this stage's BlockManager;
++                    // cross-chunk writes are left for the Stage18 journal applier after its barrier.
++                    try {
++                        PnxPlacementCommitter.commit(transaction.journalTicket, transaction.journalKey,
++                                transaction.staged, transaction.blockEntities, transaction.physics);
++                    } catch (IOException journalFailure) {
++                        diagnostics.publish(GenerationDiagnostic.failure("terra_populate", transaction.featureId,
++                                transaction.structureId, new ChunkPos(anchorChunkX, anchorChunkZ),
++                                transaction.originX, transaction.originY, transaction.originZ, journalFailure));
++                        abort();
++                        throw new IllegalStateException("Failed to durably commit Terra placement", journalFailure);
++                    }
++                    BlockManager anchorWrites = new BlockManager(level.getLevel());
++                    for (Block block : transaction.staged.getBlocks()) {
++                        if (block.getChunkX() == anchorChunkX && block.getChunkZ() == anchorChunkZ) {
++                            anchorWrites.setBlockStateAt(block.getFloorX(), block.getFloorY(), block.getFloorZ(),
++                                    block.layer, block.getBlockState());
++                        }
++                    }
++                    level.merge(anchorWrites);
++                }
++                transaction.guard.complete();
++                finish();
++                return true;
++            }
++
++            @Override
++            public void abort() {
++                ensureOwner();
++                if (finished) return;
++                if (root && transaction.guard.snapshot().state() != PlacementRuntimeGuard.State.COMPLETED) {
++                    transaction.guard.abort();
++                }
++                if (root && transaction.journalTicket != null) transaction.journalTicket.abort();
++                finish();
++            }
++
++            @Override public void close() { if (!finished) abort(); }
++
++            private void ensureOwner() {
++                if (Thread.currentThread() != transaction.owner) throw new IllegalStateException("Placement is thread-confined");
++                if (activePlacement != transaction) throw new IllegalStateException("Placement scopes must close LIFO");
++            }
++
++            private void finish() {
++                finished = true;
++                activePlacement = transaction.parent;
++                if (root) transaction.guardScope.close();
++            }
++        };
++    }
++
++    @Override
++    public void setBlockState(int x, int y, int z, BlockState blockState, boolean physics) {
++        PlacementTransaction tx = requirePlacement();
++        tx.guard.beforeWrite(x, y, z);
++        if (physics) tx.physics.add(new PhysicsIntent(x, y, z, true));
++        var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
++        Block old = readOldBlock(tx, x, y, z);
++        String oldBaseId = old.getId();
++        String oldLayerOneId = tx.staged.getBlockIdAt(x, y, z, 1);
++        boolean oldWaterLayer = Objects.equals(oldLayerOneId, BlockID.WATER)
++                || Objects.equals(oldLayerOneId, BlockID.FLOWING_WATER);
++        boolean previousFluid = oldWaterLayer
++                || Objects.equals(oldBaseId, BlockID.WATER)
++                || Objects.equals(oldBaseId, BlockID.FLOWING_WATER)
++                || Objects.equals(oldBaseId, BlockID.WATERLILY);
++
++        String propertyName = null;
++        String propertyValue = null;
++        for (var property : innerBlockState.getBlockPropertyValues()) {
++            if ("waterlogged".equals(property.getPropertyType().getName())) {
++                propertyName = property.getPropertyType().getName();
++                propertyValue = property.getSerializedValue();
++                break;
++            }
++        }
++        String identifier = innerBlockState.getIdentifier();
++        boolean intrinsicallyWaterContaining = Objects.equals(identifier, BlockID.KELP)
++                || "minecraft:seagrass".equals(identifier)
++                || "minecraft:tall_seagrass".equals(identifier);
++        byte[] canonicalWaterState;
++        try {
++            canonicalWaterState = PnxBlockStateCodec.encode(PNXProtoChunk.water);
++        } catch (IOException invalidWaterState) {
++            throw new IllegalStateException("Could not encode canonical PNX water state", invalidWaterState);
++        }
++        boolean preserveLegacyFluid = propertyName == null && previousFluid;
++        WaterLayerPolicy.Result water = WaterLayerPolicy.resolve(identifier, propertyName, propertyValue,
++                intrinsicallyWaterContaining || preserveLegacyFluid,
++                (block, name, value) -> "waterlogged".equals(name) && "true".equalsIgnoreCase(value),
++                canonicalWaterState);
++
++        tx.staged.setBlockStateAt(x, y, z, innerBlockState);
++        if (water.writeWaterLayer()) {
++            try {
++                tx.staged.setBlockStateAt(x, y, z, 1, PnxBlockStateCodec.decode(water.canonicalWaterState()));
++            } catch (IOException invalidWaterState) {
++                throw new IllegalStateException("Could not decode canonical PNX water layer state", invalidWaterState);
++            }
++        } else if (oldWaterLayer) {
++            // Clear stale water only; do not destroy unrelated Bedrock layer-one content.
++            tx.staged.setBlockStateAt(x, y, z, 1, BlockAir.STATE);
++        }
++    }
++
++    private Block readOldBlock(PlacementTransaction tx, int x, int y, int z) {
++        BlockVector3 position = new BlockVector3(x, y, z);
++        PlacementTransaction cachedIn = findCached(tx, position);
++        boolean inBatch = level.isCached(position);
++        boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
++        tx.guard.beforeImplicitWriteRead(x, y, z, cachedIn != null || inBatch || loaded);
++        if (cachedIn != null) return cachedIn.staged.getCachedBlock(x, y, z);
++        if (inBatch) return level.getCachedBlock(x, y, z);
++        return level.getBlockIfCachedOrLoaded(x, y, z);
++    }
++
++    @Override
++    public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
++        PlacementTransaction tx = requirePlacement();
++        tx.guard.beforeEntitySpawn((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
++        throw new UnsupportedOperationException("Entity spawn intents are not transactionally committed in this stage");
++    }
++
++    @Override
++    public BlockState getBlockState(int x, int y, int z) {
++        PlacementTransaction tx = requirePlacement();
++        BlockVector3 position = new BlockVector3(x, y, z);
++        PlacementTransaction cachedIn = findCached(tx, position);
++        boolean inBatch = level.isCached(position);
++        boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
++        tx.guard.beforeRead(x, y, z, cachedIn != null || inBatch || loaded);
++        if (cachedIn != null) return PNXAdapter.adapt(cachedIn.staged.getCachedBlock(x, y, z).getBlockState());
++        if (inBatch) return PNXAdapter.adapt(level.getCachedBlock(x, y, z).getBlockState());
++        return PNXAdapter.adapt(level.getBlockIfCachedOrLoaded(x, y, z).getBlockState());
++    }
++
++    private PlacementTransaction findCached(PlacementTransaction from, BlockVector3 position) {
++        for (PlacementTransaction cursor = from; cursor != null; cursor = cursor.parent) {
++            if (cursor.staged.isCached(position)) return cursor;
++        }
++        return null;
++    }
++
++    private PlacementTransaction requirePlacement() {
++        PlacementTransaction tx = activePlacement;
++        if (tx == null) throw new IllegalStateException("Terra block operation outside a guarded root placement");
++        if (Thread.currentThread() != tx.owner) throw new IllegalStateException("Placement accessed from another thread");
++        return tx;
++    }
++
++    @Override
++    public BlockEntity getBlockEntity(int x, int y, int z) {
++        if (y < getMinHeight() || y >= getMaxHeight())
++            throw new IllegalArgumentException("Block entity read outside world height: " + y);
++        PlacementTransaction transaction = activePlacement;
++        if (transaction != null) {
++            if (Thread.currentThread() != transaction.owner)
++                throw new IllegalStateException("Block entity read from another thread during placement");
++            BlockVector3 position = new BlockVector3(x, y, z);
++            PlacementTransaction cachedIn = findCached(transaction, position);
++            boolean inBatch = level.isCached(position);
++            boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
++            transaction.guard.beforeRead(x, y, z, cachedIn != null || inBatch || loaded);
++            Block block = cachedIn != null ? cachedIn.staged.getCachedBlock(x, y, z)
++                    : inBatch ? level.getCachedBlock(x, y, z)
++                    : loaded ? level.getBlockIfCachedOrLoaded(x, y, z) : null;
++            if ((cachedIn != null || inBatch) && block instanceof BlockEntityHolder<?> holder) {
++                Class<? extends org.powernukkitx.blockentity.BlockEntity> blockEntityClass = holder.getBlockEntityClass();
++                if (blockEntityClass != null) {
++                    String type = holder.getBlockEntityType();
++                    CompoundTag initial = new CompoundTag();
++                    if (BlockEntitySign.class.isAssignableFrom(blockEntityClass)) {
++                        return new PNXStagedSignDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
++                                initial, intent -> recordBlockEntityIntent(transaction, intent));
++                    }
++                    if (BlockEntityMobSpawner.class.isAssignableFrom(blockEntityClass)) {
++                        return new PNXStagedMobSpawnerDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
++                                initial, intent -> recordBlockEntityIntent(transaction, intent));
++                    }
++                    if (BlockEntityInventoryHolder.class.isAssignableFrom(blockEntityClass)) {
++                        int inventorySize = stagedInventorySize(blockEntityClass);
++                        return new PNXStagedContainerDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
++                                initial, inventorySize, null,
++                                intent -> recordBlockEntityIntent(transaction, intent));
++                    }
++                }
++            }
++        }
++        IChunk chunk = level.getLevel().getChunkIfLoaded(x >> 4, z >> 4);
++        if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
++            throw new IllegalStateException("Terra requested a block entity from an unloaded/uninitiated chunk; refusing force-load at "
++                    + x + "," + y + "," + z);
++        }
++        org.powernukkitx.blockentity.BlockEntity blockEntity = chunk.getTile(x & 15, y, z & 15);
++        return blockEntity == null ? null : new PNXBlockEntityDelegate(blockEntity);
++    }
++
++    private static int stagedInventorySize(Class<? extends org.powernukkitx.blockentity.BlockEntity> type) {
++        String name = type.getSimpleName().toLowerCase(java.util.Locale.ROOT);
++        if (name.contains("chest") || name.contains("barrel") || name.contains("shulker")) return 27;
++        if (name.contains("dispenser") || name.contains("dropper") || name.contains("crafter")) return 9;
++        if (name.contains("hopper")) return 5;
++        if (name.contains("brewingstand")) return 5;
++        if (name.contains("furnace") || name.contains("smoker")) return 3;
++        throw new UnsupportedOperationException("No safe Terra inventory size mapping for PNX BlockEntity " + type.getName());
++    }
++
++    private static void recordBlockEntityIntent(PlacementTransaction transaction, BlockEntityIntent intent) {
++        transaction.guard.beforeWrite(intent.x(), intent.y(), intent.z());
++        transaction.blockEntities.removeIf(existing -> existing.x() == intent.x()
++                && existing.y() == intent.y() && existing.z() == intent.z());
++        transaction.blockEntities.add(intent);
++    }
++
++    @Override public ChunkGenerator getGenerator() { return generatorWrapper.getHandle(); }
++    @Override public BiomeProvider getBiomeProvider() { return generatorWrapper.getBiomeProvider(); }
++    @Override public ConfigPack getPack() { return generatorWrapper.getConfigPack(); }
++    @Override public long getSeed() { return level.getSeed(); }
++    @Override public int getMaxHeight() { return generatorWrapper.getDimensionData().getMaxHeight(); }
++    @Override public int getMinHeight() { return generatorWrapper.getDimensionData().getMinHeight(); }
++    @Override public Level getHandle() { return level.getLevel(); }
++    @Override public Chunk getChunkAt(int x, int z) {
++        // Level.getChunk(x,z) calls forceLoadChunk when the chunk is absent, even with create=false.
++        // Terra's guarded placement path must never synchronously load a neighbour from a worker.
++        IChunk chunk = level.getLevel().getChunkIfLoaded(x, z);
++        if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
++            throw new IllegalStateException("Terra requested an unloaded/uninitiated chunk; refusing force-load at "
++                    + x + "," + z);
++        }
++        return new PNXChunkDelegate(this, chunk);
++    }
++
++    private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
++                                        PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
++                                        List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics,
++                                        PlacementGuardContext.Scope guardScope, Thread owner,
++                                        CrossChunkDependencyScheduler.PlacementTicket journalTicket, PlacementKey journalKey) { }
++}
