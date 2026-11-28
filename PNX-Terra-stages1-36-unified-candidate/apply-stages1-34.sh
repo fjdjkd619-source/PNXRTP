@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-"$ROOT/apply-stages1-26.sh" "$@"
+bash "$ROOT/apply-stages1-26.sh" "$@"
 # Stage 27–34 overlay is applied only after the exact Stage 1–26 chain succeeds.
 # Parse the --adapter argument without evaluating or rewriting user input.
 ADAPTER=""; args=("$@")
