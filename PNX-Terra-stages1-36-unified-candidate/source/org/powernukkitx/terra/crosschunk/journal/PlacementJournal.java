@@ -229,8 +229,8 @@ public final class PlacementJournal implements AutoCloseable {
                 checkpointWatermark = snapshot.lastSequence();
                 compactEventHistory();
             } catch (IOException | RuntimeException failure) {
-                // If the marker was published, appending before recovery could lose post-checkpoint events.
-                if (Files.exists(compactionMarkerPath)) poisoned = true;
+                // Any uncertain marker/rotation outcome requires reopen and recovery before appending.
+                poisoned = true;
                 throw failure;
             }
         } finally {
