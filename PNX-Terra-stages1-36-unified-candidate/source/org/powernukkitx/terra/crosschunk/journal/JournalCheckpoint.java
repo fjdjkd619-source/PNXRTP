@@ -1,0 +1,431 @@
+package org.powernukkitx.terra.crosschunk.journal;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Versioned, integrity-checked snapshot representation for PlacementJournal.
+ *
+ * Stage 43 deliberately does not rotate or truncate the WAL. Stage 44 owns that
+ * operation after this snapshot format has been independently validated.
+ */
+public final class JournalCheckpoint {
+    private static final int MAGIC = 0x50584350; // PXCP
+    private static final int FORMAT_VERSION = 1;
+    private static final int HEADER_BYTES = 12;
+    private static final int HASH_BYTES = 32;
+    private static final int MAX_CHECKPOINT_BYTES = 256 * 1024 * 1024;
+    private static final int MAX_EVENTS = 5_000_000;
+    private static final int MAX_WRITES = 2_000_000;
+    private static final int MAX_BLOCK_ENTITIES = 65_536;
+    private static final int MAX_PHYSICS = 2_000_000;
+    private static final int MAX_ENTITY_SPAWNS = 65_536;
+    private static final int MAX_STATE_BYTES = 65_536;
+    private static final int MAX_INTENT_BYTES = 1_048_576;
+    private static final int MAX_STRING_BYTES = 1_048_576;
+
+    private static final int PLACEMENT = 1;
+    private static final int ANCHOR_COMPLETE = 2;
+    private static final int ANCHOR_STARTED = 3;
+    private static final int CHUNK_APPLIED = 4;
+
+    private JournalCheckpoint() {}
+
+    /** Immutable logical journal snapshot. Event sequence numbers must be strictly increasing. */
+    public record Snapshot(long lastSequence, List<JournalEvent> events) {
+        public Snapshot {
+            if (lastSequence < 0) throw new IllegalArgumentException("lastSequence must be non-negative");
+            events = List.copyOf(Objects.requireNonNull(events, "events"));
+            if (events.size() > MAX_EVENTS) throw new IllegalArgumentException("Checkpoint event count exceeds limit");
+            long previous = 0;
+            for (JournalEvent event : events) {
+                long sequence = sequenceOf(Objects.requireNonNull(event, "event"));
+                if (sequence <= previous || sequence > lastSequence)
+                    throw new IllegalArgumentException("Checkpoint event sequences must increase and not exceed watermark");
+                previous = sequence;
+            }
+            if (!events.isEmpty() && events.get(events.size() - 1) instanceof JournalEvent.PlacementCommitted
+                    && previous > lastSequence)
+                throw new IllegalArgumentException("Checkpoint watermark precedes final event");
+        }
+    }
+
+    /**
+     * Writes a checkpoint through a same-directory temporary file, forces its contents,
+     * atomically replaces the destination, then forces the parent directory.
+     * Unsupported atomic moves fail closed; no non-atomic fallback is attempted.
+     */
+    public static void writeAtomically(Path destination, Snapshot snapshot) throws IOException {
+        Objects.requireNonNull(destination, "destination");
+        Objects.requireNonNull(snapshot, "snapshot");
+        Path absolute = destination.toAbsolutePath().normalize();
+        Path parent = absolute.getParent();
+        if (parent == null) throw new IOException("Checkpoint destination has no parent directory");
+        Files.createDirectories(parent);
+
+        byte[] payload = encode(snapshot);
+        byte[] header = ByteBuffer.allocate(HEADER_BYTES)
+                .putInt(MAGIC).putInt(FORMAT_VERSION).putInt(payload.length).array();
+        byte[] digest = sha256(header, payload);
+        Path temporary = absolute.resolveSibling(absolute.getFileName() + ".tmp-" + UUID.randomUUID());
+        boolean published = false;
+        try {
+            try (FileChannel output = FileChannel.open(temporary,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                writeFully(output, ByteBuffer.wrap(header));
+                writeFully(output, ByteBuffer.wrap(payload));
+                writeFully(output, ByteBuffer.wrap(digest));
+                output.force(true);
+            }
+            try {
+                Files.move(temporary, absolute, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                throw new IOException("Atomic checkpoint publication is not supported by this filesystem", unsupported);
+            }
+            published = true;
+            forceDirectory(parent);
+        } finally {
+            if (!published) Files.deleteIfExists(temporary);
+        }
+    }
+
+    /** Reads and fully validates a checkpoint without modifying it or any adjacent file. */
+    public static Snapshot read(Path checkpoint) throws IOException {
+        Objects.requireNonNull(checkpoint, "checkpoint");
+        long size = Files.size(checkpoint);
+        long maximumFileSize = HEADER_BYTES + (long) MAX_CHECKPOINT_BYTES + HASH_BYTES;
+        if (size < HEADER_BYTES + HASH_BYTES || size > maximumFileSize)
+            throw new IOException("Checkpoint file size is outside the accepted range: " + size);
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(checkpoint)) {
+            bytes = input.readNBytes((int) size);
+            if (bytes.length != size || input.read() != -1)
+                throw new EOFException("Checkpoint changed or was truncated while reading");
+        }
+        ByteBuffer frame = ByteBuffer.wrap(bytes);
+        int magic = frame.getInt();
+        int version = frame.getInt();
+        int payloadLength = frame.getInt();
+        if (magic != MAGIC) throw new IOException("Invalid checkpoint magic");
+        if (version != FORMAT_VERSION) throw new IOException("Unsupported checkpoint format version: " + version);
+        if (payloadLength < 0 || payloadLength > MAX_CHECKPOINT_BYTES
+                || size != HEADER_BYTES + (long) payloadLength + HASH_BYTES)
+            throw new IOException("Invalid checkpoint payload length");
+        byte[] payload = new byte[payloadLength];
+        frame.get(payload);
+        byte[] expectedHash = new byte[HASH_BYTES];
+        frame.get(expectedHash);
+        byte[] header = ByteBuffer.allocate(HEADER_BYTES)
+                .putInt(magic).putInt(version).putInt(payloadLength).array();
+        if (!MessageDigest.isEqual(expectedHash, sha256(header, payload)))
+            throw new IOException("Checkpoint SHA-256 integrity check failed");
+        return decode(payload);
+    }
+
+    private static byte[] encode(Snapshot snapshot) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(
+                new BoundedOutputStream(bytes, MAX_CHECKPOINT_BYTES))) {
+            output.writeLong(snapshot.lastSequence());
+            output.writeInt(snapshot.events().size());
+            for (JournalEvent event : snapshot.events()) writeEvent(output, event);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static Snapshot decode(byte[] payload) throws IOException {
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
+            long watermark = input.readLong();
+            int count = input.readInt();
+            if (watermark < 0 || count < 0 || count > MAX_EVENTS)
+                throw new IOException("Invalid checkpoint watermark or event count");
+            List<JournalEvent> events = new ArrayList<>(count);
+            long previous = 0;
+            for (int index = 0; index < count; index++) {
+                JournalEvent event = readEvent(input);
+                long sequence = sequenceOf(event);
+                if (sequence <= previous || sequence > watermark)
+                    throw new IOException("Checkpoint contains invalid event sequence ordering");
+                previous = sequence;
+                events.add(event);
+            }
+            if (input.available() != 0) throw new IOException("Trailing bytes in checkpoint payload");
+            try {
+                return new Snapshot(watermark, events);
+            } catch (IllegalArgumentException invalid) {
+                throw new IOException("Invalid checkpoint logical state", invalid);
+            }
+        } catch (EOFException truncated) {
+            throw new IOException("Truncated checkpoint payload", truncated);
+        }
+    }
+
+    private static void writeEvent(DataOutputStream output, JournalEvent event) throws IOException {
+        if (event instanceof JournalEvent.PlacementCommitted placement) {
+            output.writeByte(PLACEMENT);
+            output.writeLong(placement.sequence());
+            writePlacement(output, placement.record());
+        } else if (event instanceof JournalEvent.AnchorCompleted anchor) {
+            output.writeByte(ANCHOR_COMPLETE);
+            output.writeLong(anchor.sequence());
+            writeString(output, anchor.worldKey());
+            output.writeInt(anchor.anchor().x());
+            output.writeInt(anchor.anchor().z());
+        } else if (event instanceof JournalEvent.AnchorStarted anchor) {
+            output.writeByte(ANCHOR_STARTED);
+            output.writeLong(anchor.sequence());
+            writeString(output, anchor.worldKey());
+            output.writeInt(anchor.anchor().x());
+            output.writeInt(anchor.anchor().z());
+        } else if (event instanceof JournalEvent.ChunkApplied applied) {
+            output.writeByte(CHUNK_APPLIED);
+            output.writeLong(applied.sequence());
+            writeString(output, applied.worldKey());
+            output.writeInt(applied.target().x());
+            output.writeInt(applied.target().z());
+            writeString(output, applied.digest());
+        } else {
+            throw new IOException("Unsupported journal event implementation: " + event.getClass().getName());
+        }
+    }
+
+    private static JournalEvent readEvent(DataInputStream input) throws IOException {
+        int type = input.readUnsignedByte();
+        long sequence = input.readLong();
+        if (sequence <= 0) throw new IOException("Invalid checkpoint event sequence");
+        return switch (type) {
+            case PLACEMENT -> new JournalEvent.PlacementCommitted(sequence, readPlacement(input));
+            case ANCHOR_COMPLETE -> new JournalEvent.AnchorCompleted(sequence, readString(input),
+                    new ChunkPos(input.readInt(), input.readInt()));
+            case ANCHOR_STARTED -> new JournalEvent.AnchorStarted(sequence, readString(input),
+                    new ChunkPos(input.readInt(), input.readInt()));
+            case CHUNK_APPLIED -> {
+                String worldKey = readString(input);
+                ChunkPos target = new ChunkPos(input.readInt(), input.readInt());
+                String digest = readString(input);
+                if (worldKey.isBlank() || !digest.matches("[0-9a-f]{64}"))
+                    throw new IOException("Invalid applied-chunk identity in checkpoint");
+                yield new JournalEvent.ChunkApplied(sequence, worldKey, target, digest);
+            }
+            default -> throw new IOException("Unknown checkpoint event type: " + type);
+        };
+    }
+
+    private static void writePlacement(DataOutputStream output, PlacementRecord record) throws IOException {
+        PlacementKey key = record.key();
+        writeString(output, key.worldKey());
+        output.writeLong(key.worldSeed());
+        output.writeInt(key.anchor().x());
+        output.writeInt(key.anchor().z());
+        writeString(output, key.featureId());
+        writeString(output, key.structureId());
+        output.writeInt(key.originX());
+        output.writeInt(key.originY());
+        output.writeInt(key.originZ());
+        output.writeInt(key.rotationQuarterTurns());
+        output.writeLong(key.placementOrdinal());
+
+        output.writeInt(record.writes().size());
+        for (BlockWrite write : record.writes()) {
+            output.writeInt(write.x());
+            output.writeInt(write.y());
+            output.writeInt(write.z());
+            output.writeByte(write.layer());
+            writeBytes(output, write.canonicalState(), MAX_STATE_BYTES);
+        }
+        output.writeInt(record.blockEntities().size());
+        for (BlockEntityIntent entity : record.blockEntities()) {
+            output.writeInt(entity.x());
+            output.writeInt(entity.y());
+            output.writeInt(entity.z());
+            writeString(output, entity.type());
+            writeBytes(output, entity.payload(), MAX_INTENT_BYTES);
+        }
+        output.writeInt(record.physics().size());
+        for (PhysicsIntent physics : record.physics()) {
+            output.writeInt(physics.x());
+            output.writeInt(physics.y());
+            output.writeInt(physics.z());
+            output.writeBoolean(physics.applyPhysics());
+        }
+        output.writeInt(record.entitySpawns().size());
+        for (EntitySpawnIntent entity : record.entitySpawns()) {
+            output.writeLong(entity.stableUuid().getMostSignificantBits());
+            output.writeLong(entity.stableUuid().getLeastSignificantBits());
+            writeString(output, entity.type());
+            output.writeDouble(entity.x());
+            output.writeDouble(entity.y());
+            output.writeDouble(entity.z());
+            output.writeFloat(entity.yaw());
+            output.writeFloat(entity.pitch());
+            writeBytes(output, entity.payload(), MAX_INTENT_BYTES);
+        }
+    }
+
+    private static PlacementRecord readPlacement(DataInputStream input) throws IOException {
+        PlacementKey key = new PlacementKey(readString(input), input.readLong(),
+                new ChunkPos(input.readInt(), input.readInt()), readString(input), readString(input),
+                input.readInt(), input.readInt(), input.readInt(), input.readInt(), input.readLong());
+        int writeCount = readCount(input, MAX_WRITES, "block writes");
+        List<BlockWrite> writes = new ArrayList<>(writeCount);
+        for (int index = 0; index < writeCount; index++) {
+            int x = input.readInt();
+            int y = input.readInt();
+            int z = input.readInt();
+            int layer = input.readUnsignedByte();
+            writes.add(new BlockWrite(x, y, z, layer, readBytes(input, MAX_STATE_BYTES, false)));
+        }
+        int blockEntityCount = readCount(input, MAX_BLOCK_ENTITIES, "block entity intents");
+        List<BlockEntityIntent> blockEntities = new ArrayList<>(blockEntityCount);
+        for (int index = 0; index < blockEntityCount; index++) {
+            int x = input.readInt();
+            int y = input.readInt();
+            int z = input.readInt();
+            blockEntities.add(new BlockEntityIntent(x, y, z, readString(input),
+                    readBytes(input, MAX_INTENT_BYTES, false)));
+        }
+        int physicsCount = readCount(input, MAX_PHYSICS, "physics intents");
+        List<PhysicsIntent> physics = new ArrayList<>(physicsCount);
+        for (int index = 0; index < physicsCount; index++)
+            physics.add(new PhysicsIntent(input.readInt(), input.readInt(), input.readInt(), input.readBoolean()));
+        int entityCount = readCount(input, MAX_ENTITY_SPAWNS, "entity spawn intents");
+        List<EntitySpawnIntent> entities = new ArrayList<>(entityCount);
+        for (int index = 0; index < entityCount; index++) {
+            UUID uuid = new UUID(input.readLong(), input.readLong());
+            String type = readString(input);
+            double x = input.readDouble();
+            double y = input.readDouble();
+            double z = input.readDouble();
+            float yaw = input.readFloat();
+            float pitch = input.readFloat();
+            entities.add(new EntitySpawnIntent(uuid, type, x, y, z, yaw, pitch,
+                    readBytes(input, MAX_INTENT_BYTES, true)));
+        }
+        try {
+            return new PlacementRecord(key, writes, blockEntities, physics, entities);
+        } catch (IllegalArgumentException invalid) {
+            throw new IOException("Invalid placement record in checkpoint", invalid);
+        }
+    }
+
+    private static int readCount(DataInputStream input, int maximum, String label) throws IOException {
+        int count = input.readInt();
+        if (count < 0 || count > maximum) throw new IOException("Invalid " + label + " count: " + count);
+        return count;
+    }
+
+    private static void writeString(DataOutputStream output, String value) throws IOException {
+        byte[] encoded = Objects.requireNonNull(value, "value").getBytes(StandardCharsets.UTF_8);
+        if (encoded.length > MAX_STRING_BYTES) throw new IOException("Checkpoint string exceeds size limit");
+        output.writeInt(encoded.length);
+        output.write(encoded);
+    }
+
+    private static String readString(DataInputStream input) throws IOException {
+        byte[] encoded = readBytes(input, MAX_STRING_BYTES, true);
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(encoded)).toString();
+        } catch (CharacterCodingException malformed) {
+            throw new IOException("Invalid UTF-8 string in checkpoint", malformed);
+        }
+    }
+
+    private static void writeBytes(DataOutputStream output, byte[] value, int maximum) throws IOException {
+        if (value.length > maximum) throw new IOException("Checkpoint byte array exceeds size limit");
+        output.writeInt(value.length);
+        output.write(value);
+    }
+
+    private static byte[] readBytes(DataInputStream input, int maximum, boolean allowEmpty) throws IOException {
+        int length = input.readInt();
+        if (length < (allowEmpty ? 0 : 1) || length > maximum)
+            throw new IOException("Invalid checkpoint byte array length: " + length);
+        byte[] result = input.readNBytes(length);
+        if (result.length != length) throw new EOFException("Truncated checkpoint byte array");
+        return result;
+    }
+
+    private static long sequenceOf(JournalEvent event) {
+        if (event instanceof JournalEvent.PlacementCommitted placement) return placement.sequence();
+        if (event instanceof JournalEvent.AnchorCompleted anchor) return anchor.sequence();
+        if (event instanceof JournalEvent.AnchorStarted anchor) return anchor.sequence();
+        if (event instanceof JournalEvent.ChunkApplied applied) return applied.sequence();
+        throw new IllegalArgumentException("Unknown journal event implementation");
+    }
+
+    private static byte[] sha256(byte[] header, byte[] payload) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(header);
+            return digest.digest(payload);
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IOException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private static void writeFully(FileChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) channel.write(buffer);
+    }
+
+    private static void forceDirectory(Path directory) throws IOException {
+        try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+            channel.force(true);
+        }
+    }
+
+    private static final class BoundedOutputStream extends OutputStream {
+        private final OutputStream delegate;
+        private final long maximum;
+        private long written;
+
+        private BoundedOutputStream(OutputStream delegate, long maximum) {
+            this.delegate = delegate;
+            this.maximum = maximum;
+        }
+
+        @Override public void write(int value) throws IOException {
+            reserve(1);
+            delegate.write(value);
+        }
+
+        @Override public void write(byte[] bytes, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, bytes.length);
+            reserve(length);
+            delegate.write(bytes, offset, length);
+        }
+
+        @Override public void flush() throws IOException { delegate.flush(); }
+        @Override public void close() throws IOException { delegate.close(); }
+
+        private void reserve(int amount) throws IOException {
+            if (amount > maximum - written) throw new IOException("Checkpoint exceeds maximum encoded size");
+            written += amount;
+        }
+    }
+}
