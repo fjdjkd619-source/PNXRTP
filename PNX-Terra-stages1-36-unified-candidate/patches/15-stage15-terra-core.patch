@@ -9,7 +9,7 @@
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
-@@ -114,9 +114,51 @@
+@@ -114,7 +114,21 @@
          return PlacementScope.noop();
      }
  
@@ -30,37 +30,7 @@
 +
      public static final class Builder {
          private final WritableWorld delegate;
-+package com.dfsek.terra.api.world;
-+
-+import com.dfsek.seismic.type.Rotation;
-+import com.dfsek.seismic.type.vector.Vector3Int;
-+
-+/** Optional platform SPI for atomic, bounded feature placements. */
-+public interface PlacementGuardHost {
-+    PlacementScope beginPlacement(String featureId, String structureId, Vector3Int origin, Rotation rotation);
-+
-+    /** Opens a nested savepoint inside the currently active root placement. */
-+    PlacementScope beginNestedPlacement(String structureId);
-+
-+    interface PlacementScope extends AutoCloseable {
-+        boolean accepted();
-+        boolean commit();
-+        void abort();
-+        @Override void close();
-+
-+        static PlacementScope rejected() {
-+            return new PlacementScope() {
-+                @Override public boolean accepted() { return false; }
-+                @Override public boolean commit() { return false; }
-+                @Override public void abort() { }
-+                @Override public void close() { }
-+            };
-+        }
-+    }
-+}
          private ReadInterceptor readInterceptor;
-         private WriteInterceptor writeInterceptor;
- 
 
 --- a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
 +++ b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
@@ -134,7 +104,7 @@
  
  
  public class StructureFunction implements Function<Boolean> {
-@@ -78,37 +77,30 @@
+@@ -78,34 +77,23 @@
                  return false;
              }
  
@@ -184,13 +154,6 @@
          }).orElseGet(() -> {
              LOGGER.error("No such structure {}", app);
              return false;
-+package com.dfsek.terra.api.structure;
-+
-+/** A structure exposing its stable registry identifier to platform generation hooks. */
-+public interface IdentifiedStructure { String getID(); }
-         });
-     }
- 
 
 --- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
 +++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/StructureScript.java
@@ -221,7 +184,6 @@
      @SuppressWarnings("try")
      public boolean generate(Vector3Int location, WritableWorld world, RandomGenerator random, Rotation rotation) {
          platform.getProfiler().push(profile);
-
 --- /dev/null
 +++ b/common/api/src/main/java/com/dfsek/terra/api/structure/IdentifiedStructure.java
 @@ -0,0 +1,4 @@
