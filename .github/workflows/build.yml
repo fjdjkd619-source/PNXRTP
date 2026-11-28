@@ -1,4 +1,5 @@
 name: R15 full Gradle build and JAR artifacts
+# Rebuild after Stage 15 TerraScript identifier import correction.
 
 on:
   push:
