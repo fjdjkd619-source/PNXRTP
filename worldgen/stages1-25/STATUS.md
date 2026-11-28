@@ -39,20 +39,25 @@ The adapter intentionally remains fail-closed for BlockEntity mutation until Ter
 
 ## Latest recovery archive
 
-- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r7.zip`
-- Size: 1,360,756 bytes
-- SHA-256: `9874916e2ffeaaac4a3b1c6e5c3cc3fabd815fa41cd692e6431590e03b20a0e9`
-- ZIP integrity: PASS
-- The r7 ZIP, checksum sidecar, and updated BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/` and the ZIP was re-downloaded and re-verified by SHA-256 and ZIP CRC.
-- Earlier r3 archive and verified duplicate remain preserved; no prior copy was deleted or overwritten.
+- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8.zip`
+- Size: 1,361,219 bytes
+- SHA-256: `0212e668bd3deb89e2da0d8f3734f8e2c91ced37a113f4758618e10ca1a36451`
+- ZIP integrity: PASS; re-materialized from Library and SHA-256 matched the source archive exactly.
+- The r8 ZIP, checksum sidecar, and new Terra BlockEntity capture audit are saved under `/PNX-Terra-Backups/`.
+- Earlier r3–r7 archives remain preserved; no prior copy was deleted or overwritten.
 
+### Stage 22 Terra-side capture audit (r8)
+
+Pinned Terra API inspection found that `WritableWorld` can write block states and spawn entities but has no BlockEntity creation/write method. `ReadableWorld.getBlockEntity` is read-only; Terra's BlockEntity interface exposes no canonical PNX type ID or NBT payload. The pinned `SpongeStructure.generate` writes only palette block states, and TerraScript delegates through buffered `WritableWorld` without a BlockEntity channel. PNX-Terra's `PNXServerWorld.setBlockState` likewise has no journal capture path.
+
+Therefore the existing r7 PNX NBT codec/applier is only the consumer side; it cannot receive correct BlockEntity intents from ordinary Terra structures. Do not infer tile data from block IDs. Required next work: add a PNX-Terra structure-input capture extension for explicitly supported formats, route immutable typed NBT records through the same placement journal, then apply on the Level scheduler before durable save/ack. Full source audit: [STAGE22-TERRA-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md](STAGE22-TERRA-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md).
 
 ### Stage 22 groundwork added in r5
 
 - `PnxBlockEntityNbtCodec` follows the pinned PNX LevelDB chunk serializer's little-endian NBT format; identity/coordinate drift is rejected.
 - `PnxLevelExecutor` dispatches through `Level.getScheduler().scheduleTask`.
 - New patch `22-stage22-be-nbt-codec-and-level-executor.patch` parses and applies cleanly to an empty synthetic adapter tree.
-- Contract-stub test: PASS. This is not a full upstream NBT/runtime test and is not yet wired into the finalizer.
+- Contract-stub test: PASS. The r6/r7 increments subsequently wired the applier into the finalizer and added scheduler dispatch; this remains contract-level validation, not a full upstream NBT/runtime test.
 - The two source files, patch, audit, and validation result have been committed to this GitHub branch.
 
 
