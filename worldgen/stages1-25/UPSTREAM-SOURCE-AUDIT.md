@@ -80,3 +80,6 @@ Source:
 ## Acceptance state
 
 **BLOCKED.** The source audit is now reproducible, but no integrated build or deployable JAR has been produced. Do not start stages 26–34 and do not deploy this candidate to the live server.
+
+
+The automated source-baseline check is defined in `.github/workflows/pinned-upstream-audit.yml`; it checks out all three exact commits and validates these known source conditions. A successful result from that workflow is not an integrated build.
