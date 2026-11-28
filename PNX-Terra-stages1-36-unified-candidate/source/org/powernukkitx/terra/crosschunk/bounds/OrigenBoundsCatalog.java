@@ -52,7 +52,8 @@ public final class OrigenBoundsCatalog {
     /**
      * Resolve an audited profile or a strict runtime-bounded fallback. Unknown scripts are no
      * longer silently disabled, but they are never allowed to write/read outside the hard pack
-     * envelope or spawn entities.
+     * envelope. Entity spawning remains disabled for unprofiled scripts; only a statically
+     * audited profile with an explicit entity budget may create deferred entity intents.
      */
     public static ScriptBoundsProfile resolveRuntimeProfile(String structureId) {
         if (structureId == null || structureId.isBlank())
@@ -69,10 +70,11 @@ public final class OrigenBoundsCatalog {
     /** Maximum horizontal write/read reach used to prefetch all possible source anchors. */
     public static int maxHorizontalReach() {
         return Math.max(FALLBACK_HORIZONTAL_REACH, PROFILES.values().stream()
-                .filter(profile -> profile.maxEntitySpawns() == 0)
                 .mapToInt(profile -> Math.max(
-                        Math.max(Math.abs(profile.writeBounds().minX()), Math.abs(profile.writeBounds().maxX())),
-                        Math.max(Math.abs(profile.writeBounds().minZ()), Math.abs(profile.writeBounds().maxZ()))))
+                        Math.max(Math.max(Math.abs(profile.writeBounds().minX()), Math.abs(profile.writeBounds().maxX())),
+                                Math.max(Math.abs(profile.writeBounds().minZ()), Math.abs(profile.writeBounds().maxZ()))),
+                        Math.max(Math.max(Math.abs(profile.readBounds().minX()), Math.abs(profile.readBounds().maxX())),
+                                Math.max(Math.abs(profile.readBounds().minZ()), Math.abs(profile.readBounds().maxZ())))))
                 .max().orElse(0));
     }
 
