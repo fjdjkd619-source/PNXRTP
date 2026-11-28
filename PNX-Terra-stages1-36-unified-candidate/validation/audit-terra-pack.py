@@ -18,7 +18,10 @@ BLOCK_WRITE = re.compile(r"\bblock\s*\(")
 BLOCK_READ = re.compile(r"\b(?:getBlock|blockState|check)\s*\(")
 LOOP = re.compile(r"\bfor\s*\(")
 BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?")
-BLOCK_LITERAL = re.compile(r"minecraft:[a-z0-9_./-]+(?:\[[^]\r\n]+\])?")
+BLOCK_LITERAL = re.compile(r"minecraft:[a-z0-9_./-]+(?:\[[A-Za-z0-9_./-]+=[A-Za-z0-9_./-]+(?:,[A-Za-z0-9_./-]+=[A-Za-z0-9_./-]+)*\])?")
+DYNAMIC_BLOCK_STATE = re.compile(r"minecraft:[a-z0-9_./-]+\[[^]\r\n]*[\"']\\s*\\+")
+ENTITY_LITERAL_CONTEXT = re.compile(r"entity_data|type=minecraft:")
+
 YAML_FIELD = {
     "id": re.compile(r"(?m)^id:\s*([A-Za-z0-9_.:/-]+)\s*$"),
     "type": re.compile(r"(?m)^type:\s*([A-Za-z0-9_.:/-]+)\s*$"),
@@ -116,6 +119,18 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
     return roots, block_targets, unresolved or (saw_structures_key and not roots and not block_targets)
 
 
+def normalize_block_state(value: str) -> str:
+    if "[" not in value:
+        return value
+    base, state = value.split("[", 1)
+    if not state.endswith("]"):
+        return value
+    properties = state[:-1].split(",")
+    if not all("=" in item for item in properties):
+        return value
+    return base + "[" + ",".join(sorted(properties, key=lambda item: item.split("=", 1)[0])) + "]"
+
+
 def parse_structure_yaml(path: Path, root: Path) -> dict | None:
     source = path.read_text(encoding="utf-8")
     record = {"path": path.relative_to(root).as_posix(), "status": "UNKNOWN"}
@@ -154,19 +169,28 @@ def main() -> int:
         raise SystemExit(f"Pnx block mapping registry missing: {mapping_path}")
     pnx_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     pnx_state_keys = set(pnx_mapping)
+    pnx_normalized_keys = {normalize_block_state(value) for value in pnx_state_keys}
     pnx_block_ids = {value.split("[", 1)[0] for value in pnx_state_keys}
 
     scripts = sorted(root.rglob("*.tesf"))
+    all_yamls = sorted(root.rglob("*.yml"))
     structure_yamls = sorted(root.glob("structures/**/*.yml"))
-    features = sorted(p for p in root.rglob("*.yml") if "features" in p.relative_to(root).parts)
+    features = sorted(p for p in all_yamls if "features" in p.relative_to(root).parts)
     scripts_by_id: dict[str, list[str]] = defaultdict(list)
     script_records = []
     block_sources: dict[str, set[str]] = defaultdict(set)
+    entity_literals: set[str] = set()
+    dynamic_block_sources: dict[str, set[str]] = defaultdict(set)
 
     def record_block_literals(path: Path, source: str) -> None:
         rel = path.relative_to(root).as_posix()
         for state in BLOCK_LITERAL.findall(source):
             block_sources[state].add(rel)
+        for line in source.splitlines():
+            if ENTITY_LITERAL_CONTEXT.search(line):
+                entity_literals.update(re.findall(r"minecraft:[a-z0-9_./-]+", line))
+            for state in DYNAMIC_BLOCK_STATE.findall(line):
+                dynamic_block_sources[state].add(rel)
 
     for path in scripts:
         rel = path.relative_to(root).as_posix()
@@ -242,14 +266,26 @@ def main() -> int:
         script_id: paths for script_id, paths in sorted(scripts_by_id.items()) if len(paths) > 1
     }
 
-    exact_mapped = sorted(state for state in block_sources if state in pnx_state_keys)
+    entity_only_literals = {
+        state for state in entity_literals
+        if state in block_sources
+        and not any(state in BLOCK_LITERAL.findall(
+            path.read_text(encoding="utf-8")
+        ) for path in scripts if path.relative_to(root).as_posix() in block_sources[state])
+    }
+    block_candidates = set(block_sources) - entity_only_literals
+    exact_mapped = sorted(state for state in block_candidates if normalize_block_state(state) in pnx_normalized_keys)
+    order_only_matches = sorted(
+        state for state in block_candidates
+        if state not in pnx_state_keys and normalize_block_state(state) in pnx_normalized_keys
+    )
     missing_state_variant = sorted(
-        state for state in block_sources
-        if state not in pnx_state_keys and state.split("[", 1)[0] in pnx_block_ids
+        state for state in block_candidates
+        if normalize_block_state(state) not in pnx_normalized_keys and state.split("[", 1)[0] in pnx_block_ids
     )
     missing_block_id = sorted(
-        state for state in block_sources
-        if state not in pnx_state_keys and state.split("[", 1)[0] not in pnx_block_ids
+        state for state in block_candidates
+        if normalize_block_state(state) not in pnx_normalized_keys and state.split("[", 1)[0] not in pnx_block_ids
     )
     status_counts = Counter(record["status"] for record in script_records)
     summary = {
@@ -264,8 +300,11 @@ def main() -> int:
         "matched_script_roots": script_matches,
         "matched_yaml_structure_roots": config_matches,
         "unmatched_feature_root_ids": len(missing),
-        "block_state_literal_count": len(block_sources),
+        "block_state_literal_count": len(block_candidates),
         "block_state_exact_matches": len(exact_mapped),
+        "block_state_property_order_only_matches": len(order_only_matches),
+        "entity_data_identifier_count": len(entity_only_literals),
+        "dynamic_block_state_expression_count": len(dynamic_block_sources),
         "block_state_variant_mismatches": len(missing_state_variant),
         "block_identifier_mismatches": len(missing_block_id),
         "feature_BLOCK_palette_target_count": len(block_state_targets),
@@ -275,7 +314,12 @@ def main() -> int:
         "status_counts": dict(sorted(status_counts.items())),
     }
     block_mapping_audit = {
-        "exact_matches": exact_mapped,
+        "exact_or_normalized_matches": exact_mapped,
+        "property_order_only_matches": order_only_matches,
+        "entity_data_identifiers_excluded": sorted(entity_only_literals),
+        "dynamic_block_state_expressions": {
+            state: sorted(paths) for state, paths in dynamic_block_sources.items()
+        },
         "missing_state_variants": {
             state: sorted(block_sources[state]) for state in missing_state_variant
         },
