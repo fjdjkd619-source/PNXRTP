@@ -178,7 +178,7 @@ public interface BlockState { }
 JAVA
 cat > "$STUB/com/dfsek/terra/api/block/entity/BlockEntity.java" <<'JAVA'
 package com.dfsek.terra.api.block.entity;
-import com.dfsek.seismic.type.vector.Vector3;
+import com.dfsek.terra.api.util.vector.Vector3;
 import com.dfsek.terra.api.block.state.BlockState;
 public interface BlockEntity {boolean update(boolean physics);void applyState(String state);Vector3 getPosition();int getX();int getY();int getZ();BlockState getBlockState();Object getHandle();}
 JAVA
@@ -234,7 +234,7 @@ public interface Inventory {void setItem(int slot,ItemStack stack);int getSize()
 JAVA
 cat > "$STUB/com/dfsek/terra/api/inventory/BlockInventoryHolder.java" <<'JAVA'
 package com.dfsek.terra.api.inventory;
-import com.dfsek.seismic.type.vector.Vector3;
+import com.dfsek.terra.api.util.vector.Vector3;
 public interface BlockInventoryHolder {Inventory getInventory();Vector3 getPosition();}
 JAVA
 cat > "$STUB/com/dfsek/terra/api/block/entity/Container.java" <<'JAVA'
