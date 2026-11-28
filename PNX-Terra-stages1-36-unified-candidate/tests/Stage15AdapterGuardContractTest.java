@@ -2,15 +2,15 @@ package org.powernukkitx.terra.crosschunk.bounds;
 
 public final class Stage15AdapterGuardContractTest {
     public static void main(String[] args) {
-        waterfallReadEnvelopeIncludesWritePreflightReads();
+        verifiedProfileReadEnvelopeIncludesWritePreflightReads();
         implicitWriteInspectionUsesWriteEnvelopeAndDoesNotConsumeScriptReadBudget();
-        unknownProfilesUseStrictRuntimeEnvelope();
+        unknownProfilesAreStrictDenyAll();
         nestedDependenciesAreExplicit();
         System.out.println("Stage15AdapterGuardContractTest: PASS");
     }
 
-    private static void waterfallReadEnvelopeIncludesWritePreflightReads() {
-        ScriptBoundsProfile profile = OrigenBoundsCatalog.requireVerified("waterfall");
+    private static void verifiedProfileReadEnvelopeIncludesWritePreflightReads() {
+        ScriptBoundsProfile profile = OrigenBoundsCatalog.requireVerified("fantasy_floating_island");
         check(profile.readBounds().maxY() >= profile.writeBounds().maxY(),
                 "BlockFunction pre-write read must fit inside read envelope");
         PlacementRuntimeGuard guard = new PlacementRuntimeGuard(profile, 0, 64, 0, Bounds3i.QuarterTurn.NONE);
@@ -19,7 +19,7 @@ public final class Stage15AdapterGuardContractTest {
     }
 
     private static void implicitWriteInspectionUsesWriteEnvelopeAndDoesNotConsumeScriptReadBudget() {
-        ScriptBoundsProfile profile = OrigenBoundsCatalog.requireVerified("waterfall");
+        ScriptBoundsProfile profile = OrigenBoundsCatalog.requireVerified("fantasy_floating_island");
         PlacementRuntimeGuard guard = new PlacementRuntimeGuard(profile, 0, 64, 0, Bounds3i.QuarterTurn.NONE);
         for (int i = 0; i < profile.maxBlockWrites(); i++) {
             guard.beforeWrite(0, 64, 0);
@@ -32,39 +32,48 @@ public final class Stage15AdapterGuardContractTest {
                 "unloaded implicit read poisons the root placement");
     }
 
-    private static void unknownProfilesUseStrictRuntimeEnvelope() {
-        check(OrigenBoundsCatalog.find("castle").isEmpty(), "unknown structures are not misreported as statically certified");
-        check(OrigenBoundsCatalog.resolveRuntimeProfile("origen:waterfall")
-                        == OrigenBoundsCatalog.requireVerified("waterfall"),
-                "namespaced Origen IDs resolve to the statically audited profile");
+    private static void unknownProfilesAreStrictDenyAll() {
+        check(OrigenBoundsCatalog.find("castle").isEmpty(),
+                "unknown structures are not misreported as statically certified");
+        check(OrigenBoundsCatalog.resolveRuntimeProfile("terra:fantasy_floating_island")
+                        == OrigenBoundsCatalog.requireVerified("fantasy_floating_island"),
+                "namespaced IDs resolve to their statically audited profile");
+
         ScriptBoundsProfile fallback = OrigenBoundsCatalog.resolveRuntimeProfile("castle");
-        check(fallback == OrigenBoundsCatalog.boundedFallbackProfile(), "unknown structures resolve to bounded fallback");
-        check(fallback.writeBounds().minX() == -32 && fallback.writeBounds().maxX() == 32,
-                "fallback enforces a finite horizontal envelope");
-        check(fallback.maxEntitySpawns() == 0, "fallback does not enable unjournaled entities");
-        check(fallback.allowsNestedStructure("dynamic_nested_structure"),
-                "nested structures share the same root guard under the hard envelope");
-        check(OrigenBoundsCatalog.maxHorizontalReach() == 32,
-                "scheduler prefetch horizon covers the fallback envelope");
+        check(fallback == OrigenBoundsCatalog.boundedFallbackProfile(),
+                "unknown structures resolve to the deny-all fallback");
+        check(fallback.writeBounds().minX() == 0 && fallback.writeBounds().maxX() == 0
+                        && fallback.writeBounds().minY() == 0 && fallback.writeBounds().maxY() == 0
+                        && fallback.writeBounds().minZ() == 0 && fallback.writeBounds().maxZ() == 0,
+                "unverified fallback has a zero-sized write envelope");
+        check(fallback.readBounds().minX() == 0 && fallback.readBounds().maxX() == 0
+                        && fallback.readBounds().minY() == 0 && fallback.readBounds().maxY() == 0
+                        && fallback.readBounds().minZ() == 0 && fallback.readBounds().maxZ() == 0,
+                "unverified fallback has a zero-sized read envelope");
+        check(fallback.maxBlockWrites() == 0 && fallback.maxBlockReads() == 0
+                        && fallback.maxEntitySpawns() == 0,
+                "unverified fallback has no operation budget");
+        check(!fallback.allowsNestedStructure("dynamic_nested_structure"),
+                "unverified fallback cannot admit nested structures");
+        check(OrigenBoundsCatalog.maxHorizontalReach() >= 5,
+                "scheduler reach covers the largest statically certified write envelope");
 
         PlacementRuntimeGuard guard = new PlacementRuntimeGuard(fallback, 0, 64, 0, Bounds3i.QuarterTurn.NONE);
-        guard.beforeWrite(32, 64, -32);
-        expect(BoundsViolationException.class, () -> guard.beforeWrite(33, 64, 0));
+        expect(BoundsViolationException.class, () -> guard.beforeWrite(0, 64, 0));
         check(guard.snapshot().state() == PlacementRuntimeGuard.State.FAILED,
-                "one out-of-envelope nested write poisons the entire root placement");
-
-        check(OrigenBoundsCatalog.requireVerified("mangrove_tree_procedural").maxEntitySpawns() > 0,
-                "mangrove remains blocked until entity intents are transactionally supported");
+                "the first write under an unverified root fails closed");
+        expect(IllegalStateException.class,
+                () -> OrigenBoundsCatalog.requireVerified("mangrove_tree_procedural"));
     }
 
     private static void nestedDependenciesAreExplicit() {
-        ScriptBoundsProfile waterfall = OrigenBoundsCatalog.requireVerified("waterfall");
-        check(waterfall.transitiveDependencies().isEmpty(), "waterfall has no nested dependencies");
-        ScriptBoundsProfile mangrove = OrigenBoundsCatalog.requireVerified("mangrove_tree_procedural");
-        check(mangrove.transitiveDependencies().contains("mangrove_leaves_clump"),
-                "mangrove nested dependency is explicitly allow-listed");
-        check(!mangrove.allowsNestedStructure("unlisted_structure"),
-                "unlisted nested structure is not allowed by the audited root profile");
+        ScriptBoundsProfile profile = OrigenBoundsCatalog.requireVerified("fantasy_crystal_cluster");
+        check(profile.transitiveDependencies().contains("fantasy_crystal_cluster"),
+                "generated profile records its audited root reference");
+        check(profile.allowsNestedStructure("fantasy_crystal_cluster"),
+                "only the recorded root dependency is allow-listed");
+        check(!profile.allowsNestedStructure("unlisted_structure"),
+                "unlisted nested structures are rejected");
     }
 
     private static void check(boolean value, String message) {
