@@ -1,0 +1,563 @@
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+index 9a80bab..525e5d9 100644
+--- a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java
+@@ -1,9 +1,14 @@
+ package org.powernukkitx.terra.delegate;
+ 
+ import org.powernukkitx.block.Block;
++import org.powernukkitx.block.BlockEntityHolder;
+ import org.powernukkitx.block.BlockID;
+ import org.powernukkitx.level.Level;
+ import org.powernukkitx.level.format.IChunk;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.blockentity.BlockEntitySign;
++import org.powernukkitx.blockentity.BlockEntityMobSpawner;
++import org.powernukkitx.blockentity.BlockEntityInventoryHolder;
+ import org.powernukkitx.level.generator.object.BlockManager;
+ import org.powernukkitx.terra.PNXAdapter;
+ import org.powernukkitx.terra.TerraGenerator;
+@@ -27,6 +32,7 @@ import org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard;
+ import org.powernukkitx.terra.crosschunk.bounds.ScriptBoundsProfile;
+ import org.powernukkitx.terra.crosschunk.diagnostics.DiagnosticSink;
+ import org.powernukkitx.terra.crosschunk.diagnostics.GenerationDiagnostic;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
+ import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
+@@ -117,7 +123,8 @@ public class PNXServerWorld implements ServerWorld {
+                 anchorSession.anchor(), featureId, structureId,
+                 origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
+         PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
+-                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), guardScope, Thread.currentThread(), journalTicket, journalKey);
++                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
++                Thread.currentThread(), journalTicket, journalKey);
+         activePlacement = root;
+         return scopeFor(root, true);
+     }
+@@ -138,7 +145,7 @@ public class PNXServerWorld implements ServerWorld {
+         }
+         PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
+                 parent.originX, parent.originY, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent,
+-                new ArrayList<>(), null, parent.owner, null, null);
++                new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
+         activePlacement = child;
+         return scopeFor(child, false);
+     }
+@@ -159,6 +166,7 @@ public class PNXServerWorld implements ServerWorld {
+                 }
+                 if (!root) {
+                     transaction.parent.staged.merge(transaction.staged);
++                    transaction.parent.blockEntities.addAll(transaction.blockEntities);
+                     transaction.parent.physics.addAll(transaction.physics);
+                     finish();
+                     return true;
+@@ -167,7 +175,7 @@ public class PNXServerWorld implements ServerWorld {
+                 int anchorChunkZ = transaction.originZ >> 4;
+                 if (transaction.journalTicket == null) {
+                     // Legacy construction remains fail-closed until the PopulateStage journal service is supplied.
+-                    if (!transaction.physics.isEmpty()) { abort(); return false; }
++                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()) { abort(); return false; }
+                     for (Block block : transaction.staged.getBlocks()) {
+                         if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
+                             abort();
+@@ -175,14 +183,15 @@ public class PNXServerWorld implements ServerWorld {
+                         }
+                     }
+                     level.merge(transaction.staged);
+-                } else if (transaction.staged.getBlocks().isEmpty()) {
++                } else if (transaction.staged.getBlocks().isEmpty()
++                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()) {
+                     transaction.journalTicket.abort();
+                 } else {
+                     // Durable WAL first. Only anchor-local writes enter this stage's BlockManager;
+                     // cross-chunk writes are left for the Stage18 journal applier after its barrier.
+                     try {
+                         PnxPlacementCommitter.commit(transaction.journalTicket, transaction.journalKey,
+-                                transaction.staged, List.of(), transaction.physics);
++                                transaction.staged, transaction.blockEntities, transaction.physics);
+                     } catch (IOException journalFailure) {
+                         diagnostics.publish(GenerationDiagnostic.failure("terra_populate", transaction.featureId,
+                                 transaction.structureId, new ChunkPos(anchorChunkX, anchorChunkZ),
+@@ -299,14 +308,42 @@ public class PNXServerWorld implements ServerWorld {
+ 
+     @Override
+     public BlockEntity getBlockEntity(int x, int y, int z) {
++        if (y < getMinHeight() || y >= getMaxHeight())
++            throw new IllegalArgumentException("Block entity read outside world height: " + y);
+         PlacementTransaction transaction = activePlacement;
+         if (transaction != null) {
+             if (Thread.currentThread() != transaction.owner)
+                 throw new IllegalStateException("Block entity read from another thread during placement");
+-            transaction.guard.beforeRead(x, y, z, false);
++            BlockVector3 position = new BlockVector3(x, y, z);
++            PlacementTransaction cachedIn = findCached(transaction, position);
++            boolean inBatch = level.isCached(position);
++            boolean loaded = level.getLevel().isChunkLoaded(x >> 4, z >> 4);
++            transaction.guard.beforeRead(x, y, z, cachedIn != null || inBatch || loaded);
++            Block block = cachedIn != null ? cachedIn.staged.getCachedBlock(x, y, z)
++                    : inBatch ? level.getCachedBlock(x, y, z)
++                    : loaded ? level.getBlockIfCachedOrLoaded(x, y, z) : null;
++            if ((cachedIn != null || inBatch) && block instanceof BlockEntityHolder<?> holder) {
++                Class<? extends org.powernukkitx.blockentity.BlockEntity> blockEntityClass = holder.getBlockEntityClass();
++                if (blockEntityClass != null) {
++                    String type = holder.getBlockEntityType();
++                    CompoundTag initial = new CompoundTag();
++                    if (BlockEntitySign.class.isAssignableFrom(blockEntityClass)) {
++                        return new PNXStagedSignDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
++                                initial, intent -> recordBlockEntityIntent(transaction, intent));
++                    }
++                    if (BlockEntityMobSpawner.class.isAssignableFrom(blockEntityClass)) {
++                        return new PNXStagedMobSpawnerDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
++                                initial, intent -> recordBlockEntityIntent(transaction, intent));
++                    }
++                    if (BlockEntityInventoryHolder.class.isAssignableFrom(blockEntityClass)) {
++                        int inventorySize = stagedInventorySize(blockEntityClass);
++                        return new PNXStagedContainerDelegate(x, y, z, type, PNXAdapter.adapt(block.getBlockState()),
++                                initial, inventorySize, null,
++                                intent -> recordBlockEntityIntent(transaction, intent));
++                    }
++                }
++            }
+         }
+-        if (y < getMinHeight() || y >= getMaxHeight())
+-            throw new IllegalArgumentException("Block entity read outside world height: " + y);
+         IChunk chunk = level.getLevel().getChunkIfLoaded(x >> 4, z >> 4);
+         if (chunk == null || !chunk.isLoaded() || !chunk.isInitiated()) {
+             throw new IllegalStateException("Terra requested a block entity from an unloaded/uninitiated chunk; refusing force-load at "
+@@ -316,6 +353,23 @@ public class PNXServerWorld implements ServerWorld {
+         return blockEntity == null ? null : new PNXBlockEntityDelegate(blockEntity);
+     }
+ 
++    private static int stagedInventorySize(Class<? extends org.powernukkitx.blockentity.BlockEntity> type) {
++        String name = type.getSimpleName().toLowerCase(java.util.Locale.ROOT);
++        if (name.contains("chest") || name.contains("barrel") || name.contains("shulker")) return 27;
++        if (name.contains("dispenser") || name.contains("dropper") || name.contains("crafter")) return 9;
++        if (name.contains("hopper")) return 5;
++        if (name.contains("brewingstand")) return 5;
++        if (name.contains("furnace") || name.contains("smoker")) return 3;
++        throw new UnsupportedOperationException("No safe Terra inventory size mapping for PNX BlockEntity " + type.getName());
++    }
++
++    private static void recordBlockEntityIntent(PlacementTransaction transaction, BlockEntityIntent intent) {
++        transaction.guard.beforeWrite(intent.x(), intent.y(), intent.z());
++        transaction.blockEntities.removeIf(existing -> existing.x() == intent.x()
++                && existing.y() == intent.y() && existing.z() == intent.z());
++        transaction.blockEntities.add(intent);
++    }
++
+     @Override public ChunkGenerator getGenerator() { return generatorWrapper.getHandle(); }
+     @Override public BiomeProvider getBiomeProvider() { return generatorWrapper.getBiomeProvider(); }
+     @Override public ConfigPack getPack() { return generatorWrapper.getConfigPack(); }
+@@ -336,6 +390,7 @@ public class PNXServerWorld implements ServerWorld {
+ 
+     private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
+                                         PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
+-                                        List<PhysicsIntent> physics, PlacementGuardContext.Scope guardScope, Thread owner,
++                                        List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics,
++                                        PlacementGuardContext.Scope guardScope, Thread owner,
+                                         CrossChunkDependencyScheduler.PlacementTicket journalTicket, PlacementKey journalKey) { }
+ }
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java
+new file mode 100644
+index 0000000..e781ca7
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java
+@@ -0,0 +1,63 @@
++package org.powernukkitx.terra.delegate;
++
++import com.dfsek.seismic.type.vector.Vector3;
++import com.dfsek.terra.api.block.entity.BlockEntity;
++import com.dfsek.terra.api.block.state.BlockState;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
++import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockEntityNbtCodec;
++
++import java.io.IOException;
++import java.util.Objects;
++import java.util.function.Consumer;
++
++/** A detached Terra view whose changes are serialized into the active placement journal. */
++public abstract class PNXStagedBlockEntityDelegate implements BlockEntity {
++    protected final int x;
++    protected final int y;
++    protected final int z;
++    protected final String type;
++    protected final CompoundTag nbt;
++    private final BlockState blockState;
++    private final Consumer<BlockEntityIntent> intentSink;
++
++    protected PNXStagedBlockEntityDelegate(int x, int y, int z, String type, BlockState blockState,
++                                           CompoundTag initialNbt, Consumer<BlockEntityIntent> intentSink) {
++        if (type == null || type.isBlank()) throw new IllegalArgumentException("BlockEntity type is blank");
++        this.x = x;
++        this.y = y;
++        this.z = z;
++        this.type = type;
++        this.blockState = Objects.requireNonNull(blockState, "blockState");
++        this.intentSink = Objects.requireNonNull(intentSink, "intentSink");
++        this.nbt = initialNbt == null ? new CompoundTag() : initialNbt.copy();
++        this.nbt.putString("id", type).putInt("x", x).putInt("y", y).putInt("z", z);
++    }
++
++    @Override
++    public boolean update(boolean applyPhysics) {
++        if (applyPhysics) {
++            throw new UnsupportedOperationException("BlockEntity update physics must use a separate durable physics intent");
++        }
++        try {
++            intentSink.accept(PnxBlockEntityNbtCodec.toIntent(x, y, z, type, nbt));
++            return true;
++        } catch (IOException failure) {
++            throw new IllegalStateException("Could not encode staged PNX BlockEntity intent", failure);
++        }
++    }
++
++    @Override
++    public void applyState(String state) {
++        if (state != null && !state.isBlank()) {
++            throw new UnsupportedOperationException("This staged PNX BlockEntity type has no Terra state schema");
++        }
++    }
++
++    @Override public Vector3 getPosition() { return Vector3.of(x, y, z); }
++    @Override public int getX() { return x; }
++    @Override public int getY() { return y; }
++    @Override public int getZ() { return z; }
++    @Override public BlockState getBlockState() { return blockState; }
++    @Override public Object getHandle() { return nbt; }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java
+new file mode 100644
+index 0000000..d976d5e
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedSignDelegate.java
+@@ -0,0 +1,85 @@
++package org.powernukkitx.terra.delegate;
++
++import com.dfsek.terra.api.block.entity.SerialState;
++import com.dfsek.terra.api.block.entity.Sign;
++import com.dfsek.terra.api.block.state.BlockState;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
++import org.powernukkitx.utils.DyeColor;
++
++import java.util.Map;
++import java.util.function.Consumer;
++
++/** Detached front-side sign view matching TerraScript's text0..text3 state properties. */
++public final class PNXStagedSignDelegate extends PNXStagedBlockEntityDelegate implements Sign {
++    private static final String FRONT_TEXT = "FrontText";
++    private static final String BACK_TEXT = "BackText";
++    private static final String TEXT = "Text";
++    private final String[] frontLines = new String[4];
++
++    public PNXStagedSignDelegate(int x, int y, int z, String type, BlockState blockState,
++                                 CompoundTag initialNbt, Consumer<BlockEntityIntent> intentSink) {
++        super(x, y, z, type, blockState, initialNbt, intentSink);
++        readFrontLines();
++    }
++
++    @Override
++    public void setLine(int index, String line) throws IndexOutOfBoundsException {
++        checkLine(index);
++        frontLines[index] = line == null ? "" : line;
++    }
++
++    @Override public String[] getLines() { return frontLines.clone(); }
++
++    @Override
++    public String getLine(int index) throws IndexOutOfBoundsException {
++        checkLine(index);
++        return frontLines[index];
++    }
++
++    @Override
++    public void applyState(String state) {
++        if (state == null || state.isBlank()) return;
++        for (Map.Entry<String, String> property : SerialState.parse(state).entrySet()) {
++            String key = property.getKey();
++            if (!key.startsWith("text") || key.length() == 4) {
++                throw new IllegalArgumentException("Invalid sign property: " + key);
++            }
++            int line = Integer.parseInt(key.substring(4));
++            setLine(line, property.getValue());
++        }
++    }
++
++    @Override
++    public boolean update(boolean applyPhysics) {
++        writeSignText(FRONT_TEXT, frontLines);
++        if (!nbt.containsCompound(BACK_TEXT)) {
++            writeSignText(BACK_TEXT, new String[] {"", "", "", ""});
++        }
++        nbt.putBoolean("TextIgnoreLegacyBugResolved", true)
++                .putLong("LockedForEditingBy", -1L)
++                .putByte("IsWaxed", (byte) 0);
++        return super.update(applyPhysics);
++    }
++
++    private void readFrontLines() {
++        String text = nbt.containsCompound(FRONT_TEXT) ? nbt.getCompound(FRONT_TEXT).getString(TEXT) : "";
++        String[] lines = text == null ? new String[0] : text.split("\\n", -1);
++        for (int i = 0; i < frontLines.length; i++) frontLines[i] = i < lines.length ? lines[i] : "";
++    }
++
++    private void writeSignText(String side, String[] lines) {
++        CompoundTag tag = nbt.containsCompound(side) ? nbt.getCompound(side) : new CompoundTag();
++        tag.putString(TEXT, String.join("\n", lines))
++                .putInt("SignTextColor", DyeColor.BLACK.getSignColor())
++                .putByte("IgnoreLighting", (byte) 0)
++                .putByte("PersistFormatting", (byte) 1)
++                .putBoolean("HideGlowOutline", false)
++                .putString("TextOwner", "");
++        nbt.putCompound(side, tag);
++    }
++
++    private static void checkLine(int index) {
++        if (index < 0 || index >= 4) throw new IndexOutOfBoundsException("Sign line index must be 0..3: " + index);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXStagedMobSpawnerDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedMobSpawnerDelegate.java
+new file mode 100644
+index 0000000..5bfca31
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedMobSpawnerDelegate.java
+@@ -0,0 +1,130 @@
++package org.powernukkitx.terra.delegate;
++
++import com.dfsek.terra.api.block.entity.MobSpawner;
++import com.dfsek.terra.api.block.entity.SerialState;
++import com.dfsek.terra.api.block.state.BlockState;
++import com.dfsek.terra.api.entity.EntityType;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.registry.Registries;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
++
++import java.util.Map;
++import java.util.function.Consumer;
++
++/** Detached PNX spawner state matching TerraScript's documented spawner properties. */
++public final class PNXStagedMobSpawnerDelegate extends PNXStagedBlockEntityDelegate implements MobSpawner {
++    private static final String ENTITY_ID = "EntityId";
++    private static final String ENTITY_IDENTIFIER = "EntityIdentifier";
++    private static final String SPAWN_DATA = "SpawnData";
++    private static final String TYPE_ID = "TypeId";
++    private static final String WEIGHT = "Weight";
++    private static final String DELAY = "Delay";
++    private static final String MIN_DELAY = "MinSpawnDelay";
++    private static final String MAX_DELAY = "MaxSpawnDelay";
++    private static final String SPAWN_COUNT_MIN = "MinimumSpawnerCount";
++    private static final String SPAWN_COUNT_MAX = "MaximumSpawnerCount";
++    private static final String MAX_NEARBY = "MaxNearbyEntities";
++    private static final String PLAYER_RANGE = "RequiredPlayerRange";
++    private static final String SPAWN_RANGE = "SpawnRange";
++
++    public PNXStagedMobSpawnerDelegate(int x, int y, int z, String type, BlockState blockState,
++                                       CompoundTag initialNbt, Consumer<BlockEntityIntent> intentSink) {
++        super(x, y, z, type, blockState, initialNbt, intentSink);
++        defaults();
++    }
++
++    @Override
++    public EntityType getSpawnedType() {
++        String identifier = nbt.getString(ENTITY_IDENTIFIER);
++        if (identifier == null || identifier.isBlank()) {
++            identifier = Registries.ENTITY.getEntityIdentifier(nbt.getInt(ENTITY_ID));
++        }
++        return identifier == null || identifier.isBlank() ? null : new PNXEntityType(identifier);
++    }
++
++    @Override
++    public void setSpawnedType(EntityType creatureType) {
++        Object raw = creatureType == null ? null : creatureType.getHandle();
++        if (!(raw instanceof String identifier) || identifier.isBlank()) {
++            throw new IllegalArgumentException("PNX spawner requires a namespaced Terra entity identifier");
++        }
++        int networkId = Registries.ENTITY.getEntityNetworkId(identifier);
++        if (networkId <= 0) throw new IllegalArgumentException("Unknown PNX spawner entity identifier: " + identifier);
++        nbt.putInt(ENTITY_ID, networkId)
++                .putString(ENTITY_IDENTIFIER, identifier)
++                .putCompound(SPAWN_DATA, new CompoundTag().putString(TYPE_ID, identifier).putInt(WEIGHT, 1));
++    }
++
++    @Override public int getDelay() { return nbt.getShort(DELAY); }
++    @Override public void setDelay(int delay) { nbt.putShort(DELAY, (short) checkedShort(delay, "delay", 0)); }
++    @Override public int getMinSpawnDelay() { return nbt.getShort(MIN_DELAY); }
++
++    @Override
++    public void setMinSpawnDelay(int delay) {
++        int checked = checkedShort(delay, "min_delay", 0);
++        if (checked > getMaxSpawnDelay()) throw new IllegalArgumentException("min_delay exceeds max_delay");
++        nbt.putShort(MIN_DELAY, (short) checked);
++    }
++
++    @Override public int getMaxSpawnDelay() { return nbt.getShort(MAX_DELAY); }
++
++    @Override
++    public void setMaxSpawnDelay(int delay) {
++        int checked = checkedShort(delay, "max_delay", 0);
++        if (checked < getMinSpawnDelay()) throw new IllegalArgumentException("max_delay is below min_delay");
++        nbt.putShort(MAX_DELAY, (short) checked);
++    }
++
++    @Override public int getSpawnCount() { return nbt.getShort(SPAWN_COUNT_MAX); }
++
++    @Override
++    public void setSpawnCount(int spawnCount) {
++        short checked = (short) checkedShort(spawnCount, "spawn_count", 1);
++        nbt.putShort(SPAWN_COUNT_MIN, checked).putShort(SPAWN_COUNT_MAX, checked);
++    }
++
++    @Override public int getMaxNearbyEntities() { return nbt.getShort(MAX_NEARBY); }
++    @Override public void setMaxNearbyEntities(int count) { nbt.putShort(MAX_NEARBY, (short) checkedShort(count, "max_nearby", 1)); }
++    @Override public int getRequiredPlayerRange() { return nbt.getShort(PLAYER_RANGE); }
++    @Override public void setRequiredPlayerRange(int range) { nbt.putShort(PLAYER_RANGE, (short) checkedShort(range, "required_player_range", 1)); }
++    @Override public int getSpawnRange() { return nbt.getShort(SPAWN_RANGE); }
++    @Override public void setSpawnRange(int range) { nbt.putShort(SPAWN_RANGE, (short) checkedShort(range, "spawn_range", 0)); }
++
++    @Override
++    public void applyState(String state) {
++        if (state == null || state.isBlank()) return;
++        for (Map.Entry<String, String> property : SerialState.parse(state).entrySet()) {
++            String value = property.getValue();
++            switch (property.getKey()) {
++                case "type" -> setSpawnedType(new PNXEntityType(value));
++                case "delay" -> setDelay(Integer.parseInt(value));
++                case "min_delay" -> setMinSpawnDelay(Integer.parseInt(value));
++                case "max_delay" -> setMaxSpawnDelay(Integer.parseInt(value));
++                case "spawn_count" -> setSpawnCount(Integer.parseInt(value));
++                case "spawn_range" -> setSpawnRange(Integer.parseInt(value));
++                case "max_nearby" -> setMaxNearbyEntities(Integer.parseInt(value));
++                case "required_player_range" -> setRequiredPlayerRange(Integer.parseInt(value));
++                default -> throw new IllegalArgumentException("Invalid PNX spawner property: " + property.getKey());
++            }
++        }
++    }
++
++    private void defaults() {
++        if (!nbt.contains(SPAWN_RANGE)) nbt.putShort(SPAWN_RANGE, (short) 4);
++        if (!nbt.contains(MIN_DELAY)) nbt.putShort(MIN_DELAY, (short) 200);
++        if (!nbt.contains(MAX_DELAY)) nbt.putShort(MAX_DELAY, (short) 800);
++        if (!nbt.contains(MAX_NEARBY)) nbt.putShort(MAX_NEARBY, (short) 6);
++        if (!nbt.contains(PLAYER_RANGE)) nbt.putShort(PLAYER_RANGE, (short) 16);
++        if (!nbt.contains(SPAWN_COUNT_MIN)) nbt.putShort(SPAWN_COUNT_MIN, (short) 1);
++        if (!nbt.contains(SPAWN_COUNT_MAX)) nbt.putShort(SPAWN_COUNT_MAX, (short) 4);
++        if (!nbt.contains(DELAY)) nbt.putShort(DELAY, (short) 0);
++        if (!nbt.contains(ENTITY_ID)) nbt.putInt(ENTITY_ID, 0);
++    }
++
++    private static int checkedShort(int value, String property, int minimum) {
++        if (value < minimum || value > Short.MAX_VALUE) {
++            throw new IllegalArgumentException(property + " must be in [" + minimum + "," + Short.MAX_VALUE + "]");
++        }
++        return value;
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXStagedInventory.java b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedInventory.java
+new file mode 100644
+index 0000000..4e8ba23
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedInventory.java
+@@ -0,0 +1,65 @@
++package org.powernukkitx.terra.delegate;
++
++import com.dfsek.terra.api.inventory.Inventory;
++import com.dfsek.terra.api.inventory.ItemStack;
++import org.powernukkitx.blockentity.BlockEntityInventoryHolder;
++import org.powernukkitx.item.Item;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.nbt.tag.ListTag;
++import org.powernukkitx.nbt.tag.Tag;
++import org.powernukkitx.utils.ItemHelper;
++
++/** Detached inventory used by Terra loot functions before the target chunk is finalized. */
++public final class PNXStagedInventory implements Inventory {
++    private final Item[] contents;
++
++    public PNXStagedInventory(int size, BlockEntityInventoryHolder existing) {
++        if (size <= 0) throw new IllegalArgumentException("Inventory size must be positive");
++        this.contents = new Item[size];
++        if (existing != null) {
++            int copySize = Math.min(size, existing.getInventory().getSize());
++            for (int i = 0; i < copySize; i++) {
++                Item item = existing.getInventory().getItem(i);
++                if (item != null && !item.isNull() && item.getCount() > 0) contents[i] = item.clone();
++            }
++        }
++    }
++
++    @Override
++    public void setItem(int slot, ItemStack newStack) {
++        checkSlot(slot);
++        if (newStack == null) {
++            contents[slot] = null;
++            return;
++        }
++        Object handle = newStack.getHandle();
++        if (!(handle instanceof Item item)) {
++            throw new IllegalArgumentException("Terra item stack is not backed by a PNX Item");
++        }
++        contents[slot] = item.clone();
++    }
++
++    @Override public int getSize() { return contents.length; }
++
++    @Override
++    public ItemStack getItem(int slot) {
++        checkSlot(slot);
++        Item item = contents[slot];
++        return item == null || item.isNull() || item.getCount() <= 0 ? null : new PNXItemStack(item.clone());
++    }
++
++    @Override public Object getHandle() { return this; }
++
++    public ListTag<CompoundTag> toNbt() {
++        ListTag<CompoundTag> items = new ListTag<>(Tag.TAG_Compound);
++        for (int slot = 0; slot < contents.length; slot++) {
++            Item item = contents[slot];
++            if (item != null && !item.isNull() && item.getCount() > 0) items.add(ItemHelper.write(item, slot));
++        }
++        return items;
++    }
++
++    private void checkSlot(int slot) {
++        if (slot < 0 || slot >= contents.length) throw new IndexOutOfBoundsException("Inventory slot: " + slot);
++    }
++}
+diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXStagedContainerDelegate.java b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedContainerDelegate.java
+new file mode 100644
+index 0000000..dc85a33
+--- /dev/null
++++ b/src/main/java/org/powernukkitx/terra/delegate/PNXStagedContainerDelegate.java
+@@ -0,0 +1,30 @@
++package org.powernukkitx.terra.delegate;
++
++import com.dfsek.terra.api.block.entity.Container;
++import com.dfsek.terra.api.block.state.BlockState;
++import com.dfsek.terra.api.inventory.Inventory;
++import org.powernukkitx.blockentity.BlockEntityInventoryHolder;
++import org.powernukkitx.nbt.tag.CompoundTag;
++import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
++
++import java.util.function.Consumer;
++
++/** Detached container BlockEntity whose loot inventory is journalled instead of mutating PNX live state. */
++public final class PNXStagedContainerDelegate extends PNXStagedBlockEntityDelegate implements Container {
++    private final PNXStagedInventory inventory;
++
++    public PNXStagedContainerDelegate(int x, int y, int z, String type, BlockState blockState,
++                                      CompoundTag initialNbt, int size, BlockEntityInventoryHolder existing,
++                                      Consumer<BlockEntityIntent> intentSink) {
++        super(x, y, z, type, blockState, initialNbt, intentSink);
++        this.inventory = new PNXStagedInventory(size, existing);
++    }
++
++    @Override public Inventory getInventory() { return inventory; }
++
++    @Override
++    public boolean update(boolean applyPhysics) {
++        nbt.putList("Items", inventory.toNbt());
++        return super.update(applyPhysics);
++    }
++}
