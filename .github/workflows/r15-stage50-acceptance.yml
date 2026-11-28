@@ -3,7 +3,7 @@ name: R15 Stage 50 acceptance suite
 on:
   workflow_dispatch:
   push:
-    branches: [R15, R15-stage50-prep]
+    branches: [R15, R15-stage50-prep, R15-stage49-next]
 
 concurrency:
   group: r15-stage50-acceptance
