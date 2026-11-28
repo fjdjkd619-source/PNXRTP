@@ -23,7 +23,7 @@ fi
 [[ -n "$ADAPTER" ]] || { echo "Missing --adapter directory" >&2; exit 2; }
 [[ -d "$ADAPTER/.git" ]] || { echo "Adapter directory is not a git checkout: $ADAPTER" >&2; exit 2; }
 
-"$ROOT/apply-stages1-44.sh" "$@"
+bash "$ROOT/apply-stages1-44.sh" "$@"
 
 PATCH="$ROOT/patches/45-pnx-level-physics-executor.patch"
 git -C "$ADAPTER" apply --check "$PATCH"
