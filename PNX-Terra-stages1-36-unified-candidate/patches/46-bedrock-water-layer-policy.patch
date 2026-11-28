@@ -17,8 +17,8 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 -import org.powernukkitx.terra.PNXAdapter;
 -import org.powernukkitx.terra.TerraGenerator;
 -import org.powernukkitx.math.BlockVector3;
--import com.dfsek.seismic.type.Rotation;
--import com.dfsek.seismic.type.vector.Vector3Int;
+-import com.dfsek.terra.api.util.Rotation;
+-import com.dfsek.terra.api.util.vector.Vector3Int;
 -import com.dfsek.terra.api.block.entity.BlockEntity;
 -import com.dfsek.terra.api.block.state.BlockState;
 -import com.dfsek.terra.api.config.ConfigPack;
@@ -414,8 +414,8 @@ diff --git a/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java b
 +import org.powernukkitx.terra.PNXAdapter;
 +import org.powernukkitx.terra.TerraGenerator;
 +import org.powernukkitx.math.BlockVector3;
-+import com.dfsek.seismic.type.Rotation;
-+import com.dfsek.seismic.type.vector.Vector3Int;
++import com.dfsek.terra.api.util.Rotation;
++import com.dfsek.terra.api.util.vector.Vector3Int;
 +import com.dfsek.terra.api.block.entity.BlockEntity;
 +import com.dfsek.terra.api.block.state.BlockState;
 +import com.dfsek.terra.api.config.ConfigPack;
