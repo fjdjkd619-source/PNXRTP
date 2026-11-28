@@ -125,3 +125,14 @@ Stage 7 уже вводит `GenerateStage.applyAsync`, меняет pipeline `G
 GitHub Actions [46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903) на commit `0f1d6508b57581d4825e9e4591f163512e3ef69e` завершился SUCCESS: Java 21 compile, platform-neutral suites, PNX delegate/BlockEntity/runtime/entity-spawn contracts, Stage 36 API fixture, shell syntax и patch parsing.
 
 Это устраняет только риск чрезмерного временного выделения памяти при кодировании одной большой placement-записи. **F-04 остаётся открытым в части неограниченного WAL и in-memory индексов:** compaction/checkpoint/retention ещё нет. F-02 также остаётся открытым: Stage 37–42 пока не добавлены в upstream apply chain; этот source-overlay fix не является применённым PNX/Terra upstream patch.
+
+
+## Follow-up: source and patch-chain corrections (R15)
+
+After the initial audit, the Stage 37–42 adapter patch and `apply-stages1-42.sh` were added. GitHub Actions verified that the patch applies to the extracted Stage 36 overlay baseline and that the resulting adapter source and tests byte-match the current R15 overlay.
+
+The PNX patch sequence was then checked against the exact pinned upstream commit `c57499365737654eca32df008751ef6bca5af142`. Stage 18 was rebased on Stage 7; Stage 11 was rebased to the actual LevelDBStorage API and corrected to use `WriteOptions.sync(true)` as a separate call; Stage 36 was rebased against the actual PNX Entity.java after Stage 35. The workflow now applies the PNX sequence Stage 7 → 11 → 18 → 22 → 35 → 36 successfully. Stage 36 verification confirms the staged spawn-event path occurs before chunk and Level registration.
+
+GitHub Actions [46147409727](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46147409727) completed SUCCESS. Java 21 core and contract suites passed; Stage37WalRecoveryTest passed 36 assertions and PlacementJournalEncodingLimitTest passed 6 assertions. This is stronger than the previous synthetic patch-context checks, but it still proves patch applicability and contract tests—not a full PNX Gradle build or live server integration.
+
+Remaining open findings: WAL compaction/checkpointing and retention are absent; PNX/Terra adapter full clean patch application has not been run as one integrated three-repository chain; full Gradle builds, JAR packaging, live generation, restart/replay, and long-soak tests remain outstanding. Physics executor, generic water-layer policy, Terra entity spawn capture, Origen bounds coverage, and complete property aliases remain unresolved. Production gate stays BLOCKED.
