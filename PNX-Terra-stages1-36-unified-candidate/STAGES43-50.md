@@ -74,11 +74,14 @@
 
 ## Stage 48 — Complete structure bounds, state aliases and diagnostics
 
-- Replace the tiny Origen bounds catalog and generic fallback with an audited manifest for every enabled structure/feature script.
-- Validate footprint, vertical range, read/write budgets, cross-chunk reach and entity budgets against actual script behavior.
-- Build a verified Terra↔PNX block/property alias catalog from the pinned registries; reject unknown values with actionable diagnostics.
-- Wrap every relevant Terra/PNX generation entry point in the stage guard and include stage, feature/structure ID, world, chunk and coordinates in diagnostics.
-- Acceptance: no enabled structure relies on an unverified generic envelope; catalog validation and mapping checks pass; failures retain original causes and do not leave partial durable placements.
+**Partial implementation committed in R15; Stage 48 is NOT complete.**
+
+- Changed unknown-script resolution from a permissive generic envelope to a deny-all profile: zero read/write/entity budgets. An unlisted structure now aborts on its first attempted operation instead of silently receiving a guessed footprint.
+- Added enabled-root validation to `BoundsCatalogValidator.validateEnabled(...)`. Release validation can now reject any enabled structure without an audited profile and reject wildcard dependencies in audited profiles.
+- Added `apply-stages1-48.sh` to install the tightened catalog and validator into the pinned adapter after stages 1–47.
+- The existing source audit manifest contains many entries marked `UNKNOWN`; these are deliberately not promoted to verified bounds. Current 15 runtime profiles are not evidence of complete coverage.
+- Still open: certify every enabled root and its transitive scripts from the exact pinned ConfigPack; derive footprints, vertical ranges, budgets, read halos and entity budgets from script behavior; verify Terra↔PNX block/property aliases against both pinned registries; wire world/stage/feature/chunk/coordinate diagnostics through all generation boundaries.
+- Acceptance: the exact enabled-root set has one verified profile per root, no enabled root uses the deny-all fallback, all alias mappings are registry-verified, and diagnostic/rollback integration is complete.
 
 ## Stage 49 — Medieval-fantasy procedural content pack
 
