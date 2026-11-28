@@ -8,7 +8,7 @@
 - ConfigPack commit: `445848bc9f9f28fab1d760f01f9a552d93944681`
 - PowerNukkitX commit: `c57499365737654eca32df008751ef6bca5af142`
 - PNX block registry: `src/main/resources/mappings/blocks.json`
-- Inventory workflow run: [R15 Stage 1–48 patch validation](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46167478936)
+- Inventory workflow run: [R15 Stage 1–48 patch validation](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46167667516)
 - Artifact: `stage48-terra-configpack-inventory`
 
 The previously checked-in `structure-bounds-registry.json` was generated from a different source head (`228426bb192a8d6029952aae1a77008dea5f3cda`) and contained stale paths. It is not used as the source of truth. The Stage 48 workflow now checks out both exact pinned commits, verifies their HEADs, regenerates the inventory and uploads it as an artifact.
