@@ -1,5 +1,5 @@
 name: R15 full Gradle build and JAR artifacts
-# Build rerun after Stage 15 patch separator correction.
+# Rebuild with pinned-base PNX Beta8 compatibility migration.
 
 on:
   push:
