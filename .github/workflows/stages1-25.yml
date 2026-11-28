@@ -1,0 +1,29 @@
+name: Stages 1–25 integration gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - worldgen/stages1-25
+    paths:
+      - 'worldgen/stages1-25/**'
+      - '.github/workflows/stages1-25.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integration-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report current acceptance state
+        shell: bash
+        run: |
+          cat worldgen/stages1-25/STATUS.md
+          if grep -q '^Status: BLOCKED' worldgen/stages1-25/STATUS.md; then
+            echo 'Stages 1–25 are not yet a complete integrated build.'
+            echo 'This workflow intentionally fails the acceptance gate until the full source and upstream builds are integrated.'
+            exit 1
+          fi
+          echo 'Acceptance status is no longer BLOCKED; run the full integration build workflow.'
