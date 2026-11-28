@@ -55,9 +55,9 @@ jobs:
       - name: Configure Gradle dependency cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Apply complete Stage 1–45 patch chain
+      - name: Apply complete Stage 1–46 patch chain
         run: |
-          bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-45.sh \
+          bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-46.sh \
             --pnx "$GITHUB_WORKSPACE/pnx" \
             --terra "$GITHUB_WORKSPACE/terra" \
             --adapter "$GITHUB_WORKSPACE/adapter" \
