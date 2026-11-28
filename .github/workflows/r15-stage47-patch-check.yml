@@ -1,0 +1,62 @@
+name: R15 Stage 1-47 patch validation
+
+on:
+  push:
+    branches: [R15]
+    paths:
+      - "PNX-Terra-stages1-36-unified-candidate/**"
+      - ".github/workflows/r15-stage47-patch-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patch-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: R15
+          path: candidate
+
+      - name: Checkout pinned PowerNukkitX
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: pnx
+
+      - name: Checkout pinned Terra 6.6.1
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/Terra
+          ref: 016961c19c41c2501737599175937ae40699beb1
+          path: terra
+
+      - name: Checkout pinned PNX-Terra adapter
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: adapter
+
+      - name: Validate shell syntax and patch chain 1-47
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
+          bash -n "$CANDIDATE/apply-stages1-47.sh"
+          bash -n "$CANDIDATE/apply-stages1-46.sh"
+          bash -n "$CANDIDATE/apply-stages1-45.sh"
+          PNX_EXPECTED_REF=c57499365737654eca32df008751ef6bca5af142 \
+            bash "$CANDIDATE/apply-stages1-47.sh" \
+              --pnx "$GITHUB_WORKSPACE/pnx" \
+              --terra "$GITHUB_WORKSPACE/terra" \
+              --adapter "$GITHUB_WORKSPACE/adapter" \
+              --pnx-ref c57499365737654eca32df008751ef6bca5af142
+          git -C "$GITHUB_WORKSPACE/pnx" diff --check
+          git -C "$GITHUB_WORKSPACE/terra" diff --check
+          git -C "$GITHUB_WORKSPACE/adapter" diff --check
+          echo "STAGE_1_47_PATCH_CHAIN=PASS"
