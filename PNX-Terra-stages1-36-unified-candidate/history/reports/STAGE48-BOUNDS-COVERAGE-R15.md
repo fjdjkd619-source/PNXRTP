@@ -58,7 +58,7 @@ The inventory scans TerraScript source, feature YAML, structure YAML and palette
 | Dynamic block-state expressions | 12 |
 | Entity/NBT identifiers excluded from block mapping | 5 |
 
-The 223 subset-compatible states omit properties that PNX supplies from the block's default state. The adapter exposes the PNX default through `PNXBlockType.getDefaultState()`; `PNXBlockStateDelegate.set(...)` changes the requested property while retaining the other PNX defaults. The 12 dynamically assembled states still require runtime validation; their property values must be checked by the PNX state setter and must not be silently coerced.
+The 223 subset-compatible states omit properties that PNX supplies from the block's default state. A source-level adapter defect was found and corrected: `PNXBlockStateDelegate.getBlockType()` now obtains `Registries.BLOCK.getBlockProperties(id).getDefaultState()` instead of wrapping the current state, so `PNXBlockType.getDefaultState()` exposes the actual registered default. `PNXBlockStateDelegate.set(...)` then changes the requested property while retaining the other defaults. This correction has not yet been compiled or runtime-tested. The 12 dynamically assembled states still require runtime validation; their property values must be checked by the PNX state setter and must not be silently coerced.
 
 The two existing Terra-facing identifier aliases have now been centralized in `BlockStatePropertyBridge.vanillaDefaults()` and used by `PNXBlockStateDelegate.getAsString(...)`:
 
@@ -74,7 +74,7 @@ The bridge now rejects conflicting identifier/property registrations and has a s
 - Rejection diagnostics include the world key, feature/structure identifiers, chunk anchor and origin coordinates.
 - `BoundsCatalogValidator.validateEnabled(...)` checks enabled roots against the audited catalog and rejects wildcard dependencies.
 - `BlockStatePropertyBridge` now centralizes known identifier aliases, detects conflicting registrations and supports strict PNX identifier validation.
-- `PNXBlockStateDelegate` now uses the centralized alias bridge instead of a hard-coded switch.
+- `PNXBlockStateDelegate` now uses the centralized alias bridge instead of a hard-coded switch, and `getBlockType()` returns the actual PNX registered default state.
 - `apply-stages1-48.sh` installs and compares all Stage 48 overlays after stages 1–47.
 - The Stage 48 workflow checks shell syntax and patch application only, then generates the pinned inventory artifact. It does not run Gradle compilation or tests.
 
