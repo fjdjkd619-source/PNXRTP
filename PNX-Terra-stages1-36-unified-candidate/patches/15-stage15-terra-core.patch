@@ -9,7 +9,7 @@
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
-@@ -114,7 +114,21 @@
+@@ -114,7 +114,24 @@
          return com.dfsek.terra.api.world.PlacementScope.noop();
      }
  
@@ -17,7 +17,11 @@
 +    public PlacementGuardHost.PlacementScope beginPlacement(String featureId, String structureId,
 +                                          com.dfsek.seismic.type.vector.Vector3Int origin,
 +                                          com.dfsek.seismic.type.Rotation rotation) {
-+        if (delegate instanceof PlacementGuardHost host) return host.beginPlacement(featureId, structureId, origin, rotation);
++        if (delegate instanceof PlacementGuardHost host) {
++            var absoluteOrigin = com.dfsek.seismic.type.vector.Vector3Int.of(
++                    origin.getX() + offsetX, origin.getY() + offsetY, origin.getZ() + offsetZ);
++            return host.beginPlacement(featureId, structureId, absoluteOrigin, rotation);
++        }
 +        return PlacementGuardHost.PlacementScope.rejected();
 +    }
  
