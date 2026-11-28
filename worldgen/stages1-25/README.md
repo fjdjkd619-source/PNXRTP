@@ -1,10 +1,10 @@
 # PNX–Terra World Generation — stages 1–25
 
-This branch is reserved for the unified world-generation project. It is isolated from `main`; no production server or world is modified.
+This branch is reserved for the unified procedural world-generation project. It is isolated from `main`; no production server or world is modified.
 
 ## Current gate: BLOCKED
 
-The current recovered source candidate is an audit/overlay, not yet a complete Gradle project. The independent Java 21 core tests pass (11 suites × 10 rounds in the latest rerun). Full upstream build attempts have been made but failed: pinned PNX source has a Bedrock Protocol snapshot API mismatch; pinned PNX-Terra resolves a Java 25 nightly artifact while targeting Java 21; pinned Terra's multi-platform build failed in an Architectury Loom access-widener task with ClosedFileSystemException. A separate PNX API 3.0.6 successor experiment built and published the server API, but the adapter then failed dependency resolution because of legacy OpenCollab repository endpoints. The CI workflow has been corrected to canonical OpenCollab Maven endpoints and a fresh run was triggered, but its result is not yet confirmed. No integrated JAR exists.
+The current r5 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. The core and narrow contract tests pass, but full patch application, full adapter compilation, and runtime certification remain outstanding.
 
 ## Pinned upstream revisions
 
@@ -12,18 +12,46 @@ The current recovered source candidate is an audit/overlay, not yet a complete G
 - Terra: `05ddc8b8a66e17412670647cce78ef837b091256`
 - PNX-Terra: `74318b4a1eae95322550f12d5eb8a76d92a93731`
 - Origen: `228426bb192a8d6029952aae1a77008dea5f3cda`
-- Java: 21
+- Java compile target: 21
 
-## Required acceptance criteria
+## Candidate r5
 
-1. Reconstruct stages 1–25 from the preserved source archives and patches.
-2. Apply the full patch chain to clean checkouts of the pinned upstream repositories.
-3. Resolve every compile/API conflict.
-4. Implement and connect durable chunk persistence, deterministic placement identity, block mapping, Block Entity/NBT, physics, WaterLayerPolicy, diagnostics, and safe Origen bounds.
-5. Run all three upstream Gradle builds and produce the integrated artifact.
-6. Run integration/recovery/persistence and load tests.
-7. Only when every required check passes may this branch be marked ready for stages 26–34.
+The latest recovered candidate contains 38 Java source files, 11 core test classes, 17 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
+
+The latest archive is retained in the persistent Library backup folder:
+`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r5.zip`
+
+SHA-256:
+`b3b5aed92678ffb37666036effef508077a873c22da7642a8dce0330233c475b`
+
+The archive is a source overlay only. It is not an installable JAR.
+
+## Verified baseline results
+
+- Terra 6.6.1-BETA pinned build: PASS.
+- PNX 3.0.6 successor plus unmodified PNX-Terra 1.0.0 baseline build: PASS.
+- Original PNX `c574993` baseline: blocked by Protocol Beta7 camera API symbols.
+- The successful successor build did not include the stages 1–25 overlay.
+
+## Latest Stage 22 groundwork
+
+Added to this branch:
+- `source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityNbtCodec.java`
+- `source/org/powernukkitx/terra/crosschunk/runtime/PnxLevelExecutor.java`
+- `patches/22-stage22-be-nbt-codec-and-level-executor.patch`
+- `validation/PNX-BE-CONTRACT-2026-11-28-R5.txt`
+
+The codec follows the pinned PNX LevelDB chunk serializer's little-endian NBT format. The executor queues work through the owning Level scheduler. Both pass a narrow Java 21 contract-stub test, but are not yet wired into finalization; full upstream dependency compilation and runtime tests remain pending.
+
+## Required completion gates
+
+1. Apply the full active patch chain to clean upstream checkouts and resolve all patch/API conflicts.
+2. Build modified Terra, PNX and PNX-Terra together.
+3. Compile the full adapter against the actual pinned APIs.
+4. Finish transactional BlockEntity creation/update, entity intents, physics execution, water mapping, property aliases, diagnostics, and complete Origen bounds.
+5. Run end-to-end generation, crash/restart/replay, persistence, lighting, cross-chunk and load tests.
+6. Produce and verify the integrated stages 1–25 JAR.
 
 ## Safety
 
-Do not deploy this branch to the production server. The existing world must remain untouched until separately authorized.
+Do not deploy this branch to the production server. The existing world remains untouched. Do not start stages 26–34 before stages 1–25 pass their full acceptance gates.
