@@ -85,8 +85,9 @@ apply_patch "$ADAPTER" "$PATCH/22-stage22-be-intent-applier-integration.patch"
 apply_patch "$ADAPTER" "$PATCH/22-stage22-be-finalizer-wiring.patch"
 apply_patch "$ADAPTER" "$PATCH/22-stage22-terra-block-entity-capture.patch"
 
-# Stage 26: deterministic per-anchor root-placement ordinals for replay-safe identity.
-apply_patch "$ADAPTER" "$PATCH/26-stage26-deterministic-placement-ordinal.patch"
+# Stage 26 deterministic per-anchor ordinals are already included in the reviewed
+# supplemental hardening patch above (scheduler ticket + PlacementKey + recovery tests).
+# The standalone Stage 26 patch is retained for history and must not be applied twice.
 
 for dir in "$PNX" "$TERRA" "$ADAPTER"; do
   git -C "$dir" diff --check
