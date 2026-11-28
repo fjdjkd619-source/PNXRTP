@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-"$ROOT/apply-stages1-34.sh" "$@"
+bash "$ROOT/apply-stages1-34.sh" "$@"
 PNX=""; ADAPTER=""; PNX_REF="${PNX_EXPECTED_REF:-c57499365737654eca32df008751ef6bca5af142}"
 while (($#)); do
   case "$1" in
