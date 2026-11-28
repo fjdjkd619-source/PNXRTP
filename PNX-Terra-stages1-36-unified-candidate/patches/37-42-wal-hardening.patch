@@ -1,0 +1,658 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java
+@@ -14,7 +14,8 @@
+ import static java.nio.file.StandardOpenOption.*;
+ 
+ /**
+- * Append-only, fsync-before-return WAL. Invalid/torn tail is truncated to the last verified frame.
++ * Append-only, fsync-before-return WAL. Only a provably incomplete final frame is truncated;
++ * complete-frame corruption fails closed and preserves the original journal.
+  * Frame: magic, payload length, payload, CRC32C(payload). All values are explicit and versioned.
+  */
+ public final class PlacementJournal implements AutoCloseable {
+@@ -36,7 +37,15 @@
+     private final Set<AnchorId> completedAnchors = new HashSet<>();
+     private final Set<AnchorId> startedAnchors = new HashSet<>();
+     private final Map<ChunkId, String> appliedDigests = new HashMap<>();
++    private final Map<String, Long> placementSequences = new HashMap<>();
++    private final Map<AnchorId, Long> startedAnchorSequences = new HashMap<>();
++    private final Map<AnchorId, Long> completedAnchorSequences = new HashMap<>();
++    private final Map<ChunkId, Long> appliedSequences = new HashMap<>();
+     private long nextSequence = 1;
++    private long recoveryDurationNanos;
++    private long recoveredTailBytes;
++    private boolean closed;
++    private boolean poisoned;
+ 
+     public PlacementJournal(Path path) throws IOException {
+         this.path = Objects.requireNonNull(path, "path");
+@@ -78,6 +87,7 @@
+             appendFrame(payload); // durable before visible in memory / return
+             events.add(new JournalEvent.PlacementCommitted(sequence, record));
+             placements.put(id, record);
++            placementSequences.put(id, sequence);
+             record.entitySpawns().forEach(spawn -> entitySpawnOwners.put(spawn.stableUuid(), id));
+             indexPlacement(record);
+             nextSequence++;
+@@ -100,7 +110,7 @@
+             }
+             appendFrame(bytes.toByteArray());
+             events.add(new JournalEvent.AnchorStarted(sequence, worldKey, anchor));
+-            startedAnchors.add(id); nextSequence++;
++            startedAnchors.add(id); startedAnchorSequences.put(id, sequence); nextSequence++;
+             return sequence;
+         } finally { lock.unlock(); }
+     }
+@@ -124,7 +134,7 @@
+             }
+             appendFrame(bytes.toByteArray());
+             events.add(new JournalEvent.ChunkApplied(sequence, worldKey, target, digest));
+-            appliedDigests.put(id, digest); nextSequence++;
++            appliedDigests.put(id, digest); appliedSequences.put(id, sequence); nextSequence++;
+             return sequence;
+         } finally { lock.unlock(); }
+     }
+@@ -162,7 +172,9 @@
+             }
+             appendFrame(bytes.toByteArray());
+             events.add(new JournalEvent.AnchorCompleted(sequence, worldKey, anchor));
+-            completedAnchors.add(id); nextSequence++;
++            startedAnchors.add(id);
++            startedAnchorSequences.putIfAbsent(id, sequence);
++            completedAnchors.add(id); completedAnchorSequences.put(id, sequence); nextSequence++;
+             return sequence;
+         } finally { lock.unlock(); }
+     }
+@@ -204,65 +216,171 @@
+     public Path path() { return path; }
+ 
+     private void appendFrame(byte[] payload) throws IOException {
++        ensureOpen();
+         if (payload.length > MAX_FRAME) throw new IOException("Journal frame exceeds maximum size");
+         CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
+-        ByteBuffer frame = ByteBuffer.allocate(HEADER_BYTES + payload.length + TRAILER_BYTES);
+-        frame.putInt(MAGIC).putInt(payload.length).put(payload).putInt((int) crc.getValue()).flip();
++        ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
++        header.putInt(MAGIC).putInt(payload.length).flip();
++        ByteBuffer body = ByteBuffer.wrap(payload);
++        ByteBuffer trailer = ByteBuffer.allocate(TRAILER_BYTES);
++        trailer.putInt((int) crc.getValue()).flip();
+         long start = channel.size();
+         channel.position(start);
+         try {
+-            while (frame.hasRemaining()) channel.write(frame);
++            // Write the existing payload array directly. Allocating one combined frame buffer
++            // duplicated up to MAX_FRAME bytes for every concurrent append.
++            while (header.hasRemaining()) channel.write(header);
++            while (body.hasRemaining()) channel.write(body);
++            while (trailer.hasRemaining()) channel.write(trailer);
+             channel.force(true);
+         } catch (IOException failure) {
+-            channel.truncate(start);
+-            channel.force(true);
++            try {
++                channel.truncate(start);
++                channel.force(true);
++            } catch (IOException rollbackFailure) {
++                poisoned = true;
++                failure.addSuppressed(rollbackFailure);
++            }
+             throw failure;
+         }
+     }
+ 
++    /** Only a provably incomplete final write may be truncated; complete corruption fails closed. */
+     private void recover() throws IOException {
+         lock.lock();
++        long startedAt = System.nanoTime();
+         try {
+             long size = channel.size(), offset = 0, validEnd = 0;
++            boolean incompleteTail = false;
+             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
+-            while (offset + HEADER_BYTES + TRAILER_BYTES <= size) {
+-                header.clear(); if (!readFully(channel, header, offset)) break; header.flip();
++            while (offset < size) {
++                long remaining = size - offset;
++                if (remaining < HEADER_BYTES) {
++                    if (isPartialMagicPrefix(offset, (int) remaining)) {
++                        incompleteTail = true;
++                        break;
++                    }
++                    throw corruption(offset, "incomplete bytes do not match frame magic");
++                }
++                header.clear();
++                if (!readFully(channel, header, offset)) throw corruption(offset, "incomplete frame header");
++                header.flip();
+                 int magic = header.getInt(), length = header.getInt();
+-                if (magic != MAGIC || length < 10 || length > MAX_FRAME
+-                        || offset + HEADER_BYTES + (long) length + TRAILER_BYTES > size) break;
+-                ByteBuffer body = ByteBuffer.allocate(length + TRAILER_BYTES);
+-                if (!readFully(channel, body, offset + HEADER_BYTES)) break;
+-                body.flip(); byte[] payload = new byte[length]; body.get(payload); int storedCrc = body.getInt();
+-                CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
+-                if ((int) crc.getValue() != storedCrc) break;
++                if (magic != MAGIC) throw corruption(offset, "invalid frame magic");
++                if (length < 10 || length > MAX_FRAME) throw corruption(offset, "invalid complete frame length " + length);
++                long frameBytes = HEADER_BYTES + (long) length + TRAILER_BYTES;
++                if (frameBytes > remaining) {
++                    incompleteTail = true;
++                    break;
++                }
++                byte[] payload = new byte[length];
++                if (!readFully(channel, ByteBuffer.wrap(payload), offset + HEADER_BYTES))
++                    throw corruption(offset, "could not read complete payload");
++                ByteBuffer crcBuffer = ByteBuffer.allocate(TRAILER_BYTES);
++                if (!readFully(channel, crcBuffer, offset + HEADER_BYTES + (long) length))
++                    throw corruption(offset, "could not read complete checksum");
++                crcBuffer.flip();
++                CRC32C crc = new CRC32C();
++                crc.update(payload, 0, payload.length);
++                if ((int) crc.getValue() != crcBuffer.getInt())
++                    throw corruption(offset, "CRC32C mismatch in complete frame");
+                 JournalEvent event;
+-                try { event = decode(payload); } catch (RuntimeException | IOException malformed) { break; }
+-                if (eventSequence(event) != nextSequence) break;
+-                acceptRecovered(event); nextSequence++;
+-                offset += HEADER_BYTES + (long) length + TRAILER_BYTES; validEnd = offset;
++                try { event = decode(payload); }
++                catch (RuntimeException | IOException malformed) {
++                    throw new IOException("Corrupt complete WAL event at offset " + offset, malformed);
++                }
++                if (eventSequence(event) != nextSequence)
++                    throw corruption(offset, "unexpected sequence " + eventSequence(event) + ", expected " + nextSequence);
++                acceptRecovered(event);
++                nextSequence++;
++                offset += frameBytes;
++                validEnd = offset;
+             }
+-            if (validEnd != size) { channel.truncate(validEnd); channel.force(true); }
+-        } finally { lock.unlock(); }
++            if (incompleteTail) {
++                recoveredTailBytes = size - validEnd;
++                preserveTornTail(validEnd, size);
++                channel.truncate(validEnd);
++                channel.force(true);
++            } else if (validEnd != size) {
++                throw corruption(validEnd, "unclassified trailing bytes");
++            }
++        } finally {
++            recoveryDurationNanos = System.nanoTime() - startedAt;
++            lock.unlock();
++        }
+     }
+ 
++    private boolean isPartialMagicPrefix(long offset, int length) throws IOException {
++        if (length < 1 || length >= HEADER_BYTES) return false;
++        ByteBuffer prefix = ByteBuffer.allocate(length);
++        if (!readFully(channel, prefix, offset)) return false;
++        prefix.flip();
++        int magicBytes = Math.min(length, Integer.BYTES);
++        for (int i = 0; i < magicBytes; i++) {
++            int expected = (MAGIC >>> (24 - i * 8)) & 0xff;
++            if ((prefix.get() & 0xff) != expected) return false;
++        }
++        return true;
++    }
++
++    private IOException corruption(long offset, String reason) {
++        return new IOException("Placement WAL corruption at offset " + offset + ": " + reason
++                + "; original WAL left untouched: " + path);
++    }
++
++    private void preserveTornTail(long start, long end) throws IOException {
++        String base = path.getFileName() + ".torn-" + start;
++        IOException collision = null;
++        for (int suffix = 0; suffix < 10_000; suffix++) {
++            Path evidence = path.resolveSibling(suffix == 0 ? base : base + "-" + suffix);
++            try (FileChannel output = FileChannel.open(evidence, CREATE_NEW, WRITE)) {
++                long position = start;
++                ByteBuffer buffer = ByteBuffer.allocate(64 * 1024);
++                while (position < end) {
++                    buffer.clear();
++                    buffer.limit((int) Math.min(buffer.capacity(), end - position));
++                    int n = channel.read(buffer, position);
++                    if (n < 0) throw new EOFException("WAL shortened while preserving tail");
++                    if (n == 0) { Thread.onSpinWait(); continue; }
++                    buffer.flip();
++                    while (buffer.hasRemaining()) output.write(buffer);
++                    position += n;
++                }
++                output.force(true);
++                return;
++            } catch (FileAlreadyExistsException exists) {
++                collision = new IOException("Evidence file already exists: " + evidence, exists);
++            }
++        }
++        throw new IOException("Unable to create collision-safe torn-tail evidence", collision);
++    }
++
+     private void acceptRecovered(JournalEvent event) throws IOException {
+         if (event instanceof JournalEvent.PlacementCommitted p) {
+             String id = p.record().key().stableId();
+             PlacementRecord previous = placements.putIfAbsent(id, p.record());
+-            if (previous != null && !sameRecord(previous, p.record())) throw new IOException("Duplicate placement key collision in WAL");
++            if (previous != null && !sameRecord(previous, p.record()))
++                throw new IOException("Duplicate placement key collision in WAL");
+             if (previous == null) {
+                 validateEntitySpawnOwnership(id, p.record());
+                 p.record().entitySpawns().forEach(spawn -> entitySpawnOwners.put(spawn.stableUuid(), id));
+                 indexPlacement(p.record());
+             }
++            placementSequences.putIfAbsent(id, p.sequence());
+         } else if (event instanceof JournalEvent.AnchorStarted a) {
+-            startedAnchors.add(new AnchorId(a.worldKey(), a.anchor()));
++            AnchorId id = new AnchorId(a.worldKey(), a.anchor());
++            startedAnchors.add(id);
++            startedAnchorSequences.putIfAbsent(id, a.sequence());
+         } else if (event instanceof JournalEvent.AnchorCompleted a) {
+             AnchorId id = new AnchorId(a.worldKey(), a.anchor());
+             startedAnchors.add(id);
++            startedAnchorSequences.putIfAbsent(id, a.sequence());
+             completedAnchors.add(id);
++            completedAnchorSequences.putIfAbsent(id, a.sequence());
+         } else if (event instanceof JournalEvent.ChunkApplied a) {
+-            appliedDigests.put(new ChunkId(a.worldKey(), a.target()), a.digest());
++            ChunkId id = new ChunkId(a.worldKey(), a.target());
++            appliedDigests.put(id, a.digest());
++            appliedSequences.put(id, a.sequence());
+         }
+         events.add(event);
+     }
+@@ -329,9 +447,47 @@
+         }
+     }
+ 
++    /**
++     * Caps serialized payload growth while encoding. The previous implementation built the
++     * entire placement in an unbounded ByteArrayOutputStream and checked MAX_FRAME only after
++     * allocation, allowing a single oversized placement to exhaust heap before rejection.
++     */
++    static final class BoundedOutputStream extends OutputStream {
++        private final OutputStream delegate;
++        private final long maximumBytes;
++        private long writtenBytes;
++
++        BoundedOutputStream(OutputStream delegate, long maximumBytes) {
++            this.delegate = Objects.requireNonNull(delegate, "delegate");
++            if (maximumBytes < 0) throw new IllegalArgumentException("maximumBytes must be non-negative");
++            this.maximumBytes = maximumBytes;
++        }
++
++        @Override public void write(int value) throws IOException {
++            reserve(1);
++            delegate.write(value);
++        }
++
++        @Override public void write(byte[] bytes, int offset, int length) throws IOException {
++            Objects.checkFromIndexSize(offset, length, bytes.length);
++            reserve(length);
++            delegate.write(bytes, offset, length);
++        }
++
++        @Override public void flush() throws IOException { delegate.flush(); }
++        @Override public void close() throws IOException { delegate.close(); }
++
++        private void reserve(int length) throws IOException {
++            if (length > maximumBytes - writtenBytes)
++                throw new IOException("Journal frame exceeds maximum size while encoding (limit "
++                        + maximumBytes + " bytes)");
++            writtenBytes += length;
++        }
++    }
++
+     private static byte[] encodePlacement(long seq, PlacementRecord record) throws IOException {
+         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+-        try (DataOutputStream out = new DataOutputStream(bytes)) {
++        try (DataOutputStream out = new DataOutputStream(new BoundedOutputStream(bytes, MAX_FRAME))) {
+             PlacementKey k=record.key(); out.writeByte(VERSION); out.writeByte(PLACEMENT); out.writeLong(seq);
+             writeString(out,k.worldKey()); out.writeLong(k.worldSeed()); out.writeInt(k.anchor().x()); out.writeInt(k.anchor().z());
+             writeString(out,k.featureId()); writeString(out,k.structureId());
+@@ -378,12 +534,53 @@
+         if(e instanceof JournalEvent.AnchorCompleted a)return a.sequence();
+         return ((JournalEvent.ChunkApplied)e).sequence();
+     }
+-    private long sequenceOfPlacement(String id){return events.stream().filter(e->e instanceof JournalEvent.PlacementCommitted p&&p.record().key().stableId().equals(id)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+-    private long sequenceOfAnchor(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorCompleted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+-    private long sequenceOfAnchorStarted(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorStarted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+-    private long sequenceOfApplied(ChunkId id,String digest){return events.stream().filter(e->e instanceof JournalEvent.ChunkApplied a&&a.worldKey().equals(id.worldKey)&&a.target().equals(id.target)&&a.digest().equals(digest)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
++    private long sequenceOfPlacement(String id){return requiredSequence(placementSequences.get(id), "placement", id);}
++    private long sequenceOfAnchor(AnchorId id){return requiredSequence(completedAnchorSequences.get(id), "completed anchor", id);}
++    private long sequenceOfAnchorStarted(AnchorId id){return requiredSequence(startedAnchorSequences.get(id), "started anchor", id);}
++    private long sequenceOfApplied(ChunkId id,String digest){
++        if (!digest.equals(appliedDigests.get(id))) throw new IllegalStateException("Applied digest index mismatch: " + id);
++        return requiredSequence(appliedSequences.get(id), "applied chunk", id);
++    }
++    private static long requiredSequence(Long sequence, String kind, Object id) {
++        if (sequence == null) throw new IllegalStateException("Missing " + kind + " sequence index: " + id);
++        return sequence;
++    }
+     private static boolean sameRecord(PlacementRecord a,PlacementRecord b){return a.key().equals(b.key())&&a.writes().equals(b.writes())&&a.blockEntities().equals(b.blockEntities())&&a.physics().equals(b.physics())&&a.entitySpawns().equals(b.entitySpawns());}
+     private record AnchorId(String worldKey,ChunkPos anchor){}
+     private record ChunkId(String worldKey,ChunkPos target){}
+-    @Override public void close() throws IOException { lock.lock();try{channel.force(true);processLock.release();channel.close();}finally{lock.unlock();} }
++    @Override public void close() throws IOException {
++        lock.lock();
++        try {
++            if (closed) return;
++            closed = true;
++            IOException failure = null;
++            try { channel.force(true); } catch (IOException e) { failure = e; }
++            try { processLock.release(); } catch (IOException e) {
++                if (failure == null) failure = e; else failure.addSuppressed(e);
++            }
++            try { channel.close(); } catch (IOException e) {
++                if (failure == null) failure = e; else failure.addSuppressed(e);
++            }
++            if (failure != null) throw failure;
++        } finally { lock.unlock(); }
++    }
++
++    private void ensureOpen() throws IOException {
++        if (closed || !channel.isOpen()) throw new IOException("Placement journal is closed: " + path);
++        if (poisoned) throw new IOException("Placement journal is poisoned after a failed append rollback: " + path);
++    }
++
++    public JournalStats stats() throws IOException {
++        lock.lock();
++        try {
++            return new JournalStats(channel.size(), events.size(), placements.size(), startedAnchors.size(),
++                    completedAnchors.size(), appliedDigests.size(), nextSequence - 1,
++                    recoveryDurationNanos, recoveredTailBytes);
++        } finally { lock.unlock(); }
++    }
++
++    public record JournalStats(long walBytes, long eventCount, long placementCount,
++                               long startedAnchorCount, long completedAnchorCount,
++                               long appliedChunkCount, long lastSequence,
++                               long recoveryDurationNanos, long recoveredTailBytes) { }
+ }
+
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage16JournalTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage16JournalTest.java
+--- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage16JournalTest.java
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage16JournalTest.java
+@@ -31,7 +31,7 @@
+             journal.appendAnchorCompleted("world",new ChunkPos(0,0));
+         }
+         long goodSize=Files.size(wal);
+-        Files.write(wal,new byte[]{1,2,3,4,5},StandardOpenOption.APPEND);
++        Files.write(wal,new byte[]{0x50,0x58,0x4A},StandardOpenOption.APPEND);
+         try(PlacementJournal recovered=new PlacementJournal(wal)){
+             check(recovered.events().size()==3,"replay valid records");
+             check(recovered.isAnchorCompleted("world",new ChunkPos(0,0)),"replay completion marker");
+@@ -40,7 +40,12 @@
+         Path corrupt=dir.resolve("corrupt.wal");
+         try(PlacementJournal j=new PlacementJournal(corrupt)){j.appendPlacement(a);}
+         byte[] bytes=Files.readAllBytes(corrupt);bytes[bytes.length-1]^=0x44;Files.write(corrupt,bytes);
+-        try(PlacementJournal j=new PlacementJournal(corrupt)){check(j.events().isEmpty(),"CRC failure truncates invalid tail");}
++        byte[] damaged=Files.readAllBytes(corrupt);
++        boolean crcRejected=false;
++        try(PlacementJournal ignored=new PlacementJournal(corrupt)){ ignored.events(); }
++        catch(java.io.IOException expected){crcRejected=true;}
++        check(crcRejected,"complete final frame with bad CRC fails closed");
++        check(Arrays.equals(damaged,Files.readAllBytes(corrupt)),"bad-CRC WAL remains byte-for-byte unchanged");
+         check(ChunkPos.fromBlock(-1,-17).equals(new ChunkPos(-1,-2)),"negative block-to-chunk mapping");
+ 
+         Path concurrentWal=dir.resolve("concurrent.wal");
+
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage37WalRecoveryTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage37WalRecoveryTest.java
+new file mode 100644
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage37WalRecoveryTest.java
+@@ -0,0 +1,195 @@
++package org.powernukkitx.terra.crosschunk;
++
++import org.powernukkitx.terra.crosschunk.journal.*;
++
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardOpenOption;
++import java.util.Arrays;
++import java.util.List;
++import java.util.zip.CRC32C;
++
++public final class Stage37WalRecoveryTest {
++    private static int assertions;
++
++    public static void main(String[] args) throws Exception {
++        Path directory = Files.createTempDirectory("stage37-wal-");
++        Path payloadCorrupt = directory.resolve("payload.wal");
++        createJournal(payloadCorrupt);
++        byte[] payloadBytes = Files.readAllBytes(payloadCorrupt);
++        payloadBytes[payloadBytes.length - 5] ^= 0x20;
++        Files.write(payloadCorrupt, payloadBytes);
++        assertRejectedUnchanged(payloadCorrupt, "complete final frame with damaged payload");
++
++        Path crcCorrupt = directory.resolve("crc.wal");
++        createJournal(crcCorrupt);
++        byte[] crcBytes = Files.readAllBytes(crcCorrupt);
++        crcBytes[crcBytes.length - 1] ^= 0x01;
++        Files.write(crcCorrupt, crcBytes);
++        assertRejectedUnchanged(crcCorrupt, "complete final frame with damaged CRC");
++
++        Path badMagic = directory.resolve("magic.wal");
++        createJournal(badMagic);
++        byte[] magicBytes = Files.readAllBytes(badMagic);
++        magicBytes[0] ^= 0x01;
++        Files.write(badMagic, magicBytes);
++        assertRejectedUnchanged(badMagic, "complete frame with invalid magic");
++
++        Path shortLength = directory.resolve("short-length.wal");
++        createJournal(shortLength);
++        byte[] shortLengthBytes = Files.readAllBytes(shortLength);
++        ByteBuffer.wrap(shortLengthBytes).order(ByteOrder.BIG_ENDIAN).putInt(4, 9);
++        Files.write(shortLength, shortLengthBytes);
++        assertRejectedUnchanged(shortLength, "complete frame with undersized payload length");
++
++        Path oversizedLength = directory.resolve("oversized-length.wal");
++        createJournal(oversizedLength);
++        byte[] oversizedLengthBytes = Files.readAllBytes(oversizedLength);
++        ByteBuffer.wrap(oversizedLengthBytes).order(ByteOrder.BIG_ENDIAN).putInt(4, 64 * 1024 * 1024 + 1);
++        Files.write(oversizedLength, oversizedLengthBytes);
++        assertRejectedUnchanged(oversizedLength, "complete frame with oversized payload length");
++
++        Path malformedPayload = directory.resolve("malformed-payload.wal");
++        createJournal(malformedPayload);
++        byte[] malformedPayloadBytes = Files.readAllBytes(malformedPayload);
++        malformedPayloadBytes[8] = (byte) 0x7f; // unsupported journal version, valid checksum
++        rewriteChecksum(malformedPayloadBytes);
++        Files.write(malformedPayload, malformedPayloadBytes);
++        assertRejectedUnchanged(malformedPayload, "complete frame with malformed event payload");
++
++        Path sequenceGap = directory.resolve("sequence-gap.wal");
++        createJournal(sequenceGap);
++        byte[] sequenceGapBytes = Files.readAllBytes(sequenceGap);
++        ByteBuffer.wrap(sequenceGapBytes).order(ByteOrder.BIG_ENDIAN).putLong(10, 2L);
++        rewriteChecksum(sequenceGapBytes);
++        Files.write(sequenceGap, sequenceGapBytes);
++        assertRejectedUnchanged(sequenceGap, "complete frame with a sequence gap");
++
++        Path torn = directory.resolve("torn.wal");
++        createJournal(torn);
++        long validSize = Files.size(torn);
++        byte[] partialFrame = ByteBuffer.allocate(10).order(ByteOrder.BIG_ENDIAN)
++                .putInt(0x50584A31).putInt(128).put((byte) 0x01).put((byte) 0x04).array();
++        Files.write(torn, partialFrame, StandardOpenOption.APPEND);
++        try (PlacementJournal recovered = new PlacementJournal(torn)) {
++            check(Files.size(torn) == validSize, "provably incomplete final frame is truncated");
++            check(recovered.events().size() == 1, "valid frame prefix is retained");
++            check(recovered.stats().recoveredTailBytes() == partialFrame.length, "recovery reports truncated tail bytes");
++        }
++        Path evidence = directory.resolve("torn.wal.torn-" + validSize);
++        check(Files.size(evidence) == partialFrame.length, "torn suffix is preserved as evidence");
++        check(Arrays.equals(Files.readAllBytes(evidence), partialFrame), "evidence contains exact discarded suffix");
++
++        Path collision = directory.resolve("collision.wal");
++        createJournal(collision);
++        long collisionOffset = Files.size(collision);
++        Path existingEvidence = directory.resolve("collision.wal.torn-" + collisionOffset);
++        byte[] marker = new byte[]{9, 8, 7};
++        Files.write(existingEvidence, marker);
++        Files.write(collision, new byte[]{0x50, 0x58, 0x4A}, StandardOpenOption.APPEND);
++        try (PlacementJournal recovered = new PlacementJournal(collision)) {
++            check(recovered.events().size() == 1, "partial magic prefix recovers valid prefix");
++        }
++        check(Arrays.equals(Files.readAllBytes(existingEvidence), marker), "existing evidence is never overwritten");
++        check(Files.exists(directory.resolve("collision.wal.torn-" + collisionOffset + "-1")),
++                "evidence collision receives a unique suffix");
++
++        Path partialHeader = directory.resolve("partial-header.wal");
++        createJournal(partialHeader);
++        long partialHeaderValidSize = Files.size(partialHeader);
++        Files.write(partialHeader, new byte[]{0x50, 0x58, 0x4A, 0x31, 0x00, 0x00}, StandardOpenOption.APPEND);
++        try (PlacementJournal recovered = new PlacementJournal(partialHeader)) {
++            check(recovered.events().size() == 1, "matching partial frame header recovers valid prefix");
++            check(Files.size(partialHeader) == partialHeaderValidSize, "partial header bytes are truncated");
++        }
++
++        Path garbage = directory.resolve("garbage.wal");
++        createJournal(garbage);
++        Files.write(garbage, new byte[]{0x11, 0x22, 0x33, 0x44}, StandardOpenOption.APPEND);
++        assertRejectedUnchanged(garbage, "unrecognized trailing bytes");
++
++        Path indexes = directory.resolve("indexes.wal");
++        PlacementRecord record = sampleRecord();
++        long placementSequence;
++        try (PlacementJournal journal = new PlacementJournal(indexes)) {
++            placementSequence = journal.appendPlacement(record);
++            journal.appendAnchorStarted("world", new ChunkPos(0, 0));
++            journal.appendAnchorCompleted("world", new ChunkPos(0, 0));
++            ChunkPos target = new ChunkPos(0, 0);
++            String digest = PlacementDigest.compute(journal.placementsFor(target), target);
++            journal.appendChunkApplied("world", target, digest);
++        }
++        try (PlacementJournal reopened = new PlacementJournal(indexes)) {
++            check(reopened.appendPlacement(record) == placementSequence, "placement sequence index survives recovery");
++            check(reopened.appendAnchorStarted("world", new ChunkPos(0, 0)) == 2L,
++                    "anchor-start sequence index survives recovery");
++            check(reopened.appendAnchorCompleted("world", new ChunkPos(0, 0)) == 3L,
++                    "anchor-complete sequence index survives recovery");
++            ChunkPos target = new ChunkPos(0, 0);
++            String digest = PlacementDigest.compute(reopened.placementsFor(target), target);
++            check(reopened.appendChunkApplied("world", target, digest) == 4L,
++                    "applied-chunk sequence index survives recovery");
++            JournalStatsCheck.check(reopened.stats());
++        }
++
++        Path closed = directory.resolve("closed.wal");
++        PlacementJournal journal = new PlacementJournal(closed);
++        journal.close();
++        journal.close();
++        boolean appendRejected = false;
++        try { journal.appendPlacement(sampleRecord()); }
++        catch (IOException expected) { appendRejected = true; }
++        check(appendRejected, "append after close is rejected");
++        System.out.println("Stage37WalRecoveryTest: PASS (" + assertions + " assertions)");
++    }
++
++    private static void createJournal(Path path) throws Exception {
++        try (PlacementJournal journal = new PlacementJournal(path)) {
++            journal.appendPlacement(sampleRecord());
++        }
++    }
++
++    private static PlacementRecord sampleRecord() {
++        PlacementKey key = new PlacementKey("world", 123L, new ChunkPos(0, 0),
++                "stage37-test", "test:stone", 1, 64, 1, 0, 0);
++        return new PlacementRecord(key, List.of(new BlockWrite(1, 64, 1, 0, new byte[]{1, 2, 3, 4})));
++    }
++
++    private static void rewriteChecksum(byte[] frame) {
++        ByteBuffer header = ByteBuffer.wrap(frame).order(ByteOrder.BIG_ENDIAN);
++        int payloadLength = header.getInt(4);
++        CRC32C crc = new CRC32C();
++        crc.update(frame, 8, payloadLength);
++        header.putInt(8 + payloadLength, (int) crc.getValue());
++    }
++
++    private static void assertRejectedUnchanged(Path path, String label) throws Exception {
++        byte[] before = Files.readAllBytes(path);
++        boolean rejected = false;
++        try (PlacementJournal ignored = new PlacementJournal(path)) {
++            ignored.events();
++        } catch (IOException expected) {
++            rejected = true;
++        }
++        check(rejected, label + " is rejected");
++        check(Arrays.equals(before, Files.readAllBytes(path)), label + " leaves WAL byte-for-byte unchanged");
++    }
++
++    private static void check(boolean value, String message) {
++        assertions++;
++        if (!value) throw new AssertionError(message);
++    }
++
++    private static final class JournalStatsCheck {
++        private static void check(PlacementJournal.JournalStats stats) {
++            Stage37WalRecoveryTest.check(stats.eventCount() == 4L, "journal stats report event count");
++            Stage37WalRecoveryTest.check(stats.placementCount() == 1L, "journal stats report placement count");
++            Stage37WalRecoveryTest.check(stats.lastSequence() == 4L, "journal stats report last sequence");
++            Stage37WalRecoveryTest.check(stats.walBytes() > 0L, "journal stats report WAL bytes");
++            Stage37WalRecoveryTest.check(stats.recoveryDurationNanos() >= 0L, "journal stats report recovery duration");
++        }
++    }
++}
+
+diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournalEncodingLimitTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournalEncodingLimitTest.java
+new file mode 100644
+--- /dev/null
++++ b/src/test/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournalEncodingLimitTest.java
+@@ -0,0 +1,54 @@
++package org.powernukkitx.terra.crosschunk.journal;
++
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++
++/** Regression test for rejecting oversized WAL payloads before delegate growth. */
++public final class PlacementJournalEncodingLimitTest {
++    private static int assertions;
++
++    public static void main(String[] args) throws Exception {
++        ByteArrayOutputStream target = new ByteArrayOutputStream();
++        PlacementJournal.BoundedOutputStream bounded =
++                new PlacementJournal.BoundedOutputStream(target, 5);
++
++        bounded.write(new byte[]{1, 2, 3, 4, 5});
++        check(target.size() == 5, "payload exactly at the limit is accepted");
++
++        boolean rejected = false;
++        try {
++            bounded.write(6);
++        } catch (IOException expected) {
++            rejected = true;
++        }
++        check(rejected, "single-byte overflow is rejected");
++        check(target.size() == 5, "overflow does not reach the backing buffer");
++
++        rejected = false;
++        try {
++            bounded.write(new byte[]{7, 8}, 0, 2);
++        } catch (IOException expected) {
++            rejected = true;
++        }
++        check(rejected, "bulk-write overflow is rejected");
++        check(target.size() == 5, "bulk overflow does not grow the backing buffer");
++
++        ByteArrayOutputStream empty = new ByteArrayOutputStream();
++        PlacementJournal.BoundedOutputStream zero =
++                new PlacementJournal.BoundedOutputStream(empty, 0);
++        rejected = false;
++        try {
++            zero.write(1);
++        } catch (IOException expected) {
++            rejected = true;
++        }
++        check(rejected && empty.size() == 0, "zero-byte limit rejects all payload bytes");
++
++        System.out.println("PlacementJournalEncodingLimitTest: PASS (" + assertions + " assertions)");
++    }
++
++    private static void check(boolean value, String message) {
++        assertions++;
++        if (!value) throw new AssertionError(message);
++    }
++}
+
