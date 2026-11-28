@@ -48,9 +48,12 @@ apply_patch() {
   git -C "$dir" apply "$file"
 }
 
-# Stage 1–2: Terra placement API and first adapter transaction seam.
+# Stage 1: Terra placement-scope API.
 apply_patch "$TERRA" "$PATCH/01-stage1-terra-placement-scope.patch"
-apply_patch "$ADAPTER" "$PATCH/02-stage2-placement-transactions.patch"
+
+# Stage 2's ThreadLocal adapter transaction prototype is retained in patches/history
+# but intentionally not applied: Stage 10 supersedes it with the durable
+# PlacementTransactionCoordinator and the integrated PNXServerWorld implementation.
 
 # Stages 3–6 are preserved as historical prototypes. Their final responsibilities are
 # superseded by the consolidated Stage 7 PNX async pipeline and Stage 8 adapter core.
