@@ -6,7 +6,7 @@ The analyzer is conservative:
 * TerraScript loops and coordinate expressions are interval-evaluated.
 * Literal nested calls are recursively analyzed and translated per axis.
 * YAML structure definitions are parsed and inheritance is resolved.
-* Anything not proven statically receives a bounded runtime profile. The
+* Anything not proven statically is excluded from the verified runtime catalog. The
   PlacementRuntimeGuard must be installed at the common adapter boundary.
 """
 from __future__ import annotations
@@ -29,9 +29,9 @@ except ImportError:
 PACK_ID = "overworld"
 PACK_SOURCE = "PolyhedralDev/TerraOverworldConfig@445848bc9f9f28fab1d760f01f9a552d93944681"
 FALLBACK_RADIUS = 32
-FALLBACK_WRITES = 250_000
-FALLBACK_READS = 600_000
-FALLBACK_ENTITIES = 16
+FALLBACK_WRITES = 0
+FALLBACK_READS = 0
+FALLBACK_ENTITIES = 0
 MAX_CALL_DEPTH = 48
 MAX_OPERATIONS = 2_000_000
 
@@ -355,9 +355,9 @@ def fallback_profile(script_id: str, reason: str, dependencies=None) -> Profile:
         script_id,
         Bounds(Interval(-r, r), Interval(-r, r), Interval(-r, r)),
         Bounds(Interval(-r-1, r+1), Interval(-r-2, r+2), Interval(-r-1, r+1)),
-        FALLBACK_WRITES, FALLBACK_READS, FALLBACK_ENTITIES,
-        set(dependencies or ()) | {"*"},
-        f"{PACK_SOURCE}; BOUNDED_FAIL_CLOSED radius={r}; {reason}",
+        0, 0, 0,
+        set(dependencies or ()),
+        f"{PACK_SOURCE}; UNVERIFIED_DENY_ALL radius={r}; {reason}",
         True,
     )
 
@@ -435,7 +435,8 @@ def profile_entry(p: Profile) -> str:
 
 
 def generate_catalog(profiles: list[Profile]) -> str:
-    entries = ",\n".join(profile_entry(p) for p in profiles)
+    verified_profiles = [p for p in profiles if not p.bounded_fallback]
+    entries = ",\n".join(profile_entry(p) for p in verified_profiles)
     r = FALLBACK_RADIUS
     return f'''package org.powernukkitx.terra.crosschunk.bounds;
 
@@ -453,10 +454,10 @@ public final class OrigenBoundsCatalog {{
     );
 
     private static final ScriptBoundsProfile BOUNDED_FALLBACK = profile(
-            "<bounded-unverified>", -{r}, -{r}, -{r}, {r}, {r}, {r},
-            -{r+1}, -{r+2}, -{r+1}, {r+1}, {r+2}, {r+1},
-            {FALLBACK_WRITES}, {FALLBACK_READS}, {FALLBACK_ENTITIES}, List.of("*"),
-            "BOUNDED_FAIL_CLOSED radius={r}; unverified scripts share the root runtime guard");
+            "<unverified-deny-all>", 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+            0, 0, 0, List.of(),
+            "UNVERIFIED_DENY_ALL; static bounds proof required");
 
     private OrigenBoundsCatalog() {{}}
 
@@ -510,7 +511,7 @@ def main():
     ap.add_argument("--source-root", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--strict", action="store_true",
-                    help="fail if any root uses bounded fallback")
+                    help="fail if any root lacks a static bounds proof")
     args = ap.parse_args()
 
     inventory = json.loads(args.inventory.read_text(encoding="utf-8"))
