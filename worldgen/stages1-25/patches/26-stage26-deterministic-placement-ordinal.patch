@@ -59,10 +59,10 @@ index 9008bcb..525e5d9 100644
                  guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
                  Thread.currentThread(), journalTicket, journalKey);
 diff --git a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
-index 05bc2df..ed49341 100644
+index 05bc2df..79d2e0d 100644
 --- a/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
 +++ b/src/test/java/org/powernukkitx/terra/crosschunk/Stage17DependencySchedulerTest.java
-@@ -23,6 +23,19 @@ public final class Stage17DependencySchedulerTest {
+@@ -23,6 +23,21 @@ public final class Stage17DependencySchedulerTest {
              check(!ready.isDone(),"target initially blocked");
              CrossChunkDependencyScheduler.AnchorSession session=scheduler.openAnchor(new ChunkPos(0,0));
              var ticket=session.beginPlacement();
@@ -70,6 +70,7 @@ index 05bc2df..ed49341 100644
 +            check(ticket.ordinal()==0L && secondTicket.ordinal()==1L, "root placements receive unique per-anchor ordinals");
 +            secondTicket.abort();
 +            var mismatchedTicket=session.beginPlacement();
++            long sequenceBeforeMismatch=journal.lastSequence();
 +            boolean ordinalMismatchRejected=false;
 +            try {
 +                PlacementKey wrongOrdinal=new PlacementKey("world",1,new ChunkPos(0,0),"feature-mismatch","structure",2,64,2,0,3);
@@ -78,6 +79,7 @@ index 05bc2df..ed49341 100644
 +                ordinalMismatchRejected=true;
 +            }
 +            check(ordinalMismatchRejected,"ticket rejects a journal record carrying another placement ordinal");
++            check(journal.lastSequence()==sequenceBeforeMismatch,"ordinal mismatch is rejected before any WAL append");
 +            mismatchedTicket.abort();
              session.finishPopulation();
              check(!ready.isDone(),"population cannot complete with in-flight root placement");
@@ -95,7 +97,7 @@ index 3b4226b..948bcbe 100644
                  List.of(new BlockWrite(-49, 21, 113, 1, new byte[]{1, 2, 3})));
          try (PlacementJournal journal = new PlacementJournal(wal)) {
              CrossChunkDependencyScheduler scheduler = new CrossChunkDependencyScheduler(world, journal);
-@@ -32,6 +32,7 @@ public final class Stage19RecoveryTest {
+@@ -32,6 +32,7 @@ public final class Stage19DependencySchedulerTest {
              CrossChunkDependencyScheduler replayScheduler = new CrossChunkDependencyScheduler(world, recovered);
              var replay = replayScheduler.openAnchor(anchor);
              var replayTicket = replay.beginPlacement();
