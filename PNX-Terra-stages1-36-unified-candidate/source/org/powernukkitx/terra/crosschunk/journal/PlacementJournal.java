@@ -85,6 +85,7 @@ public final class PlacementJournal implements AutoCloseable {
             appendFrame(payload); // durable before visible in memory / return
             events.add(new JournalEvent.PlacementCommitted(sequence, record));
             placements.put(id, record);
+            placementSequences.put(id, sequence);
             record.entitySpawns().forEach(spawn -> entitySpawnOwners.put(spawn.stableUuid(), id));
             indexPlacement(record);
             nextSequence++;
@@ -107,7 +108,7 @@ public final class PlacementJournal implements AutoCloseable {
             }
             appendFrame(bytes.toByteArray());
             events.add(new JournalEvent.AnchorStarted(sequence, worldKey, anchor));
-            startedAnchors.add(id); nextSequence++;
+            startedAnchors.add(id); startedAnchorSequences.put(id, sequence); nextSequence++;
             return sequence;
         } finally { lock.unlock(); }
     }
@@ -131,7 +132,7 @@ public final class PlacementJournal implements AutoCloseable {
             }
             appendFrame(bytes.toByteArray());
             events.add(new JournalEvent.ChunkApplied(sequence, worldKey, target, digest));
-            appliedDigests.put(id, digest); nextSequence++;
+            appliedDigests.put(id, digest); appliedSequences.put(id, sequence); nextSequence++;
             return sequence;
         } finally { lock.unlock(); }
     }
@@ -169,7 +170,7 @@ public final class PlacementJournal implements AutoCloseable {
             }
             appendFrame(bytes.toByteArray());
             events.add(new JournalEvent.AnchorCompleted(sequence, worldKey, anchor));
-            completedAnchors.add(id); nextSequence++;
+            completedAnchors.add(id); completedAnchorSequences.put(id, sequence); nextSequence++;
             return sequence;
         } finally { lock.unlock(); }
     }
@@ -211,6 +212,7 @@ public final class PlacementJournal implements AutoCloseable {
     public Path path() { return path; }
 
     private void appendFrame(byte[] payload) throws IOException {
+        ensureOpen();
         if (payload.length > MAX_FRAME) throw new IOException("Journal frame exceeds maximum size");
         CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
         ByteBuffer frame = ByteBuffer.allocate(HEADER_BYTES + payload.length + TRAILER_BYTES);
@@ -221,8 +223,12 @@ public final class PlacementJournal implements AutoCloseable {
             while (frame.hasRemaining()) channel.write(frame);
             channel.force(true);
         } catch (IOException failure) {
-            channel.truncate(start);
-            channel.force(true);
+            try {
+                channel.truncate(start);
+                channel.force(true);
+            } catch (IOException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
             throw failure;
         }
     }
@@ -340,20 +346,27 @@ public final class PlacementJournal implements AutoCloseable {
         if (event instanceof JournalEvent.PlacementCommitted p) {
             String id = p.record().key().stableId();
             PlacementRecord previous = placements.putIfAbsent(id, p.record());
-            if (previous != null && !sameRecord(previous, p.record())) throw new IOException("Duplicate placement key collision in WAL");
+            if (previous != null && !sameRecord(previous, p.record()))
+                throw new IOException("Duplicate placement key collision in WAL");
             if (previous == null) {
                 validateEntitySpawnOwnership(id, p.record());
                 p.record().entitySpawns().forEach(spawn -> entitySpawnOwners.put(spawn.stableUuid(), id));
                 indexPlacement(p.record());
             }
+            placementSequences.putIfAbsent(id, p.sequence());
         } else if (event instanceof JournalEvent.AnchorStarted a) {
-            startedAnchors.add(new AnchorId(a.worldKey(), a.anchor()));
+            AnchorId id = new AnchorId(a.worldKey(), a.anchor());
+            startedAnchors.add(id);
+            startedAnchorSequences.putIfAbsent(id, a.sequence());
         } else if (event instanceof JournalEvent.AnchorCompleted a) {
             AnchorId id = new AnchorId(a.worldKey(), a.anchor());
             startedAnchors.add(id);
             completedAnchors.add(id);
+            completedAnchorSequences.put(id, a.sequence());
         } else if (event instanceof JournalEvent.ChunkApplied a) {
-            appliedDigests.put(new ChunkId(a.worldKey(), a.target()), a.digest());
+            ChunkId id = new ChunkId(a.worldKey(), a.target());
+            appliedDigests.put(id, a.digest());
+            appliedSequences.put(id, a.sequence());
         }
         events.add(event);
     }
@@ -469,12 +482,52 @@ public final class PlacementJournal implements AutoCloseable {
         if(e instanceof JournalEvent.AnchorCompleted a)return a.sequence();
         return ((JournalEvent.ChunkApplied)e).sequence();
     }
-    private long sequenceOfPlacement(String id){return events.stream().filter(e->e instanceof JournalEvent.PlacementCommitted p&&p.record().key().stableId().equals(id)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
-    private long sequenceOfAnchor(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorCompleted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
-    private long sequenceOfAnchorStarted(AnchorId id){return events.stream().filter(e->e instanceof JournalEvent.AnchorStarted a&&a.worldKey().equals(id.worldKey)&&a.anchor().equals(id.anchor)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
-    private long sequenceOfApplied(ChunkId id,String digest){return events.stream().filter(e->e instanceof JournalEvent.ChunkApplied a&&a.worldKey().equals(id.worldKey)&&a.target().equals(id.target)&&a.digest().equals(digest)).mapToLong(PlacementJournal::eventSequence).findFirst().orElseThrow();}
+    private long sequenceOfPlacement(String id){return requiredSequence(placementSequences.get(id), "placement", id);}
+    private long sequenceOfAnchor(AnchorId id){return requiredSequence(completedAnchorSequences.get(id), "completed anchor", id);}
+    private long sequenceOfAnchorStarted(AnchorId id){return requiredSequence(startedAnchorSequences.get(id), "started anchor", id);}
+    private long sequenceOfApplied(ChunkId id,String digest){
+        if (!digest.equals(appliedDigests.get(id))) throw new IllegalStateException("Applied digest index mismatch: " + id);
+        return requiredSequence(appliedSequences.get(id), "applied chunk", id);
+    }
+    private static long requiredSequence(Long sequence, String kind, Object id) {
+        if (sequence == null) throw new IllegalStateException("Missing " + kind + " sequence index: " + id);
+        return sequence;
+    }
     private static boolean sameRecord(PlacementRecord a,PlacementRecord b){return a.key().equals(b.key())&&a.writes().equals(b.writes())&&a.blockEntities().equals(b.blockEntities())&&a.physics().equals(b.physics())&&a.entitySpawns().equals(b.entitySpawns());}
     private record AnchorId(String worldKey,ChunkPos anchor){}
     private record ChunkId(String worldKey,ChunkPos target){}
-    @Override public void close() throws IOException { lock.lock();try{channel.force(true);processLock.release();channel.close();}finally{lock.unlock();} }
+    @Override public void close() throws IOException {
+        lock.lock();
+        try {
+            if (closed) return;
+            closed = true;
+            IOException failure = null;
+            try { channel.force(true); } catch (IOException e) { failure = e; }
+            try { processLock.release(); } catch (IOException e) {
+                if (failure == null) failure = e; else failure.addSuppressed(e);
+            }
+            try { channel.close(); } catch (IOException e) {
+                if (failure == null) failure = e; else failure.addSuppressed(e);
+            }
+            if (failure != null) throw failure;
+        } finally { lock.unlock(); }
+    }
+
+    private void ensureOpen() throws IOException {
+        if (closed || !channel.isOpen()) throw new IOException("Placement journal is closed: " + path);
+    }
+
+    public JournalStats stats() throws IOException {
+        lock.lock();
+        try {
+            return new JournalStats(channel.size(), events.size(), placements.size(), startedAnchors.size(),
+                    completedAnchors.size(), appliedDigests.size(), nextSequence - 1,
+                    recoveryDurationNanos, recoveredTailBytes);
+        } finally { lock.unlock(); }
+    }
+
+    public record JournalStats(long walBytes, long eventCount, long placementCount,
+                               long startedAnchorCount, long completedAnchorCount,
+                               long appliedChunkCount, long lastSequence,
+                               long recoveryDurationNanos, long recoveredTailBytes) { }
 }
