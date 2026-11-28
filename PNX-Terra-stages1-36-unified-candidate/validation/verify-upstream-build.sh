@@ -103,6 +103,32 @@ git -C "$PNX" diff --binary "$PNX_REF" "$PNX_PROTOCOL_COMPAT_COMMIT" -- \
 [[ -s "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch" ]] || { echo "Empty PNX Beta8 compatibility diff" >&2; exit 1; }
 git -C "$PNX" apply --check "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
 git -C "$PNX" apply "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+# Cloudburst Network's NetherNet child now accepts a provenance-bearing remote address.
+# Keep the transport identity regression test aligned with that API while preserving
+# the same signaled peer and local endpoint used by the test.
+python3 - "$PNX/src/test/java/org/powernukkitx/network/TransportIdentityBindingTest.java" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+content = path.read_text()
+content = content.replace(
+    "import org.cloudburstmc.netty.channel.nethernet.NetherNetChildChannel;\n",
+    "import org.cloudburstmc.netty.channel.nethernet.AddressSource;\n"
+    "import org.cloudburstmc.netty.channel.nethernet.NetherNetChildChannel;\n"
+    "import org.cloudburstmc.netty.channel.nethernet.SourcedAddress;\n"
+)
+old = '''new NetherNetChildChannel(null, null,
+            new InetSocketAddress("127.0.0.1", 51234), new InetSocketAddress("127.0.0.1", 19132));'''
+new = '''new NetherNetChildChannel(null, null,
+            new SourcedAddress(new InetSocketAddress("127.0.0.1", 51234), AddressSource.SIGNALING, null),
+            new InetSocketAddress("127.0.0.1", 19132));'''
+if old in content:
+    content = content.replace(old, new)
+elif new not in content:
+    raise SystemExit("Unexpected NetherNetChildChannel test constructor; refusing unsafe rewrite")
+if "import org.cloudburstmc.netty.channel.nethernet.SourcedAddress;" not in content:
+    raise SystemExit("SourcedAddress import missing after compatibility rewrite")
+path.write_text(content)
+PY
 # Keep snapshot dependencies on the repository's moving snapshot coordinates so Gradle
 # resolves the currently published timestamp rather than an expired timestamped build.
 sed -i 's/2.0.0.CR6-20261026.130552-16/2.0.0.CR6-SNAPSHOT/g' "$PNX/gradle/libs.versions.toml"
