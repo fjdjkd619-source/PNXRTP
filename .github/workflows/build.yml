@@ -1,0 +1,86 @@
+name: R15 full Gradle build and JAR artifacts
+
+on:
+  push:
+    branches:
+      - R15
+    paths:
+      - "PNX-Terra-stages1-36-unified-candidate/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-gradle-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout R15 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: R15
+          path: candidate
+          fetch-depth: 0
+
+      - name: Checkout pinned PowerNukkitX
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: pnx
+
+      - name: Checkout pinned Terra 6.6.1
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/Terra
+          ref: 016961c19c41c2501737599175937ae40699beb1
+          path: terra
+
+      - name: Checkout pinned PNX-Terra adapter
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: adapter
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Apply complete Stage 1–42 patch chain
+        run: |
+          bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-42.sh \
+            --pnx "$GITHUB_WORKSPACE/pnx" \
+            --terra "$GITHUB_WORKSPACE/terra" \
+            --adapter "$GITHUB_WORKSPACE/adapter" \
+            --pnx-ref c57499365737654eca32df008751ef6bca5af142
+
+      - name: Run full Gradle builds and adapter integration tests
+        run: |
+          bash candidate/PNX-Terra-stages1-36-unified-candidate/validation/verify-upstream-build.sh \
+            --pnx "$GITHUB_WORKSPACE/pnx" \
+            --terra "$GITHUB_WORKSPACE/terra" \
+            --adapter "$GITHUB_WORKSPACE/adapter"
+
+      - name: Collect built JARs
+        if: success()
+        run: |
+          mkdir -p artifact-output/terra artifact-output/pnx artifact-output/adapter
+          find terra/platforms/bukkit/common/build/libs -maxdepth 1 -type f -name '*shaded.jar' -exec cp -t artifact-output/terra {} +
+          find pnx -type f -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp -t artifact-output/pnx {} +
+          find adapter -type f -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp -t artifact-output/adapter {} +
+          find artifact-output -type f -name '*.jar' -print
+          test -n "$(find artifact-output -type f -name '*.jar' -print -quit)"
+
+      - name: Upload JAR artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnx-terra-r15-jars
+          path: artifact-output/
+          if-no-files-found: error
+          retention-days: 30
