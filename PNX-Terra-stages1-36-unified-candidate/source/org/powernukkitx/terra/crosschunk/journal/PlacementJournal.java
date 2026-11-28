@@ -219,8 +219,8 @@ public final class PlacementJournal implements AutoCloseable {
             JournalCheckpoint.Snapshot snapshot =
                     new JournalCheckpoint.Snapshot(nextSequence - 1, List.copyOf(events));
             JournalCheckpoint.writeAtomically(checkpointPath, snapshot);
-            JournalCompactionMarker.writeAtomically(compactionMarkerPath, snapshot.lastSequence());
             try {
+                JournalCompactionMarker.writeAtomically(compactionMarkerPath, snapshot.lastSequence());
                 channel.truncate(0);
                 channel.position(0);
                 channel.force(true);
@@ -228,8 +228,9 @@ public final class PlacementJournal implements AutoCloseable {
                 forceDirectory(path.toAbsolutePath().getParent());
                 checkpointWatermark = snapshot.lastSequence();
                 compactEventHistory();
-            } catch (IOException failure) {
-                poisoned = true;
+            } catch (IOException | RuntimeException failure) {
+                // If the marker was published, appending before recovery could lose post-checkpoint events.
+                if (Files.exists(compactionMarkerPath)) poisoned = true;
                 throw failure;
             }
         } finally {
