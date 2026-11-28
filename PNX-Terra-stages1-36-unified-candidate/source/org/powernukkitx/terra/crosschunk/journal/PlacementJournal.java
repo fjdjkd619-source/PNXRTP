@@ -299,11 +299,12 @@ public final class PlacementJournal implements AutoCloseable {
     }
 
     private boolean isPartialMagicPrefix(long offset, int length) throws IOException {
-        if (length < 1 || length >= Integer.BYTES) return false;
+        if (length < 1 || length >= HEADER_BYTES) return false;
         ByteBuffer prefix = ByteBuffer.allocate(length);
         if (!readFully(channel, prefix, offset)) return false;
         prefix.flip();
-        for (int i = 0; i < length; i++) {
+        int magicBytes = Math.min(length, Integer.BYTES);
+        for (int i = 0; i < magicBytes; i++) {
             int expected = (MAGIC >>> (24 - i * 8)) & 0xff;
             if ((prefix.get() & 0xff) != expected) return false;
         }
