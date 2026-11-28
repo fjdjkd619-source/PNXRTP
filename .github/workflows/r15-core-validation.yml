@@ -1,0 +1,29 @@
+name: R15 core validation
+
+on:
+  push:
+    branches:
+      - R15
+    paths:
+      - "PNX-Terra-stages1-36-unified-candidate/source/**"
+      - "PNX-Terra-stages1-36-unified-candidate/tests/**"
+      - "PNX-Terra-stages1-36-unified-candidate/validation/run-core-tests.sh"
+      - ".github/workflows/r15-core-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout R15
+        uses: actions/checkout@v4
+        with:
+          ref: R15
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Run independent core compile and regression tests
+        working-directory: PNX-Terra-stages1-36-unified-candidate
+        run: bash validation/run-core-tests.sh
