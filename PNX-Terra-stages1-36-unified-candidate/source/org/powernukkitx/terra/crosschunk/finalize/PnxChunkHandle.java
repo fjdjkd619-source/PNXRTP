@@ -5,8 +5,6 @@ import org.powernukkitx.level.Level;
 import org.powernukkitx.level.format.IChunk;
 import org.powernukkitx.level.format.leveldb.LevelDBProvider;
 import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
-import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
-import org.powernukkitx.terra.crosschunk.physics.PhysicsIntentBatch;
 import org.powernukkitx.terra.crosschunk.journal.PlacementProjection;
 import org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent;
 import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
@@ -172,59 +170,6 @@ public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkH
         PnxEntitySpawnIntentApplier.Batch committed = pendingEntitySpawnBatch;
         PnxEntitySpawnIntentApplier.confirm(committed);
         pendingEntitySpawnBatch = new PnxEntitySpawnIntentApplier.Batch(List.of(), List.of());
-    }
-
-    /**
-     * Apply the deferred neighbor updates only after all affected horizontal neighbor chunks
-     * are already loaded. Level.updateAround() uses the loading getBlock() overload, so this
-     * guard is mandatory: it prevents physics from force-loading chunks at a structure edge.
-     *
-     * The finalization coordinator invokes this method on PNX's owning Level scheduler.
-     * Runnable::run keeps PhysicsIntentBatch synchronous on that same scheduler context.
-     */
-    @Override
-    public void applyPhysicsIntents(List<PhysicsIntent> intents) throws IOException {
-        if (intents.isEmpty()) return;
-        var level = chunk.getLevel();
-        if (level == null) throw new IOException("Target chunk has no owning Level");
-
-        ChunkPos target = position();
-        int minHeight = chunk.getDimensionData().getMinHeight();
-        int maxHeight = chunk.getDimensionData().getMaxHeight();
-        for (PhysicsIntent intent : intents) {
-            if (!intent.chunk().equals(target)) {
-                throw new IOException("Physics intent belongs to another chunk: " + intent);
-            }
-            if (!intent.applyPhysics()) continue;
-            if (intent.y() < minHeight || intent.y() >= maxHeight) {
-                throw new IOException("Physics intent is outside world height: " + intent);
-            }
-            requireLoadedNeighbor(level, target, intent.x() - 1, intent.z(), intent);
-            requireLoadedNeighbor(level, target, intent.x() + 1, intent.z(), intent);
-            requireLoadedNeighbor(level, target, intent.x(), intent.z() - 1, intent);
-            requireLoadedNeighbor(level, target, intent.x(), intent.z() + 1, intent);
-        }
-
-        try {
-            PhysicsIntentBatch.dispatch(intents, Runnable::run, target,
-                    (x, y, z) -> level.updateAround(x, y, z)).join();
-        } catch (java.util.concurrent.CompletionException failure) {
-            Throwable cause = failure.getCause() == null ? failure : failure.getCause();
-            throw new IOException("PNX physics update dispatch failed for chunk " + target, cause);
-        } catch (IllegalArgumentException failure) {
-            throw new IOException("Invalid PNX physics intent batch for chunk " + target, failure);
-        }
-    }
-
-    private static void requireLoadedNeighbor(org.powernukkitx.level.Level level, ChunkPos target,
-                                              int blockX, int blockZ, PhysicsIntent intent) throws IOException {
-        ChunkPos neighbor = ChunkPos.fromBlock(blockX, blockZ);
-        if (neighbor.equals(target)) return;
-        var loaded = level.getChunkIfLoaded(neighbor.x(), neighbor.z());
-        if (loaded == null || !loaded.isLoaded()) {
-            throw new IOException("Physics intent requires an unloaded neighbor chunk " + neighbor
-                    + "; refusing to force-load it for " + intent);
-        }
     }
 
     @Override
