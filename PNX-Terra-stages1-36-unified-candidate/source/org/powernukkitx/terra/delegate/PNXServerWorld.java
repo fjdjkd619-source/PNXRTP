@@ -247,6 +247,7 @@ public class PNXServerWorld implements ServerWorld {
         PlacementTransaction tx = requirePlacement();
         tx.guard.beforeWrite(x, y, z);
         if (physics) tx.physics.add(new PhysicsIntent(x, y, z, true));
+
         var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
         Block old = readOldBlock(tx, x, y, z);
         String oldBaseId = old.getId();
@@ -255,49 +256,64 @@ public class PNXServerWorld implements ServerWorld {
                 || level.getLevel().isChunkLoaded(x >> 4, z >> 4);
         String oldLayerOneId = layerOneAvailable
                 ? tx.staged.getBlockIdAt(x, y, z, 1) : "minecraft:air";
-        boolean oldWaterLayer = Objects.equals(oldLayerOneId, BlockID.WATER)
-                || Objects.equals(oldLayerOneId, BlockID.FLOWING_WATER);
-        boolean previousFluid = oldWaterLayer
-                || Objects.equals(oldBaseId, BlockID.WATER)
-                || Objects.equals(oldBaseId, BlockID.FLOWING_WATER)
-                || Objects.equals(oldBaseId, BlockID.WATERLILY);
+        boolean oldLayerOneFluid = isWaterIdentifier(oldLayerOneId);
+        boolean oldBaseFluid = isWaterIdentifier(oldBaseId);
+        boolean previousFluid = oldLayerOneFluid || oldBaseFluid;
 
-        String propertyName = null;
-        String propertyValue = null;
+        String identifier = innerBlockState.getIdentifier();
+        boolean intrinsicWaterPlant = isIntrinsicWaterPlant(identifier);
+        boolean explicitWaterlogged = false;
+        boolean hasWaterloggedProperty = false;
         for (var property : innerBlockState.getBlockPropertyValues()) {
             if ("waterlogged".equals(property.getPropertyType().getName())) {
-                propertyName = property.getPropertyType().getName();
-                propertyValue = property.getSerializedValue();
+                hasWaterloggedProperty = true;
+                explicitWaterlogged = Boolean.parseBoolean(String.valueOf(property.getValue()));
                 break;
             }
         }
-        String identifier = innerBlockState.getIdentifier();
-        boolean intrinsicallyWaterContaining = Objects.equals(identifier, BlockID.KELP)
-                || "minecraft:seagrass".equals(identifier)
-                || "minecraft:tall_seagrass".equals(identifier);
+        boolean supportsWaterlogging = innerBlockState.toBlock().getWaterloggingLevel() > 0;
+        boolean waterlogged = hasWaterloggedProperty
+                ? explicitWaterlogged
+                : supportsWaterlogging && previousFluid;
+
         byte[] canonicalWaterState;
         try {
-            canonicalWaterState = PnxBlockStateCodec.encode(PNXProtoChunk.water);
+            var waterState = PNXProtoChunk.water;
+            if (oldLayerOneFluid) {
+                waterState = level.getLevel().getBlockStateAt(x, y, z, 1);
+            } else if (oldBaseFluid) {
+                waterState = old.getBlockState();
+            }
+            canonicalWaterState = PnxBlockStateCodec.encode(waterState);
         } catch (IOException invalidWaterState) {
-            throw new IllegalStateException("Could not encode canonical PNX water state", invalidWaterState);
+            throw new IllegalStateException("Could not encode the canonical/preserved PNX water state", invalidWaterState);
         }
-        boolean preserveLegacyFluid = propertyName == null && previousFluid;
-        WaterLayerPolicy.Result water = WaterLayerPolicy.resolve(identifier, propertyName, propertyValue,
-                intrinsicallyWaterContaining || preserveLegacyFluid,
-                (block, name, value) -> "waterlogged".equals(name) && "true".equalsIgnoreCase(value),
-                canonicalWaterState);
 
+        WaterLayerPolicy.Result water = WaterLayerPolicy.resolve(identifier,
+                intrinsicWaterPlant, waterlogged, canonicalWaterState);
+        boolean newStateIsLiquid = isWaterIdentifier(identifier);
         tx.staged.setBlockStateAt(x, y, z, innerBlockState);
-        if (water.writeWaterLayer()) {
+        if (water.writeWaterLayer() && !newStateIsLiquid) {
             try {
                 tx.staged.setBlockStateAt(x, y, z, 1, PnxBlockStateCodec.decode(water.canonicalWaterState()));
             } catch (IOException invalidWaterState) {
                 throw new IllegalStateException("Could not decode canonical PNX water layer state", invalidWaterState);
             }
-        } else if (oldWaterLayer) {
-            // Clear stale water only; do not destroy unrelated Bedrock layer-one content.
+        } else if (oldLayerOneFluid) {
+            // Clear stale liquid only; preserve unrelated Bedrock layer-one content.
             tx.staged.setBlockStateAt(x, y, z, 1, BlockAir.STATE);
         }
+    }
+
+    private static boolean isWaterIdentifier(String identifier) {
+        return Objects.equals(identifier, BlockID.WATER)
+                || Objects.equals(identifier, BlockID.FLOWING_WATER);
+    }
+
+    private static boolean isIntrinsicWaterPlant(String identifier) {
+        return Objects.equals(identifier, BlockID.KELP)
+                || "minecraft:seagrass".equals(identifier)
+                || "minecraft:tall_seagrass".equals(identifier);
     }
 
     private Block readOldBlock(PlacementTransaction tx, int x, int y, int z) {
