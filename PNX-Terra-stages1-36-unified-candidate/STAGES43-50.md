@@ -6,7 +6,9 @@
 
 **Code added — not yet built or tested.**
 
-- Added JournalCheckpoint to the source overlay, Stage 43 adapter patch and apply-stages1-43.sh runner.
+- Added JournalCheckpoint to the source overlay and Stage 43 adapter patch, plus the ordered apply-stages1-43.sh runner.
+- Added PlacementJournal.checkpointSnapshot() and writeCheckpoint(Path): both expose a consistent event list plus sequence watermark under the journal lock, and publish a durable checkpoint without rotating or truncating the WAL.
+- Added an integration test that confirms the checkpoint captures the same committed prefix and that Stage 43 leaves the WAL intact.
 - The codec writes a versioned PXCP snapshot with a SHA-256 integrity digest, strict payload/count limits, deterministic event encoding and strict UTF-8 decoding.
 - Publication uses a same-directory temporary file, fsync, atomic replacement and parent-directory fsync; unsupported atomic moves fail closed.
 - Added JournalCheckpointTest for round-trip of all event kinds and intent payloads, hash tampering, truncation and atomic replacement. Per the requested build policy, this test has not been run.
