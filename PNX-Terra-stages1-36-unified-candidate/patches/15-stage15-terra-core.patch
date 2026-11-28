@@ -14,15 +14,15 @@
      }
  
 +    @Override
-+    public PlacementScope beginPlacement(String featureId, String structureId,
++    public PlacementGuardHost.PlacementScope beginPlacement(String featureId, String structureId,
 +                                          com.dfsek.seismic.type.vector.Vector3Int origin,
 +                                          com.dfsek.seismic.type.Rotation rotation) {
 +        if (delegate instanceof PlacementGuardHost host) return host.beginPlacement(featureId, structureId, origin, rotation);
-+        return PlacementScope.rejected();
++        return PlacementGuardHost.PlacementScope.rejected();
 +    }
  
 +    @Override
-+    public PlacementScope beginNestedPlacement(String structureId) {
++    public PlacementGuardHost.PlacementScope beginNestedPlacement(String structureId) {
 +        if (delegate instanceof PlacementGuardHost host) return host.beginNestedPlacement(structureId);
 +        return PlacementScope.rejected();
 +    }
