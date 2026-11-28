@@ -42,3 +42,14 @@
 8. Integrated JAR packaging is blocked.
 
 The production server, existing world, player data and installed plugins remain untouched. Do not deploy this candidate.
+
+## Stage 37-42 WAL hardening candidate (R15)
+
+- Stage 37/38: WAL recovery now truncates only a proven incomplete final frame. Complete-frame CRC, header, payload and sequence corruption fail closed without modifying the original WAL. Torn suffixes are preserved through collision-safe evidence creation.
+- Stage 39: recovery avoids a second frame-sized allocation while retaining the 64 MiB frame bound.
+- Stage 40: sequence/idempotency lookups use indexes populated on append and replay.
+- Stage 41: a journal health snapshot reports size, event counts, last sequence, recovery duration and recovered-tail bytes.
+- Stage 42: close is idempotent; appends after close are rejected; failed append rollback poisons the journal.
+- Added Stage37WalRecoveryTest and changed Stage16JournalTest so a complete bad-CRC frame must fail closed and remain byte-for-byte unchanged.
+
+**Validation status for these new changes: NOT YET EXECUTED in this environment.** The R15 repository contains a Java source overlay and scripts, not a complete Gradle project: no build.gradle or Gradle wrapper is present in the candidate root. The independent Java 21 runner is validation/run-core-tests.sh; it must be run on a Java 21 host. The exact-ref upstream PNX/Terra/adapter build and runtime certification remain outstanding. Production status remains BLOCKED; do not deploy.
