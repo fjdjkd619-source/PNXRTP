@@ -78,3 +78,38 @@ jobs:
       - name: Check Stage 36 PNX API patch fixture
         working-directory: PNX-Terra-stages1-36-unified-candidate
         run: bash validation/run-stage36-pnx-api-patch-test.sh
+
+  upstream-patch-application:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout R15 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: R15
+          path: candidate
+          fetch-depth: 0
+      - name: Checkout exact pinned PowerNukkitX
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: pnx
+      - name: Checkout exact pinned Terra
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/Terra
+          ref: 05ddc8b8a66e17412670647cce78ef837b091256
+          path: terra
+      - name: Checkout exact pinned PNX-Terra adapter
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: adapter
+      - name: Apply the complete Stage 1–42 patch chain to clean upstream checkouts
+        run: |
+          bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-42.sh \
+            --pnx "$GITHUB_WORKSPACE/pnx" \
+            --terra "$GITHUB_WORKSPACE/terra" \
+            --adapter "$GITHUB_WORKSPACE/adapter" \
+            --pnx-ref c57499365737654eca32df008751ef6bca5af142
