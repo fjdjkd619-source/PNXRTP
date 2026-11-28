@@ -41,4 +41,4 @@ These stages are implemented in the source overlay under `source/org/powernukkit
 
 ## Build boundary
 
-The repository's candidate is a source overlay plus patch chain and validation scripts; this directory does not contain a `build.gradle`, Gradle wrapper, or complete upstream PNX/Terra/adapter checkout. The independent Java 21 core test runner is available at `validation/run-core-tests.sh`, but a fresh execution and exact-ref upstream Gradle build are still required before production integration can be claimed.
+The repository's candidate is a source overlay plus patch chain and validation scripts; this directory does not contain a `build.gradle`, Gradle wrapper, or complete upstream PNX/Terra/adapter checkout. The independent Java 21 core test runner at `validation/run-core-tests.sh` passed on R15 commit `26f73b2c4d12a4cc425bcf7458655ea59bb275ff` (GitHub Actions run `46146027245`); the recorded output is `validation/CORE-TESTS-2026-11-28-R15.txt`. The exact-ref upstream Gradle build and runtime certification are still required before production integration can be claimed.
