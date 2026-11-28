@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a source-pinned Terra ConfigPack inventory; does not claim bounds are certified."""
+"""Build a source-pinned Terra ConfigPack and PNX block-state inventory."""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,7 @@ BLOCK_WRITE = re.compile(r"\bblock\s*\(")
 BLOCK_READ = re.compile(r"\b(?:getBlock|blockState|check)\s*\(")
 LOOP = re.compile(r"\bfor\s*\(")
 BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?")
+BLOCK_LITERAL = re.compile(r"minecraft:[a-z0-9_./-]+(?:\[[^]\r\n]+\])?")
 YAML_FIELD = {
     "id": re.compile(r"(?m)^id:\s*([A-Za-z0-9_.:/-]+)\s*$"),
     "type": re.compile(r"(?m)^type:\s*([A-Za-z0-9_.:/-]+)\s*$"),
@@ -131,28 +132,48 @@ def parse_structure_yaml(path: Path, root: Path) -> dict | None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--expected-head", required=True)
+    parser.add_argument("--pnx-root", required=True, type=Path)
+    parser.add_argument("--pnx-expected-head", required=True)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--expected-head")
     args = parser.parse_args()
     root = args.root.resolve()
-    if not root.is_dir():
-        raise SystemExit(f"ConfigPack root does not exist: {root}")
+    pnx_root = args.pnx_root.resolve()
+    if not root.is_dir() or not pnx_root.is_dir():
+        raise SystemExit("ConfigPack and PNX checkout directories must exist")
 
     actual_head = git_head(root)
-    if args.expected_head and actual_head != args.expected_head:
+    if actual_head != args.expected_head:
         raise SystemExit(f"ConfigPack HEAD mismatch: expected {args.expected_head}, got {actual_head}")
+    pnx_head = git_head(pnx_root)
+    if pnx_head != args.pnx_expected_head:
+        raise SystemExit(f"PNX HEAD mismatch: expected {args.pnx_expected_head}, got {pnx_head}")
+
+    mapping_path = pnx_root / "src/main/resources/mappings/blocks.json"
+    if not mapping_path.is_file():
+        raise SystemExit(f"Pnx block mapping registry missing: {mapping_path}")
+    pnx_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    pnx_state_keys = set(pnx_mapping)
+    pnx_block_ids = {value.split("[", 1)[0] for value in pnx_state_keys}
 
     scripts = sorted(root.rglob("*.tesf"))
     structure_yamls = sorted(root.glob("structures/**/*.yml"))
     features = sorted(p for p in root.rglob("*.yml") if "features" in p.relative_to(root).parts)
-
     scripts_by_id: dict[str, list[str]] = defaultdict(list)
     script_records = []
+    block_sources: dict[str, set[str]] = defaultdict(set)
+
+    def record_block_literals(path: Path, source: str) -> None:
+        rel = path.relative_to(root).as_posix()
+        for state in BLOCK_LITERAL.findall(source):
+            block_sources[state].add(rel)
+
     for path in scripts:
         rel = path.relative_to(root).as_posix()
         script_id = path.stem
         scripts_by_id[script_id.lower()].append(rel)
         source = path.read_text(encoding="utf-8")
+        record_block_literals(path, source)
         nested = NESTED_LITERAL.findall(source)
         nested_ids = sorted({value for _, value in nested})
         calls = len(NESTED_CALL.findall(source))
@@ -172,12 +193,15 @@ def main() -> int:
             "notes": "Inventory only. No static bounds are certified by this script.",
         })
 
-    structure_definitions = [
-        record for path in structure_yamls
-        if (record := parse_structure_yaml(path, root)) is not None
-    ]
-    config_ids = {record["id"].lower(): record for record in structure_definitions}
+    structure_definitions = []
+    for path in structure_yamls:
+        source = path.read_text(encoding="utf-8")
+        record_block_literals(path, source)
+        record = parse_structure_yaml(path, root)
+        if record is not None:
+            structure_definitions.append(record)
 
+    config_ids = {record["id"].lower(): record for record in structure_definitions}
     root_refs = defaultdict(list)
     unresolved_features = []
     block_state_targets = set()
@@ -185,6 +209,7 @@ def main() -> int:
     for path in features:
         rel = path.relative_to(root).as_posix()
         source = path.read_text(encoding="utf-8")
+        record_block_literals(path, source)
         ids, blocks, unresolved = extract_feature_targets(source)
         if unresolved:
             unresolved_features.append(rel)
@@ -216,11 +241,21 @@ def main() -> int:
     duplicate_ids = {
         script_id: paths for script_id, paths in sorted(scripts_by_id.items()) if len(paths) > 1
     }
+
+    exact_mapped = sorted(state for state in block_sources if state in pnx_state_keys)
+    missing_state_variant = sorted(
+        state for state in block_sources
+        if state not in pnx_state_keys and state.split("[", 1)[0] in pnx_block_ids
+    )
+    missing_block_id = sorted(
+        state for state in block_sources
+        if state not in pnx_state_keys and state.split("[", 1)[0] not in pnx_block_ids
+    )
     status_counts = Counter(record["status"] for record in script_records)
     summary = {
         "config_pack": "PolyhedralDev/TerraOverworldConfig",
-        "git_head": actual_head,
-        "inventory_policy": "Inventory only; every TerraScript and YAML structure remains UNKNOWN until separately audited.",
+        "config_pack_head": actual_head,
+        "pnx_head": pnx_head,
         "terra_script_count": len(scripts),
         "structure_yaml_definition_count": len(structure_definitions),
         "feature_yaml_count": len(features),
@@ -229,21 +264,36 @@ def main() -> int:
         "matched_script_roots": script_matches,
         "matched_yaml_structure_roots": config_matches,
         "unmatched_feature_root_ids": len(missing),
-        "block_state_target_count": len(block_state_targets),
+        "block_state_literal_count": len(block_sources),
+        "block_state_exact_matches": len(exact_mapped),
+        "block_state_variant_mismatches": len(missing_state_variant),
+        "block_identifier_mismatches": len(missing_block_id),
+        "feature_BLOCK_palette_target_count": len(block_state_targets),
         "unresolved_feature_yaml_count": len(unresolved_features),
         "duplicate_script_id_count": len(duplicate_ids),
         "dynamic_nested_target_script_count": sum(1 for r in script_records if r["dynamic_nested_target"]),
         "status_counts": dict(sorted(status_counts.items())),
     }
+    block_mapping_audit = {
+        "exact_matches": exact_mapped,
+        "missing_state_variants": {
+            state: sorted(block_sources[state]) for state in missing_state_variant
+        },
+        "missing_block_identifiers": {
+            state: sorted(block_sources[state]) for state in missing_block_id
+        },
+        "pnx_mapping_registry": "src/main/resources/mappings/blocks.json",
+    }
     output = {
-        "format": "terra-configpack-source-inventory",
-        "version": 2,
+        "format": "terra-configpack-pnx-block-inventory",
+        "version": 3,
         "summary": summary,
         "scripts": script_records,
         "structure_definitions": structure_definitions,
         "features": feature_records,
         "unmatched_feature_root_ids": missing,
         "block_state_targets": sorted(block_state_targets),
+        "block_mapping_audit": block_mapping_audit,
         "unresolved_feature_yaml": unresolved_features,
         "duplicate_script_ids": duplicate_ids,
     }
