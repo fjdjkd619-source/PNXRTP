@@ -1,5 +1,5 @@
 name: R15 full Gradle build and JAR artifacts
-# Build rerun after validated Stage 15 unified-diff correction.
+# Build rerun after Stage 15 patch separator correction.
 
 on:
   push:
