@@ -80,10 +80,20 @@ The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-
 
 ## R15 exact-upstream integration recheck — 2026-11-28
 
-- The Stage 7 → Stage 11 → Stage 15 → Stage 18 → Stage 22 → Stage 35 → Stage 36 → Stage 37–42 chain applies successfully to clean pinned PNX (`c57499365737654eca32df008751ef6bca5af142`), Terra (`05ddc8b8a66e17412670647cce78ef837b091256`) and PNX-Terra (`74318b4a1eae95322550f12d5eb8a76d92a93731`) checkouts. The Stage 7/18 overlap is therefore resolved for this exact pinned sequence.
+- The earlier successful application against Terra `05ddc8b8a66e17412670647cce78ef837b091256` was against Terra 7.0.0 and is not the target runtime. It is superseded by the Terra 6.6.1 correction below.
 - Stage 37–42 production patch is now included in `apply-stages1-42.sh`; its source is checked against the Stage 36 overlay baseline. Regression tests remain in the validation overlay rather than being injected into production source patch.
 - Java 21 validation run [46150102841](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46150102841): SUCCESS. This includes shell syntax, every active patch parse, exact Stage 37–42 patch application/byte comparison, Stage 7 then Stage 18 PNX patch checks, all platform-neutral tests, and PNX delegate/BlockEntity/runtime/entity-spawn/Stage 36 API contract checks.
 - The first full Gradle attempt reached Terra's `:common:api:compileJava` but failed in upstream Loom task `:platforms:bukkit:common:validateAccessWidener` with `java.nio.file.ClosedFileSystemException`. This is an upstream build-tool failure, not a reported Java source compilation error. The verification script was changed to disable configuration cache, serialize Gradle workers (`--max-workers=1`) and emit stack traces; the rerun is [46150102841](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46150102841) and must complete before marking upstream build PASS.
 - Stage 15 follow-up also fixes forwarding of `BufferedWorld` offsets into the guarded placement origin. Unidentified structure implementations now retain a stable fallback ID via `StringIdentifiable` or class name instead of being skipped when the guard host is active.
 
 **Still BLOCKED:** WAL compaction/checkpoint and retained-index growth; PNX physics execution; generic water-layer integration; Terra entity-spawn capture; full Origen bounds and Terra↔PNX property aliases; live PNX server generation/restart/replay/soak tests; medieval-fantasy ConfigPack content. Do not deploy.
+
+
+## Corrected Terra target — 6.6.1, 2026-11-28
+
+- Correct target identified: PNX-Terra's pinned adapter declares `org.powernukkitx:Terra:6.6.1-BETA`; the Terra source commit used for this version is `016961c19c41c2501737599175937ae40699beb1`. The former `05dd...` pin was Terra 7.0.0 and must not be used for this adapter.
+- Rebased Stage 1 and Stage 15 Terra patches to the 6.6.1 API (`com.dfsek.terra.api.util.Rotation`, `com.dfsek.terra.api.util.vector.Vector3Int`, and `java.util.Random`). The runner now checks the 6.6.1 commit.
+- GitHub Actions [46150876628](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46150876628): the complete Stage 1–42 patch application step passed against clean pinned PNX `c57499365737654eca32df008751ef6bca5af142`, Terra 6.6.1 `016961c19c41c2501737599175937ae40699beb1`, and PNX-Terra `74318b4a1eae95322550f12d5eb8a76d92a93731` checkouts. The exact-upstream build step is running; it builds the patched Terra 6.6.1 Bukkit-common shaded jar, installs it under the adapter's expected Maven coordinates, publishes patched PNX to Maven Local, then builds the adapter against those local patched artifacts.
+- The Java 21 overlay/contract job for this same run is still in progress at the time of this update. Do not mark the complete workflow PASS until both jobs finish successfully.
+
+**Production remains BLOCKED.** Do not deploy until the full build, server runtime and recovery tests pass.
