@@ -68,7 +68,7 @@ else
 fi
 # Build the exact Terra 6.6.1 Bukkit-common distribution consumed by the PNX adapter.
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
-(cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test --stacktrace)
+(cd "$TERRA" && ./gradlew --build-cache --parallel --max-workers=2 build --configuration-cache --configuration-cache-problems=warn -x test --stacktrace)
 mapfile -t TERRA_JARS < <(find "$TERRA/platforms/bukkit/common/build/libs" -maxdepth 1 -type f -name '*shaded.jar' | sort)
 [[ "${#TERRA_JARS[@]}" -eq 1 ]] || { echo "Expected exactly one Terra 6.6.1 shaded Bukkit-common jar, found ${#TERRA_JARS[@]}" >&2; printf '%s\n' "${TERRA_JARS[@]}" >&2; exit 1; }
 TERRA_M2="$HOME/.m2/repository/org/powernukkitx/Terra/6.6.1-BETA"
@@ -133,7 +133,7 @@ grep -q 'repo.minebench.de' "$PNX/settings.gradle.kts" || \
 grep -q 'force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts" || \
   sed -i '/cacheChangingModulesFor(10, TimeUnit.MINUTES)/a\        force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts"
 # Publish the modified PNX API to Maven Local so the adapter compiles against the patched source, not a remote snapshot.
-(cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build publishToMavenLocal -x test --stacktrace)
+(cd "$PNX" && ./gradlew --build-cache --parallel --max-workers=2 build --configuration-cache --configuration-cache-problems=warn publishToMavenLocal -x test --stacktrace)
 # mavenLocal() is first in the adapter's repositories; both dependencies above are now the patched exact-ref builds.
 # Compile the adapter against the exact PNX shaded output produced above.
 # This avoids re-resolving the PNX POM's historical timestamped transitive snapshots
@@ -155,5 +155,5 @@ elif new not in content:
     raise SystemExit("Expected PNX compileOnly dependency not found; refusing unsafe rewrite")
 path.write_text(content)
 PY
-(cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test -PpnxJar="$PNX_BUILT_JAR" --stacktrace)
+(cd "$ADAPTER" && ./gradlew --build-cache --parallel --max-workers=2 build --configuration-cache --configuration-cache-problems=warn -x test -PpnxJar="$PNX_BUILT_JAR" --stacktrace)
 echo "UPSTREAM_BUILD=PASS"
