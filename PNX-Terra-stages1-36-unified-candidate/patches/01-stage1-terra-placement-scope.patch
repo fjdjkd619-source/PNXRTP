@@ -43,6 +43,7 @@ index 0000000..1111111
 +    }
 +}
 
+
 diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java
 new file mode 100644
 index 0000000..1111111
@@ -58,6 +59,7 @@ index 0000000..1111111
 +public interface PlacementScopeProvider {
 +    PlacementScope beginPlacement(PlacementDescriptor descriptor);
 +}
+
 
 diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java
 new file mode 100644
@@ -98,6 +100,7 @@ index 0000000..1111111
 +    }
 +}
 
+
 diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
 --- a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
 +++ b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
@@ -110,11 +113,10 @@ diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.ja
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
-@@ -105,6 +105,14 @@
-     public WritableWorld getDelegate() {
+@@ -106,7 +106,15 @@
          return delegate;
      }
-+ 
+ 
 +    @Override
 +    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
 +        if(delegate instanceof PlacementScopeProvider provider) {
@@ -123,8 +125,10 @@ diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.ja
 +        return PlacementScope.noop();
 +    }
  
- 
++
      public static final class Builder {
+         private final WritableWorld delegate;
+         private ReadInterceptor readInterceptor;
 
 
 diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
@@ -140,7 +144,7 @@ diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terr
  import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
  import com.dfsek.terra.api.world.chunk.generation.stage.GenerationStage;
  import com.dfsek.terra.api.world.chunk.generation.util.Column;
-@@ -82,14 +85,33 @@
+@@ -82,14 +85,29 @@
                                          if(feature.getDistributor().matches(x, z, seed)) {
                                              feature.getLocator()
                                                  .getSuitableCoordinates(column.clamp(min, max))
@@ -172,11 +176,7 @@ diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terr
 +                                                                    "Xoroshiro128PlusPlus")
 +                                                                .create(coordinateSeed * 31 + y),
 +                                                            Rotation.NONE);
-+                                                        if(generated) {
-+                                                            placement.commit();
-+                                                        } else {
-+                                                            placement.abort();
-+                                                        }
++                                                        if(generated) placement.commit();
 +                                                    }
 +                                                });
                                          }
@@ -197,7 +197,7 @@ diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/
  
  
  public class StructureFunction implements Function<Boolean> {
-@@ -75,22 +78,38 @@
+@@ -75,22 +78,34 @@
                  return false;
              }
  
@@ -234,11 +234,7 @@ diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/
 +                    generated = script.generate(arguments.getOrigin(), nestedWorld,
 +                        arguments.getRandom(), nestedRotation);
 +                }
-+                if(generated) {
-+                    placement.commit();
-+                } else {
-+                    placement.abort();
-+                }
++                if(generated) placement.commit();
 +                return generated;
              }
 -            return script.generate(arguments.getOrigin(),
