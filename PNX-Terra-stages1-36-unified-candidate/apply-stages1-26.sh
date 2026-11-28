@@ -38,7 +38,7 @@ check_repo() {
 }
 
 check_repo "$PNX" "$PNX_EXPECTED_REF" "PowerNukkitX"
-check_repo "$TERRA" "05ddc8b8a66e17412670647cce78ef837b091256" "Terra"
+check_repo "$TERRA" "016961c19c41c2501737599175937ae40699beb1" "Terra"
 check_repo "$ADAPTER" "74318b4a1eae95322550f12d5eb8a76d92a93731" "PNX-Terra"
 
 apply_patch() {
