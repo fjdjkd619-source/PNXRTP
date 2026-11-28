@@ -4,7 +4,7 @@ This branch is reserved for the unified procedural world-generation project. It 
 
 ## Current gate: BLOCKED
 
-The current r5 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. The core and narrow contract tests pass, but full patch application, full adapter compilation, and runtime certification remain outstanding.
+The r6 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. Core and narrow contract tests pass, but full patch application to clean upstream repositories, full adapter compilation, and runtime certification remain outstanding.
 
 ## Pinned upstream revisions
 
@@ -14,15 +14,15 @@ The current r5 source overlay is not a complete upstream checkout, full modified
 - Origen: `228426bb192a8d6029952aae1a77008dea5f3cda`
 - Java compile target: 21
 
-## Candidate r5
+## Candidate r6
 
-The latest recovered candidate contains 38 Java source files, 11 core test classes, 17 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
+The latest recovered candidate contains 39 Java source files, 11 core test classes, 19 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
 
-The latest archive is retained in the persistent Library backup folder:
-`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r5.zip`
+Persistent Library archive:
+`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r6.zip`
 
 SHA-256:
-`b3b5aed92678ffb37666036effef508077a873c22da7642a8dce0330233c475b`
+`1e5dabc10392bd727d3b7744b02e0bf1d0063edb2abfd462f654af329687b3e0`
 
 The archive is a source overlay only. It is not an installable JAR.
 
@@ -33,22 +33,25 @@ The archive is a source overlay only. It is not an installable JAR.
 - Original PNX `c574993` baseline: blocked by Protocol Beta7 camera API symbols.
 - The successful successor build did not include the stages 1–25 overlay.
 
-## Latest Stage 22 groundwork
+## Stage 22 BlockEntity integration increment
 
 Added to this branch:
 - `source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityNbtCodec.java`
+- `source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxBlockEntityIntentApplier.java`
 - `source/org/powernukkitx/terra/crosschunk/runtime/PnxLevelExecutor.java`
-- `patches/22-stage22-be-nbt-codec-and-level-executor.patch`
-- `validation/PNX-BE-CONTRACT-2026-11-28-R5.txt`
+- Three patches: NBT/level-executor, transactional intent applier, and finalizer wiring.
+- Contract test result: `validation/PNX-BE-CONTRACT-2026-11-28-R6.txt`
 
-The codec follows the pinned PNX LevelDB chunk serializer's little-endian NBT format. The executor queues work through the owning Level scheduler. Both pass a narrow Java 21 contract-stub test, but are not yet wired into finalization; full upstream dependency compilation and runtime tests remain pending.
+The applier preflights all intents, resolves PNX registry types, rejects collisions, treats byte-identical persisted entities as replay-safe, and rolls back entities registered before a constructor failure is swallowed by the PNX factory. The coordinator now separates compute-pool block projection from PNX Level-scheduler intent application.
+
+Contract tests pass, including constructor-failure rollback. Still open: Terra structures/populators do not yet emit BlockEntity intents into the journal; full upstream dependency compilation and runtime save/restart certification remain pending.
 
 ## Required completion gates
 
 1. Apply the full active patch chain to clean upstream checkouts and resolve all patch/API conflicts.
 2. Build modified Terra, PNX and PNX-Terra together.
 3. Compile the full adapter against the actual pinned APIs.
-4. Finish transactional BlockEntity creation/update, entity intents, physics execution, water mapping, property aliases, diagnostics, and complete Origen bounds.
+4. Connect Terra structure BlockEntity capture; finish entity intents, physics execution, water mapping, property aliases, diagnostics, and complete Origen bounds.
 5. Run end-to-end generation, crash/restart/replay, persistence, lighting, cross-chunk and load tests.
 6. Produce and verify the integrated stages 1–25 JAR.
 
