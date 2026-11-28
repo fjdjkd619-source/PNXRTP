@@ -44,6 +44,7 @@ public final class PnxEntitySpawnIntentApplier {
 
         List<Entity> all = new ArrayList<>(intents.size());
         List<Entity> created = new ArrayList<>(intents.size());
+        List<Entity> stagedToActivate = new ArrayList<>(intents.size());
         try {
             for (EntitySpawnIntent intent : intents) {
                 validateTarget(chunk, intent);
@@ -53,6 +54,9 @@ public final class PnxEntitySpawnIntentApplier {
                 Entity existing = existingByUuid.get(intent.stableUuid());
                 if (existing != null) {
                     verifyExisting(existing, intent);
+                    if (existing.isGenerationActivationPending() && existing.isGenerationRegisteredForSave()) {
+                        stagedToActivate.add(existing);
+                    }
                     all.add(existing);
                     continue;
                 }
@@ -63,12 +67,13 @@ public final class PnxEntitySpawnIntentApplier {
                 Entity entity = Entity.createEntityForGeneration(intent.type(), chunk, nbt);
                 if (entity == null) throw new IOException("PNX entity registry has no factory for " + intent.type());
                 created.add(entity);
+                stagedToActivate.add(entity);
                 if (entity.isClosed()) throw new IOException("PNX cancelled or rejected entity spawn " + intent.stableUuid());
                 verifyExisting(entity, intent);
                 all.add(entity);
                 existingByUuid.put(intent.stableUuid(), entity);
             }
-            return new Batch(created, all);
+            return new Batch(created, all, stagedToActivate);
         } catch (Throwable failure) {
             rollbackCreated(created, failure);
             if (failure instanceof IOException ioFailure) throw ioFailure;
@@ -112,12 +117,12 @@ public final class PnxEntitySpawnIntentApplier {
     /** Activate and publish only after the synchronous chunk save has completed successfully. */
     public static void confirm(Batch batch) {
         Objects.requireNonNull(batch, "batch");
-        for (Entity entity : batch.created()) {
+        for (Entity entity : batch.stagedToActivate()) {
             if (!entity.activateAfterGenerationCommit()) {
                 throw new IllegalStateException("Could not activate staged generation entity " + entity.getUniqueId());
             }
         }
-        for (Entity entity : batch.created()) entity.spawnToAll();
+        for (Entity entity : batch.stagedToActivate()) entity.spawnToAll();
     }
 
     public static void rollback(Batch batch) {
@@ -135,10 +140,14 @@ public final class PnxEntitySpawnIntentApplier {
         }
     }
 
-    public record Batch(List<Entity> created, List<Entity> all) {
+    public record Batch(List<Entity> created, List<Entity> all, List<Entity> stagedToActivate) {
+        public Batch(List<Entity> created, List<Entity> all) {
+            this(created, all, created);
+        }
         public Batch {
             created = List.copyOf(created);
             all = List.copyOf(all);
+            stagedToActivate = List.copyOf(stagedToActivate);
         }
     }
 }
