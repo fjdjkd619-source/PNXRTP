@@ -1,6 +1,7 @@
 package org.powernukkitx.terra.delegate;
 
 import org.powernukkitx.block.Block;
+import org.powernukkitx.block.BlockAir;
 import org.powernukkitx.block.BlockEntityHolder;
 import org.powernukkitx.block.BlockID;
 import org.powernukkitx.level.Level;
@@ -37,7 +38,9 @@ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
 import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
 import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
 import org.powernukkitx.terra.crosschunk.journal.pnx.PnxPlacementCommitter;
+import org.powernukkitx.terra.crosschunk.journal.pnx.PnxBlockStateCodec;
 import org.powernukkitx.terra.crosschunk.scheduler.CrossChunkDependencyScheduler;
+import org.powernukkitx.terra.crosschunk.water.WaterLayerPolicy;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -245,19 +248,46 @@ public class PNXServerWorld implements ServerWorld {
         tx.guard.beforeWrite(x, y, z);
         if (physics) tx.physics.add(new PhysicsIntent(x, y, z, true));
         var innerBlockState = ((PNXBlockStateDelegate) blockState).innerBlockState();
-        if (Objects.equals(innerBlockState.getIdentifier(), BlockID.KELP)) {
-            tx.staged.setBlockStateAt(x, y, z, innerBlockState);
-            tx.staged.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
-            return;
-        }
         Block old = readOldBlock(tx, x, y, z);
-        if (Objects.equals(old.getId(), BlockID.WATERLILY)
-                || Objects.equals(old.getId(), BlockID.WATER)
-                || Objects.equals(old.getId(), BlockID.FLOWING_WATER)) {
-            tx.staged.setBlockStateAt(x, y, z, innerBlockState);
+        String oldBaseId = old.getId();
+        String oldLayerOneId = tx.staged.getBlockIdAt(x, y, z, 1);
+        boolean oldWaterLayer = Objects.equals(oldLayerOneId, BlockID.WATER)
+                || Objects.equals(oldLayerOneId, BlockID.FLOWING_WATER);
+        boolean previousFluid = oldWaterLayer
+                || Objects.equals(oldBaseId, BlockID.WATER)
+                || Objects.equals(oldBaseId, BlockID.FLOWING_WATER)
+                || Objects.equals(oldBaseId, BlockID.WATERLILY);
+
+        String propertyName = null;
+        String propertyValue = null;
+        for (var property : innerBlockState.getBlockPropertyValues()) {
+            if ("waterlogged".equals(property.getPropertyType().getName())) {
+                propertyName = property.getPropertyType().getName();
+                propertyValue = property.getSerializedValue();
+                break;
+            }
+        }
+        String identifier = innerBlockState.getIdentifier();
+        boolean intrinsicallyWaterContaining = Objects.equals(identifier, BlockID.KELP)
+                || "minecraft:seagrass".equals(identifier)
+                || "minecraft:tall_seagrass".equals(identifier);
+        byte[] canonicalWaterState;
+        try {
+            canonicalWaterState = PnxBlockStateCodec.encode(PNXProtoChunk.water);
+        } catch (IOException invalidWaterState) {
+            throw new IllegalStateException("Could not encode canonical PNX water state", invalidWaterState);
+        }
+        WaterLayerPolicy.Result water = WaterLayerPolicy.resolve(identifier, propertyName, propertyValue,
+                intrinsicallyWaterContaining || previousFluid,
+                (block, name, value) -> "waterlogged".equals(name) && "true".equalsIgnoreCase(value),
+                canonicalWaterState);
+
+        tx.staged.setBlockStateAt(x, y, z, innerBlockState);
+        if (water.writeWaterLayer()) {
             tx.staged.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
-        } else {
-            tx.staged.setBlockStateAt(x, y, z, innerBlockState);
+        } else if (oldWaterLayer) {
+            // Clear stale water only; do not destroy unrelated Bedrock layer-one content.
+            tx.staged.setBlockStateAt(x, y, z, 1, BlockAir.STATE);
         }
     }
 
