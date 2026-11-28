@@ -1,0 +1,4 @@
+PnxBlockEntityNbtContractTest: PASS
+Java 21 compile: PASS (--release 21 -Xlint:all -Werror)
+Scope: codec intent identity/coordinate round-trip, source tag immutability, coordinate drift rejection, trailing-byte rejection, and level scheduler dispatch.
+Limitation: narrow API stubs only; not a full Cloudburst NBT dependency or PNX/Terra runtime test.
