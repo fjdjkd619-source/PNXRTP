@@ -94,3 +94,8 @@ The CI workflow now rewrites the PNX-Terra adapter's OpenCollab repository URLs 
 The available GitHub connector in this session does not expose a list-workflow-runs endpoint for push-triggered runs, so the new run ID/result cannot be confirmed through that connector at this point. Do not infer success from the trigger commit. The previous confirmed compatibility run 46097388977 failed at dependency resolution and produced no JAR.
 
 **Overall remains BLOCKED.** The 10-round local test pass does not replace full PNX/Terra/adapter builds, upstream patch application, missing runtime subsystem integration, or runtime/recovery testing.
+
+
+## Terra upstream baseline diagnosis and retry
+
+The pinned Terra 6.6.1-BETA build did not fail in Terra Java compilation. It failed in Gradle task `:platforms:bukkit:common:validateAccessWidener` with `java.nio.file.ClosedFileSystemException` while the multi-platform build was running many tasks concurrently. The workflow now retries the Terra baseline with `--no-parallel --max-workers=1` to determine whether this is a build-concurrency/Loom filesystem race. This is a diagnostic retry; no Terra build success is claimed yet.
