@@ -1,5 +1,5 @@
 name: R15 full Gradle build and JAR artifacts
-# Rebuild with Maven Central mirror and pinned-base PNX Beta8 compatibility migration.
+# Rebuild with NetherNet SourcedAddress test compatibility and Maven mirror.
 
 on:
   push:
