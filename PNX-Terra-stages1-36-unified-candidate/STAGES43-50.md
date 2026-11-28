@@ -1,9 +1,16 @@
 # Stages 43–50 — completion plan for R15
 
-**Status: planned, not implemented.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Status: Stage 43 source, adapter patch and apply runner added; validation is deliberately deferred. Stages 44–50 remain planned and unimplemented.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
+<badge>Code added — not yet built or tested</badge>
+
+- Added JournalCheckpoint to the source overlay, Stage 43 adapter patch and apply-stages1-43.sh runner.
+- The codec writes a versioned PXCP snapshot with a SHA-256 integrity digest, strict payload/count limits, deterministic event encoding and strict UTF-8 decoding.
+- Publication uses a same-directory temporary file, fsync, atomic replacement and parent-directory fsync; unsupported atomic moves fail closed.
+- Added JournalCheckpointTest for round-trip of all event kinds and intent payloads, hash tampering, truncation and atomic replacement. Per the requested build policy, this test has not been run.
+- This stage adds the checkpoint data format only; it does not yet rotate or compact the live WAL. That integration belongs to Stage 44.
 - Define a versioned, deterministic checkpoint representation for the journal's durable state: placements, anchor lifecycle, applied-chunk digests, entity UUID ownership and sequence watermark.
 - Validate every field, collection count, payload bound and digest before accepting a checkpoint.
 - Preserve compatibility with WAL event versions 1–4; never reinterpret old frames.
