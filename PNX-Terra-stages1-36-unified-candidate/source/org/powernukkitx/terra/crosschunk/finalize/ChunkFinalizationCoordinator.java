@@ -70,15 +70,19 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
                             PlacementProjection.resolveEntitySpawns(pending.records, target);
                     pending.chunk.applyEntitySpawnIntents(entitySpawns);
                     if (!entitySpawns.isEmpty()) pending.chunk.prepareEntitySpawnIntentsForSave();
+                    List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> physics =
+                            PlacementProjection.resolvePhysics(pending.records, target);
 
-                    // Persist the complete block/BE/entity projection before queuing physics.
-                    // Level.updateAround() can schedule neighbour work for the next tick; it must
-                    // never observe an uncommitted in-memory projection after a failed disk save.
-                    pending.chunk.saveDurably();
-                    durableSaved = true;
-                    pending.chunk.confirmEntitySpawnIntents();
-                    pending.chunk.confirmBlockEntityIntents();
-                    pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
+                    // Persist the complete projection before queuing physics or exposing staged
+                    // BlockEntities/entities. Empty targets need no pre-light save; the persist
+                    // stage will save them after lighting.
+                    if (!blockEntities.isEmpty() || !entitySpawns.isEmpty() || !physics.isEmpty()) {
+                        pending.chunk.saveDurably();
+                        durableSaved = true;
+                        pending.chunk.confirmEntitySpawnIntents();
+                        pending.chunk.confirmBlockEntityIntents();
+                    }
+                    if (!physics.isEmpty()) pending.chunk.applyPhysicsIntents(physics);
                 } catch (Exception failure) {
                     // Once the durable save succeeds, these intents are committed. Do not tear down
                     // entities/BlockEntities from the live chunk if a later physics queue operation
