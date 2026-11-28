@@ -90,17 +90,8 @@ POM
 PNX_PROTOCOL_COMPAT_COMMIT="ff86b15d18e3699459c7913eb1ebec16521b7ad0"
 git -C "$PNX" fetch --no-tags origin "$PNX_PROTOCOL_COMPAT_COMMIT"
 # Replace only the six upstream-owned protocol/camera files with their exact contents
-# from the official Beta8 migration commit. Stage 1–42 patches do not touch these files;
-# path checkout avoids fragile context matching while retaining all generator changes.
-for path in \\
-  gradle/libs.versions.toml \\
-  src/main/java/org/powernukkitx/camera/CameraProgressKeyFrame.java \\
-  src/main/java/org/powernukkitx/camera/CameraRotationKeyFrame.java \\
-  src/main/java/org/powernukkitx/camera/PlayerCamera.java \\
-  src/main/java/org/powernukkitx/command/defaults/CameraCommand.java \\
-  src/test/java/org/powernukkitx/utils/DefaultCameraPresetsTest.java; do
-  git -C "$PNX" checkout "$PNX_PROTOCOL_COMPAT_COMMIT" -- "$path"
-done
+# from the official Beta8 migration commit. Stage 1–42 patches do not touch these files.
+git -C "$PNX" checkout "$PNX_PROTOCOL_COMPAT_COMMIT" -- gradle/libs.versions.toml src/main/java/org/powernukkitx/camera/CameraProgressKeyFrame.java src/main/java/org/powernukkitx/camera/CameraRotationKeyFrame.java src/main/java/org/powernukkitx/camera/PlayerCamera.java src/main/java/org/powernukkitx/command/defaults/CameraCommand.java src/test/java/org/powernukkitx/utils/DefaultCameraPresetsTest.java
 # Cloudburst Network's NetherNet child now accepts a provenance-bearing remote address.
 # Keep the transport identity regression test aligned with that API while preserving
 # the same signaled peer and local endpoint used by the test.
