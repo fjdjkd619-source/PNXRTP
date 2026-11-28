@@ -4,9 +4,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD_DIR:-$ROOT/validation/delegate-contract-build}"
 STUB="$BUILD/stubs"
 rm -rf "$BUILD"
-mkdir -p "$STUB/com/dfsek/seismic/type/vector" "$STUB/com/dfsek/terra/api/block/entity" "$STUB/com/dfsek/terra/api/block/state/properties" "$STUB/com/dfsek/terra/api/block/state" "$STUB/com/dfsek/terra/api/block" "$STUB/com/dfsek/terra/api/world/chunk" "$STUB/com/dfsek/terra/api/world" "$STUB/org/powernukkitx/block/property/type" "$STUB/org/powernukkitx/block" "$STUB/org/powernukkitx/blockentity" "$STUB/org/powernukkitx/registry" "$STUB/org/powernukkitx/level/format" "$STUB/org/powernukkitx/terra/delegate" "$STUB/org/powernukkitx/terra" "$STUB/org/jetbrains/annotations"
+mkdir -p "$STUB/com/dfsek/seismic/type/vector" "$STUB/com/dfsek/terra/api/util/vector" "$STUB/com/dfsek/terra/api/block/entity" "$STUB/com/dfsek/terra/api/block/state/properties" "$STUB/com/dfsek/terra/api/block/state" "$STUB/com/dfsek/terra/api/block" "$STUB/com/dfsek/terra/api/world/chunk" "$STUB/com/dfsek/terra/api/world" "$STUB/org/powernukkitx/block/property/type" "$STUB/org/powernukkitx/block" "$STUB/org/powernukkitx/blockentity" "$STUB/org/powernukkitx/registry" "$STUB/org/powernukkitx/level/format" "$STUB/org/powernukkitx/terra/delegate" "$STUB/org/powernukkitx/terra" "$STUB/org/jetbrains/annotations"
 cat > "$STUB/com/dfsek/seismic/type/vector/Vector3.java" <<'JAVA'
 package com.dfsek.seismic.type.vector; public record Vector3(double x,double y,double z){public static Vector3 of(double x,double y,double z){return new Vector3(x,y,z);}}
+JAVA
+cat > "$STUB/com/dfsek/terra/api/util/vector/Vector3.java" <<'JAVA'
+package com.dfsek.terra.api.util.vector; public record Vector3(double x,double y,double z){public static Vector3 of(double x,double y,double z){return new Vector3(x,y,z);}}
 JAVA
 cat > "$STUB/com/dfsek/terra/api/block/entity/BlockEntity.java" <<'JAVA'
 package com.dfsek.terra.api.block.entity; import com.dfsek.seismic.type.vector.Vector3; import com.dfsek.terra.api.block.state.BlockState; public interface BlockEntity{boolean update(boolean physics);default void applyState(String state){}Vector3 getPosition();int getX();int getY();int getZ();BlockState getBlockState();Object getHandle();}
@@ -33,7 +36,7 @@ cat > "$STUB/org/powernukkitx/block/property/type/BlockPropertyType.java" <<'JAV
 package org.powernukkitx.block.property.type; import java.util.List; public interface BlockPropertyType<T>{String getName();T getDefaultValue();List<T> getValidValues(); interface BlockPropertyValue<T>{BlockPropertyType<T> getPropertyType();T getValue();Object getSerializedValue();}}
 JAVA
 cat > "$STUB/org/powernukkitx/block/BlockProperties.java" <<'JAVA'
-package org.powernukkitx.block; import java.util.Set; import org.powernukkitx.block.property.type.BlockPropertyType; public class BlockProperties{private final Set<BlockPropertyType<?>> p;public BlockProperties(Set<BlockPropertyType<?>> p){this.p=p;}public Set<BlockPropertyType<?>> getPropertyTypeSet(){return p;}}
+package org.powernukkitx.block; import java.util.Set; import org.powernukkitx.block.property.type.BlockPropertyType; public class BlockProperties{private final Set<BlockPropertyType<?>> p;public BlockProperties(Set<BlockPropertyType<?>> p){this.p=p;}public Set<BlockPropertyType<?>> getPropertyTypeSet(){return p;}public BlockState getDefaultState(){return BlockAir.STATE;}}
 JAVA
 cat > "$STUB/org/powernukkitx/block/BlockState.java" <<'JAVA'
 package org.powernukkitx.block; import java.util.List; import org.powernukkitx.block.property.type.BlockPropertyType; public interface BlockState{String getIdentifier();List<? extends BlockPropertyType.BlockPropertyValue<?>> getBlockPropertyValues();<T> T getPropertyValue(BlockPropertyType<T> p);<T> BlockState setPropertyValue(BlockProperties b,BlockPropertyType<T> p,T v);}
@@ -124,6 +127,8 @@ JAVA
 mapfile -t SOURCES < <(find "$STUB" -name '*.java')
 mkdir -p "$BUILD/classes"
 javac --release 21 -Xlint:all -Werror -d "$BUILD/classes" "${SOURCES[@]}" \
+  "$ROOT/source/org/powernukkitx/terra/crosschunk/state/CanonicalBlockState.java" \
+  "$ROOT/source/org/powernukkitx/terra/crosschunk/state/BlockStatePropertyBridge.java" \
   "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java" \
   "$ROOT/source/org/powernukkitx/terra/delegate/PNXChunkDelegate.java" \
   "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java"
