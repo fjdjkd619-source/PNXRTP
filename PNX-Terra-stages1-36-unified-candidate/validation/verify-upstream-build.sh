@@ -49,6 +49,15 @@ cat > "$TERRA_M2/Terra-6.6.1-BETA.pom" <<'POM'
   <packaging>jar</packaging>
 </project>
 POM
+# The pinned PNX 3.0.6 source predates the official Beta8 camera API migration,
+# but its floating Beta7-Debug-SNAPSHOT dependency now resolves without the legacy
+# camera instruction classes. Apply the exact upstream PNX protocol-upgrade commit
+# (camera API migration + matching Beta8 dependency pin) to this isolated build tree.
+PNX_PROTOCOL_COMPAT_COMMIT="ff86b15d18e3699459c7913eb1ebec16521b7ad0"
+git -C "$PNX" fetch --no-tags origin "$PNX_PROTOCOL_COMPAT_COMMIT"
+git -C "$PNX" show --format= --binary "$PNX_PROTOCOL_COMPAT_COMMIT" > "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+git -C "$PNX" apply --check "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
+git -C "$PNX" apply "$RUNNER_TEMP/pnx-protocol-beta8-compat.patch"
 # Publish the modified PNX API to Maven Local so the adapter compiles against the patched source, not a remote snapshot.
 (cd "$PNX" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean test build publishToMavenLocal --stacktrace)
 # mavenLocal() is first in the adapter's repositories; both dependencies above are now the patched exact-ref builds.
