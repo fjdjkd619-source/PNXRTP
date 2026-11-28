@@ -11,7 +11,7 @@ from pathlib import Path
 
 STRUCTURES_KEY = re.compile(r"^(?P<indent>[ \t]*)structures:[ \t]*(?P<value>.*?)\s*$")
 STRUCTURE_LIST_ITEM = re.compile(r"^[ \t]+-\s*([A-Za-z0-9_.:/-]+)\s*:")
-ANCHOR = re.compile(r"&([A-Za-z0-9_-]+)\s+([A-Za-z0-9_.:/-]+)")
+ANCHOR_SCALAR = re.compile(r"&([A-Za-z0-9_-]+)[ \t]+([A-Za-z0-9_.:/-]+)")
 NESTED_LITERAL = re.compile(r"""\b(?:structure|placeStructure|place_structure)\s*\(\s*(['"])(.*?)\1""")
 NESTED_CALL = re.compile(r"\b(?:structure|placeStructure|place_structure)\s*\(")
 BLOCK_WRITE = re.compile(r"\bblock\s*\(")
@@ -36,22 +36,53 @@ def git_head(root: Path) -> str:
 
 
 def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
-    anchors = {name: value for name, value in ANCHOR.findall(source)}
+    anchor_scalars = {name: value for name, value in ANCHOR_SCALAR.findall(source)}
+    anchor_maps: dict[str, set[str]] = {}
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        match = re.search(r"&([A-Za-z0-9_-]+)[ \t]*$", line)
+        if not match:
+            continue
+        name = match.group(1)
+        base_indent = len(line) - len(line.lstrip(" \t"))
+        values: set[str] = set()
+        for child in lines[index + 1:]:
+            if not child.strip() or child.lstrip().startswith("#"):
+                continue
+            child_indent = len(child) - len(child.lstrip(" \t"))
+            if child_indent <= base_indent:
+                break
+            item = re.match(r"^[ \t]+([A-Za-z0-9_.:/-]+):[ \t]*[^#]+$", child)
+            if item:
+                values.add(item.group(1))
+        if values:
+            anchor_maps[name] = values
+
     roots: set[str] = set()
     block_targets: set[str] = set()
     saw_structures_key = False
-    lines = source.splitlines()
+    unresolved = False
 
     def add_scalar(raw: str) -> None:
+        nonlocal unresolved
         value = raw.split("#", 1)[0].strip()
         if not value:
             return
         if value.startswith("*"):
-            value = anchors.get(value[1:], "")
+            alias = value[1:]
+            if alias in anchor_maps:
+                roots.update(anchor_maps[alias])
+                return
+            value = anchor_scalars.get(alias, "")
+            if not value:
+                unresolved = True
+                return
         if value.startswith("BLOCK:"):
             block_targets.add(value)
         elif re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
             roots.add(value)
+        else:
+            unresolved = True
 
     for index, line in enumerate(lines):
         match = STRUCTURES_KEY.match(line)
@@ -81,7 +112,7 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
                     roots.add(item_id)
             block_targets.update(BLOCK_TARGET.findall(child))
 
-    return roots, block_targets, saw_structures_key and not roots and not block_targets
+    return roots, block_targets, unresolved or (saw_structures_key and not roots and not block_targets)
 
 
 def parse_structure_yaml(path: Path, root: Path) -> dict | None:
@@ -166,11 +197,14 @@ def main() -> int:
         for structure_id in ids:
             root_refs[structure_id].append(rel)
 
+    root_refs_lower = defaultdict(list)
+    for structure_id, paths in root_refs.items():
+        root_refs_lower[structure_id.lower()].extend(paths)
     for record in script_records:
-        record["root_feature_references"] = sorted(root_refs.get(record["id"], []))
+        record["root_feature_references"] = sorted(set(root_refs_lower.get(record["id"].lower(), [])))
         record["has_root_feature_reference"] = bool(record["root_feature_references"])
     for record in structure_definitions:
-        record["root_feature_references"] = sorted(root_refs.get(record["id"], []))
+        record["root_feature_references"] = sorted(set(root_refs_lower.get(record["id"].lower(), [])))
         record["has_root_feature_reference"] = bool(record["root_feature_references"])
 
     script_matches = sum(1 for key in root_refs if key.lower() in scripts_by_id)
