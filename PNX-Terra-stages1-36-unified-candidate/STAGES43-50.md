@@ -1,6 +1,13 @@
 # Stages 43–50 — completion plan for R15
 
-**Current status: compile-only upstream build PASS on commit `61e60d573217793d62747266e76538c9a9132f68` (workflow run [46174452474](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46174452474)); the build applied stages 1–47 plus Stage 48 overlays and compiled Terra, PNX and adapter JARs. Tests were skipped with `-x test`. Stage 43–47 code and Stage 48 overlays therefore have compile evidence, but runtime and regression acceptance remain unverified. Stage 44 retention is incomplete. Stage 48 acceptance is NOT PASSED. Stage 49 content pack is not implemented. Stage 50 has only compile-only upstream artifacts; final pack packaging, manifest and runtime certification remain open.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Current verified state (2026-11-28):** Stage 1–47 and Stage 1–48 patch validation pass on R15 commit `77f54148276163528beb1a4081b17847d8525db7`. The pinned ConfigPack audit reports 228 feature roots: 41 statically certified and 187 deny-all; all 6 new Stage 49 structures have certified profiles. YAML errors, duplicate script IDs, unresolved roots and unresolved feature YAML are zero. Full upstream compile run [46177313702](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46177313702) is still in progress for that commit; no current JAR artifact exists yet. The prior compile-only success on `61e60d5` is historical and does not certify this candidate.
+
+**Stage 49 is partial, not complete.** Six small procedural structures are wired into the pinned Terra ConfigPack: floating rock islands, crystal clusters, ruined watchtowers, castle keeps, timber homesteads and underground crypts. Large fortresses/castles, villages, road networks, bridges, waterfalls, large cave systems, underground rivers/lakes, ancient cities, temples, sanctuaries and landmark combinations remain outstanding.
+
+**Stage 50 acceptance harness is prepared on branch `R15-stage50-prep`, not yet run or merged.** It checks the new content and bounds, exact Stage 37–42 patch application, Stage 35/36 PNX API lifecycle, Java 21 core regression suites and the adapter/PNX contract suites. It is static/contract acceptance only; live world generation, persistence, restart/replay, lighting, cross-chunk, water, physics, entities and soak testing still require separate runtime certification.
+
+The release gate remains **BLOCKED**. Do not deploy until the exact current commit builds, Stage 50 tests pass, the complete content scope is implemented, and live server/runtime certification is complete. Stage numbers are work packages, not claims that every stage is complete.
+
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
@@ -72,35 +79,65 @@
 - Capture currently records type and position with default yaw/pitch and empty NBT payload because the pinned Terra spawn API exposes no orientation or NBT parameters.
 - Added the PNX core lifecycle-query patch, adapter capture/replay patch and ordered `apply-stages1-47.sh` runner. Build, cancellation, restart/replay, factory-failure and live-server behavior remain unverified.
 
-## Stage 48 — Complete structure bounds, state aliases and diagnostics
+## Stage 48 — Static structure bounds and fail-closed admission
 
-**Partial implementation committed and compiled in the compile-only build; Stage 48 acceptance is NOT PASSED.**
+**Partial acceptance passed; complete coverage remains open.**
 
-- Changed unknown-script resolution from a permissive generic envelope to a deny-all profile: zero read/write/entity budgets.
-- Changed `PNXServerWorld.beginPlacement` to reject roots without a verified profile before opening a placement transaction or journal ticket. The warning includes stage, feature, structure, world key, chunk anchor and origin coordinates.
-- Added enabled-root validation to `BoundsCatalogValidator.validateEnabled(...)`. Release validation can reject any enabled structure without an audited profile and reject wildcard dependencies in audited profiles.
-- Added `apply-stages1-48.sh` to install the tightened catalog, validator and root-admission overlay into the pinned adapter after stages 1–47.
-- Exact pinned inventory is now generated in CI against Terra ConfigPack commit `445848bc…` and PNX commit `c574993…`. It finds 287 TerraScripts, 28 YAML structure definitions, 333 feature YAML files and 222 feature roots; all roots resolve, but all 287 scripts remain UNKNOWN for bounds. Only 7 of 222 roots match the 12 runtime profiles; 215 roots remain unprofiled and fail closed. Static block-state audit finds 486 literals, all compatible with PNX states (223 require PNX default-property completion); zero unsupported variants/IDs. `PNXBlockStateDelegate.getBlockType()` was corrected to expose the actual registered PNX default state. Twelve dynamic state expressions still need runtime validation. 107 scripts have dynamic nested targets. Full evidence and workflow artifact details are in `history/reports/STAGE48-BOUNDS-COVERAGE-R15.md`.
-- Still open: certify bounds and dynamic nested-call envelopes for every enabled script/YAML structure; wire enabled-root validation into pack startup; runtime-validate dynamic block-state expressions; complete world-aware diagnostics and rollback verification.
-- Acceptance: the exact enabled-root set has one verified profile per root, no enabled root uses the deny-all fallback, all alias mappings are registry-verified, and diagnostic/rollback integration is complete.
+- Unknown or unproven structure roots resolve to a zero-budget deny-all profile. They cannot silently execute under a permissive fallback.
+- `PNXServerWorld.beginPlacement` rejects roots without a verified profile before opening the placement transaction/journal ticket.
+- `BoundsCatalogValidator` rejects wildcard dependencies and unverified fallback evidence in the verified profile set.
+- CI audits the exact Terra ConfigPack commit `445848bc9f9f28fab1d760f01f9a552d93944681` against pinned PNX `c57499365737654eca32df008751ef6bca5af142`.
+- Current inventory: 228 unique feature roots, 41 static profiles, 187 unverified deny-all profiles, 0 YAML parse errors, 0 duplicate script IDs, 0 unresolved roots and 0 unresolved feature YAML.
+- All six Stage 49 TerraScripts have finite static profiles and are present in the generated `OrigenBoundsCatalog`.
+- The CI audit artifact is attached to run [46177313748](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46177313748).
 
-## Stage 49 — Medieval-fantasy procedural content pack
+Still open: certify the remaining 187 roots or leave them explicitly disabled; verify every enabled alias and dynamic state expression; wire startup validation and complete diagnostics/rollback integration. Stage 48 is not complete while any required content root remains unverified.
 
-- Deliver the actual Terra ConfigPack content; infrastructure stages alone are not world content.
-- Add coherent natural terrain and biome transitions, rivers/lakes/waterfalls/coasts, unusual rock formations, floating islands, crystal zones, giant caves and underground water systems.
-- Add castles, fortresses, towers, villages, bridges, roads, ancient cities, temples, ruins, sanctuaries and hidden complexes.
-- Use deterministic placement, weighted rarity, biome/terrain suitability, spacing, footprint bounds and cross-chunk-safe structure placement.
-- Add transition rules so structures and natural features combine organically instead of forming fixed map regions.
-- Acceptance: pack loads through the pinned Terra 6.6.1 runtime; every enabled asset/script has validated bounds and mappings; representative seeds demonstrate all required feature families and coherent transitions.
+Acceptance: every enabled root has one statically verified profile; all other roots are excluded; alias mappings are registry-verified; startup and failure diagnostics are exercised.
+## Stage 49 — Procedural medieval-fantasy content pack
 
-## Stage 50 — Unified generator integration and release packaging
+**Partial content slice committed; full world catalog and runtime loading remain open.**
 
-- Wire all completed infrastructure and content into one supported PNX–Terra entry point with explicit configuration, lifecycle and failure handling.
-- Produce a reproducible release manifest containing exact upstream revisions, config-pack version, JAR names, SHA-256 hashes and required Java version.
-- Package the installable generator JAR and required content/resources together; fail packaging if any stage or required asset is missing.
-- Verify that the generated artifact is self-consistent and that the server loads the generator without silently falling back to incomplete/default content.
-- Acceptance: clean compile-only build produces the complete installable artifact and manifest. Only after this artifact exists do we re-enable regression suites and run the full test, runtime generation, persistence, restart/replay, cross-chunk, lighting, water, physics, entity and long-soak matrix.
+Added and registered six Terra feature families in the pinned ConfigPack:
+- Rare high-altitude floating rock islands.
+- Underground amethyst/calcite crystal pockets.
+- Sparse ruined stone watchtowers.
+- Rare compact castle keeps.
+- Small timber homesteads.
+- Underground crypt chambers.
 
+Each feature points to a finite TerraScript structure. The current bounds generator certifies all six scripts; CI verifies feature-to-script references, YAML parsing, root inventory and generated catalog membership.
+
+Still to implement:
+- Full castles, fortified compounds, walls, towers and gates.
+- Villages, hamlets, roads, bridges and connected settlements.
+- Waterfalls, river gorges, lakes, underground rivers and coast transitions.
+- Large cave networks, underground halls and crystal caverns.
+- Ancient cities, temples, ruins, sanctuaries and hidden complexes.
+- Weighted rarity, terrain/biome suitability, spacing, multi-feature transitions and representative seed coverage.
+
+Acceptance: the complete content pack loads through pinned Terra 6.6.1; every enabled script has certified bounds and valid block mappings; representative seeds demonstrate each required feature family and coherent transitions.
+## Stage 50 — Unified integration, acceptance and release packaging
+
+**Acceptance harness prepared on `R15-stage50-prep`; not yet executed or merged.**
+
+The new `validation/run-stage50-acceptance.sh` runs:
+- Stage 49 feature/structure manifest and static bounds checks.
+- Exact Stage 37–42 patch apply/byte comparison.
+- Stage 35/36 pinned PNX entity lifecycle API checks.
+- Java 21 core regression suites with `-Xlint:all -Werror`.
+- Delegate, entity-spawn, BlockEntity and runtime journal contract suites.
+
+The build workflow on the preparation branch places this acceptance step after the compile-only upstream build and includes the resulting report/log in the artifact. This harness does not claim a live server test.
+
+Remaining Stage 50 work:
+- Run and fix the full acceptance suite on the exact build commit.
+- Produce adapter, Terra, PNX and required dependency JARs plus the complete ConfigPack, manifest and SHA-256 inventory.
+- Ensure release packaging rejects blocked/incomplete status and missing runtime certification markers.
+- Verify the artifact loads in a clean PNX server and creates/saves/reloads worlds.
+- Run restart/replay, cross-chunk, BlockEntity/entity, water, physics, lighting, diagnostics and long-soak tests.
+
+Acceptance: the exact source commit passes compile and Stage 50 tests; all required artifacts and checksums exist; live server/runtime certification passes. Until then the release gate stays BLOCKED.
 ## Build and test policy
 
 - Until Stage 50 is complete: no automatic test workflows and no test tasks during build.
