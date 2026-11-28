@@ -53,7 +53,7 @@ public final class OrigenBoundsCatalog {
                     "Pinned pack large_underground_water_lake.tesf: radius <=5.5 plus bounded warp; vertical squish >=1")),
             Map.entry("large_underground_lava_lake", profile("large_underground_lava_lake",
                     -16, -20, -16, 16, 20, 16, 15_000, 10_000, 0, List.of(),
-                    "Pinned pack large_underground_lava_lake.tesf: radius <=8 plus bounded warp; vertical squish >=1")),
+                    "Pinned pack large_underground_lava_lake.tesf: radius <=8 plus bounded warp; vertical squish >=1"))
     );
 
     /**
