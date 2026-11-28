@@ -51,3 +51,14 @@ A reproducible GitHub Actions workflow has been added to checkout these exact co
 - The new pinned-upstream source audit workflow has been added; its result is not yet confirmed.
 
 Do not start stages 26–34 or deploy. Continue stages 1–25 only.
+
+
+## Pinned baseline Gradle build attempt (run 46097043541)
+
+GitHub Actions successfully checked out all three exact pinned commits and started independent Gradle builds under Java 21.
+
+- **PNX 3.0.6:** FAILED at `:compileJava`. Nine unresolved symbols are from the Bedrock camera API (`CameraSetInstruction`, `CameraFadeInstruction`, `EasingType`) in the resolved `3.0.0.Beta7-Debug-SNAPSHOT` protocol dependency. This is a dependency/source mismatch in the pinned PNX build environment; it is not evidence that the generator overlay caused the failure.
+- **PNX-Terra 1.0.0:** FAILED at `:compileJava`. Its `server:nightly-SNAPSHOT` dependency resolved to Java class-file version 69 (Java 25), while this project is compiled with Java 21 (class-file version 65). This independently confirms that the floating nightly dependency is not suitable for a reproducible Java 21 build.
+- **Terra 6.6.1-BETA:** build job was still running when this status snapshot was recorded.
+
+No integrated stage patch was applied in this run. No final JAR was produced. The next build experiment must first resolve the PNX protocol dependency mismatch, then publish the exact PNX source artifact locally as `org.powernukkitx:server:3.0.6-SNAPSHOT` and compile PNX-Terra against it instead of `nightly-SNAPSHOT`.
