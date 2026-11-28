@@ -28,6 +28,10 @@ done
 
 bash "$ROOT/apply-stages1-47.sh" "$@"
 
+install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/state/BlockStatePropertyBridge.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/state/BlockStatePropertyBridge.java"
+install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java"
 install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXServerWorld.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java"
 install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java" \
@@ -35,6 +39,10 @@ install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCa
 install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java"
 
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/state/BlockStatePropertyBridge.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/state/BlockStatePropertyBridge.java"
+cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java"
 cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXServerWorld.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java"
 cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java" \
