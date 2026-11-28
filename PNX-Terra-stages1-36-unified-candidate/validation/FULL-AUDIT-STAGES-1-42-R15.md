@@ -116,3 +116,12 @@ Stage 7 уже вводит `GenerateStage.applyAsync`, меняет pipeline `G
 9. Отдельно наполнить ConfigPack требуемым medieval-fantasy контентом; infrastructure stages 1–42 этого не заменяют.
 
 **Решение аудита:** не устанавливать R15 на production. Core overlay имеет успешные Java 21 тесты, но полный путь 1–42 не интегрирован в upstream patch chain и имеет функциональные незакрытые области.
+
+
+## Follow-up validation — bounded WAL encoder
+
+После исходного аудита исправлен узкий дефект F-04 на уровне сериализации placement frame: `PlacementJournal.encodePlacement` теперь пишет через ограниченный поток с пределом `MAX_FRAME` (64 MiB), который отклоняет превышение до передачи байтов в backing buffer. Добавлен `PlacementJournalEncodingLimitTest`: точная граница, одиночный overflow, bulk overflow, отсутствие роста backing buffer при отказе и нулевой лимит.
+
+GitHub Actions [46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903) на commit `0f1d6508b57581d4825e9e4591f163512e3ef69e` завершился SUCCESS: Java 21 compile, platform-neutral suites, PNX delegate/BlockEntity/runtime/entity-spawn contracts, Stage 36 API fixture, shell syntax и patch parsing.
+
+Это устраняет только риск чрезмерного временного выделения памяти при кодировании одной большой placement-записи. **F-04 остаётся открытым в части неограниченного WAL и in-memory индексов:** compaction/checkpoint/retention ещё нет. F-02 также остаётся открытым: Stage 37–42 пока не добавлены в upstream apply chain; этот source-overlay fix не является применённым PNX/Terra upstream patch.
