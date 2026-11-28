@@ -62,3 +62,20 @@ GitHub Actions successfully checked out all three exact pinned commits and start
 - **Terra 6.6.1-BETA:** build job was still running when this status snapshot was recorded.
 
 No integrated stage patch was applied in this run. No final JAR was produced. The next build experiment must first resolve the PNX protocol dependency mismatch, then publish the exact PNX source artifact locally as `org.powernukkitx:server:3.0.6-SNAPSHOT` and compile PNX-Terra against it instead of `nightly-SNAPSHOT`.
+
+
+## Follow-up compatibility experiment (run 46097388977)
+
+The first failed PNX baseline is now understood more precisely. PNX commit `c574993...` imports the pre-migration camera protocol API (`CameraSetInstruction`, `CameraFadeInstruction`, `EasingType` under `data.camera`, and the old builder/nested-option methods). The currently resolved `3.0.0.Beta7-Debug-SNAPSHOT` artifact no longer matches that source shape: the protocol classes were moved to `data.camera.instruction`, `EasingType` became `EasingFunction`, and the instruction/packet APIs changed. This is a stale/mismatched snapshot dependency, not merely a missing import.
+
+PNX commit `ff86b15d18e3699459c7913eb1ebec16521b7ad0` is an API 3.0.6 successor that explicitly migrates PNX camera code and switches the dependency to `3.0.0.Beta8-SNAPSHOT`. A separate compatibility workflow now:
+1. checks out that exact PNX commit and the pinned PNX-Terra 1.0.0 source;
+2. builds and publishes the exact PNX server artifact to Maven Local under `3.0.6-SNAPSHOT`;
+3. replaces PNX-Terra's floating `nightly-SNAPSHOT` dependency with that exact local artifact;
+4. attempts to build the adapter on Java 21 and package its JAR.
+
+Run: https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46097388977
+
+At the last status query, the workflow had passed checkout, Java setup, Gradle setup, and the pinned-ref/protocol-version assertions. The PNX `publishToMavenLocal` build was still running. No adapter build result or JAR has been confirmed yet.
+
+This experiment does not change the pinned c574993 reference or the live server. If it passes, it establishes a viable later API 3.0.6 compatibility target; it does not automatically authorize changing the user's server.
