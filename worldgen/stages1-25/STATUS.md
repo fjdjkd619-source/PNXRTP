@@ -1,23 +1,27 @@
 # Stage 1–25 gate status
 
-Status: BLOCKED — integration not yet complete.
+**Status: BLOCKED — not an integrated build and not deployable.**
 
-Verified in the current workspace:
-- Java 21 independent-core compile: PASS.
-- 11 standalone test classes: PASS (one current run each).
+Latest local verification (2026-11-28):
+- Java 21 independent-core compile and 11 test classes: PASS for 10 consecutive rounds (110/110 executions).
+- Patch syntax parse: 29/29 PASS using `git apply --stat`; no applicability claim.
+- Original archive CRC/readability: 13/13 PASS.
+- Source overlay: 33 Java source files and 11 tests.
 
-Not yet verified:
-- Complete patch application against clean pinned upstream checkouts.
-- Full PowerNukkitX Gradle build.
-- Full Terra Gradle build.
-- Full PNX-Terra Gradle build.
-- Full adapter compile against real upstream classpaths.
-- Block Entity NBT and PNX object creation.
-- Runtime physics executor and WaterLayerPolicy.
-- Complete Terra↔PNX block/property registry.
-- Global diagnostics.
-- Full Origen safe-bound coverage.
-- Runtime world generation, restart/recovery, durable persistence, load tests.
-- Final integrated JAR.
+GitHub Actions:
+- Workflow run 46096537147: FAILURE by design at the acceptance-gate step because this status is BLOCKED. It did not run Gradle builds.
 
-A green standalone-core test is not acceptance of stages 1–25. The integration gate remains closed until all items above are verified.
+Unresolved blockers:
+1. Complete portable patch/source history for stages 3–6 is missing.
+2. Complete upstream patch history for stages 12–14 is missing.
+3. Clean pinned PNX/Terra/PNX-Terra source checkouts are not included; full apply-check and Gradle builds cannot be performed.
+4. Block Entity NBT and actual PNX BlockEntity factory integration absent.
+5. Entity creation absent; entity-bearing structures fail closed.
+6. Physics executor not connected; WaterLayerPolicy not wired to live PNX updates.
+7. Complete Terra↔PNX block/property registry absent.
+8. Global stage diagnostics incomplete.
+9. Origen safe-bounds coverage incomplete; unknown scripts remain blocked.
+10. No full runtime, restart/recovery, persistence or load integration tests.
+11. No integrated JAR.
+
+Do not start stages 26–34 or deploy. Continue stage 1–25 only after the missing source history and pinned upstream working trees are recovered.
