@@ -8,7 +8,7 @@ while (($#)); do case "$1" in
 [[ -n "$PNX" && -n "$TERRA" && -n "$ADAPTER" ]] || usage
 for dir in "$PNX" "$TERRA" "$ADAPTER"; do [[ -x "$dir/gradlew" ]] || { echo "Missing Gradle wrapper in $dir" >&2; exit 1; }; done
 if (( APPLY )); then PNX_EXPECTED_REF="$PNX_REF" "$ROOT/apply-stages1-36.sh" --pnx "$PNX" --terra "$TERRA" --adapter "$ADAPTER" --pnx-ref "$PNX_REF"; fi
-for spec in "$PNX:$PNX_REF:PowerNukkitX" "$TERRA:05ddc8b8a66e17412670647cce78ef837b091256:Terra" "$ADAPTER:74318b4a1eae95322550f12d5eb8a76d92a93731:PNX-Terra"; do
+for spec in "$PNX:$PNX_REF:PowerNukkitX" "$TERRA:016961c19c41c2501737599175937ae40699beb1:Terra" "$ADAPTER:74318b4a1eae95322550f12d5eb8a76d92a93731:PNX-Terra"; do
   IFS=: read -r dir expected name <<< "$spec"
   actual="$(git -C "$dir" rev-parse HEAD)"
   [[ "$actual" == "$expected" ]] || { echo "$name ref mismatch; expected $expected got $actual" >&2; exit 1; }
