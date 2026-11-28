@@ -1,151 +1,93 @@
-# Stage 48 — Terra structure bounds coverage audit (R15)
+# Stage 48 — Terra bounds and PNX block-state coverage (R15)
 
-**Audit status: incomplete; release gate remains blocked.** This report is a coverage inventory, not proof that the remaining scripts are safe.
+**Acceptance: NOT PASSED.** This is an exact source inventory and compatibility audit, not a claim that the Terra scripts have certified placement bounds.
 
-## Pinned input
+## Exact pinned inputs
 
-- Config pack: `PolyhedralDev/TerraOverworldConfig`
-- Config pack commit: `445848bc9f9f28fab1d760f01f9a552d93944681`
-- Source archive label in the generated registry: `origen-v2.2.0.zip`
-- Registry source head: `228426bb192a8d6029952aae1a77008dea5f3cda`
-- Candidate branch: `R15`
+- Terra ConfigPack: `PolyhedralDev/TerraOverworldConfig`
+- ConfigPack commit: `445848bc9f9f28fab1d760f01f9a552d93944681`
+- PowerNukkitX commit: `c57499365737654eca32df008751ef6bca5af142`
+- PNX block registry: `src/main/resources/mappings/blocks.json`
+- Inventory workflow run: [R15 Stage 1–48 patch validation](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46167478936)
+- Artifact: `stage48-terra-configpack-inventory`
 
-## Critical source-integrity finding
+The previously checked-in `structure-bounds-registry.json` was generated from a different source head (`228426bb192a8d6029952aae1a77008dea5f3cda`) and contained stale paths. It is not used as the source of truth. The Stage 48 workflow now checks out both exact pinned commits, verifies their HEADs, regenerates the inventory and uploads it as an artifact.
 
-The checked-in bounds registry is **not proven to describe the pinned ConfigPack commit**:
+## Exact inventory results
 
-- Registry `source_git_head`: `228426bb192a8d6029952aae1a77008dea5f3cda`
-- Pinned ConfigPack commit: `445848bc9f9f28fab1d760f01f9a552d93944681`
-- Registry lists `structures/boulders/boulder.tesf`, while the pinned commit tree contains `structures/geological/boulders/boulder.tesf`.
-- The pinned commit tree contains 287 `.tesf` files and 333 feature YAML files; the checked-in registry contains only 159 script records.
-
-Therefore the 159/73/3/70 figures below describe the **old registry snapshot only**. They are useful as a warning, but they are not valid coverage metrics for the pinned commit. Stage 48 must regenerate the inventory and feature-root graph directly from commit `445848bc9f9f28fab1d760f01f9a552d93944681` before any profile can be accepted against it.
-
-## Measured coverage
-
-| Measure | Count |
+| Measure | Result |
 |---|---:|
-| TerraScript files in registry | 159 |
-| Scripts with statically certified bounds in registry | 0 |
-| Scripts marked UNKNOWN | 159 |
-| Scripts referenced as feature roots | 73 |
-| Feature roots matched by the current runtime catalog | 3 |
-| Feature roots without a runtime bounds profile | 70 |
-| Scripts with dynamic nested targets | 10 |
-| Runtime catalog entries after excluding wildcard-dependent profiles | 12 |
+| TerraScript files | 287 |
+| YAML structure definitions | 28 |
+| Feature YAML files | 333 |
+| Unique feature structure roots | 222 |
+| Roots resolving to TerraScripts | 198 |
+| Roots resolving to YAML structure definitions | 24 |
+| Unmatched feature roots | 0 |
+| Unresolved feature YAML files | 0 |
+| Duplicate TerraScript IDs | 0 |
+| Scripts with dynamic nested targets | 107 |
+| TerraScripts with certified bounds | 0 |
 
-The 12 runtime entries are not equivalent to 12 enabled feature roots. These counts are provisional because the registry source mismatch described above invalidates the registry as a pinned-commit inventory. Only three names overlap the 73 root references. A registry entry marked UNKNOWN is not upgraded to VERIFIED merely because a similarly named profile exists in Java.
+All 287 TerraScripts remain `UNKNOWN` for bounds. The exact inventory resolves all 222 feature roots, but resolving an ID is not proof that its footprint, read halo, write budget, vertical reach or nested-call envelope is safe.
 
-## Root references still lacking a verified runtime profile
+## Runtime bounds coverage
 
-```text
-boulder
-boulder_textured
-dripstone_caves_boulder
-granite_boulder
-sandstone_boulder
-small_boulder
-small_boulder_textured
-small_granite_boulder
-small_sandstone_boulder
-amethyst_geode
-big_boulder
-ceiling_icicle
-del_floating_blocks
-iceberg
-large_ceiling_pointed_dripstone
-lava_column
-red_rock
-small_ceiling_pointed_dripstone
-small_floor_pointed_dripstone
-dam_to_floor
-farm_edge
-farm_water
-andesite_slabs
-diorite_slabs
-granite_slabs
-iceberg_snow_layers
-red_sand_slabs
-sand_slabs
-snow_layers
-stone_slabs
-big_dripleaf
-jungle_bush
-oak_bush
-spruce_bush
-cactus
-beetroot_patch
-carrot_patch
-melon_patch
-potato_patch
-pumpkin_patch
-sweet_berry_bush_patch
-wheat_patch
-lilac
-peony
-pink_petals
-rose_bush
-sunflower
-glow_lichen
-large_mixed_mushroom_procedural
-small_brown_mushroom_disk
-small_dripleaf
-sugar_cane
-place_great_azalea_tree_underground
-cherry_blossom_tree_procedural
-dead_large_swamp_tree_procedural
-dead_tree_procedural
-eucalyptus_tree_procedural
-giant_redwood
-large_swamp_tree_procedural
-mesquite_tree_procedural
-oak_tree_procedural
-palm_tree_procedural
-spruce_tree_procedural
-submerged_dead_tree_procedural
-crossing_vines
-crossing_vines_frozen
-crossing_vines_uncolored
-glow_berries
-large_ceiling_vines
-tree_vines
-```
+The runtime catalog currently has 12 profiles. Only 7 of the 222 feature roots match those profiles. Therefore:
 
-## Dynamic nested target scripts requiring special treatment
+- 7 roots have a runtime bounds profile.
+- 215 roots do not have a runtime bounds profile.
+- The other 5 catalog entries are not current feature roots.
+- Roots without profiles are rejected by `PNXServerWorld.beginPlacement` before a placement transaction or journal ticket is opened.
+- Unknown-script fallback also has zero read/write/entity budgets.
 
-```text
-dripstone_column
-large_mixed_mushroom_procedural
-cherry_blossom_tree_procedural
-eucalyptus_tree_procedural
-large_dark_oak_tree_procedural
-large_oak_tree_procedural
-large_oak_tree_procedural_2
-large_swamp_tree_procedural
-mangrove_tree_procedural
-mesquite_tree_procedural
-```
+This is intentionally fail-closed. It prevents unsafe placement but also means the current full TerraOverworldConfig pack is not yet functionally enabled under the guard. Do not treat this as a release-ready generator.
 
-Dynamic nested targets cannot be covered by a hand-written list of static child IDs unless the TerraScript execution is instrumented to enforce the same root guard and bounds envelope for every nested call.
+## Terra block-state compatibility against pinned PNX
 
-## R15 fail-closed changes
+The inventory scans TerraScript source, feature YAML, structure YAML and palette YAML and compares static block-state literals with the exact PNX `blocks.json` registry.
 
-- Unknown roots are rejected in `PNXServerWorld.beginPlacement` before a placement transaction or journal ticket is opened.
-- The rejection emits a warning with stage, feature ID, structure ID, world key, chunk anchor and origin coordinates.
-- `OrigenBoundsCatalog.resolveRuntimeProfile` also resolves unknown IDs to a zero-budget profile, so any caller bypassing root admission still cannot perform reads, writes or entity spawns.
-- Three previous profiles using wildcard nested dependencies were removed from the runtime catalog pending an explicit dependency audit.
-- `BoundsCatalogValidator.validateEnabled` checks that every supplied enabled root has an audited profile and rejects wildcard dependencies in audited profiles.
+| Measure | Result |
+|---|---:|
+| Static block-state literals | 486 |
+| Exact or property-order-normalized PNX matches | 263 |
+| Of those, property-order-only matches | 7 |
+| Additional states compatible as a subset of PNX properties | 223 |
+| Unmatched property variants | 0 |
+| Missing PNX block identifiers | 0 |
+| Dynamic block-state expressions | 12 |
+| Entity/NBT identifiers excluded from block mapping | 5 |
+
+The 223 subset-compatible states omit properties that PNX supplies from the block's default state. The adapter exposes the PNX default through `PNXBlockType.getDefaultState()`; `PNXBlockStateDelegate.set(...)` changes the requested property while retaining the other PNX defaults. The 12 dynamically assembled states still require runtime validation; their property values must be checked by the PNX state setter and must not be silently coerced.
+
+The two existing Terra-facing identifier aliases have now been centralized in `BlockStatePropertyBridge.vanillaDefaults()` and used by `PNXBlockStateDelegate.getAsString(...)`:
+
+- Terra `minecraft:snow` → PNX `minecraft:snow_layer`
+- Terra `minecraft:snow_block` → PNX `minecraft:snow`
+
+The bridge now rejects conflicting identifier/property registrations and has a strict translation overload that verifies the target PNX block identifier against a supplied registry set.
+
+## R15 changes committed
+
+- Unknown structures receive a deny-all profile.
+- Root placement admission rejects unprofiled structures before opening the placement transaction.
+- Rejection diagnostics include the world key, feature/structure identifiers, chunk anchor and origin coordinates.
+- `BoundsCatalogValidator.validateEnabled(...)` checks enabled roots against the audited catalog and rejects wildcard dependencies.
+- `BlockStatePropertyBridge` now centralizes known identifier aliases, detects conflicting registrations and supports strict PNX identifier validation.
+- `PNXBlockStateDelegate` now uses the centralized alias bridge instead of a hard-coded switch.
+- `apply-stages1-48.sh` installs and compares all Stage 48 overlays after stages 1–47.
+- The Stage 48 workflow checks shell syntax and patch application only, then generates the pinned inventory artifact. It does not run Gradle compilation or tests.
 
 ## Remaining work before Stage 48 can pass
 
-1. Recover the exact enabled feature-root set from the pinned ConfigPack and distinguish feature roots from helper scripts.
-2. Inspect each enabled TerraScript and its transitive static and dynamic calls; derive conservative write AABB, read halo, vertical range, maximum write/read counts and entity budget.
-3. Verify rotations and coordinate transforms against the actual Terra runtime semantics.
-4. Promote only scripts with source-backed evidence into the runtime catalog; keep every other root rejected.
-5. Build the Terra↔PNX block identifier/property alias manifest from both pinned registries and validate every used block state and property value.
-6. Wire catalog validation to pack startup so a pack cannot start with an enabled root lacking a profile.
-7. Add world-aware diagnostics to every generation stage and confirm failures abort the placement transaction without durable partial writes.
+1. Derive and certify conservative write AABBs, read halos, vertical ranges, operation budgets and entity budgets for every enabled TerraScript and YAML structure definition.
+2. Audit all 107 dynamic nested-target scripts and ensure every nested call is constrained by the root placement envelope.
+3. Decide the exact enabled root set for the final content pack; either provide a verified profile for every enabled root or disable it explicitly in the pack.
+4. Wire `BoundsCatalogValidator.validateEnabled` into pack startup and fail startup if an enabled root has no verified profile.
+5. Validate the 12 dynamic block-state expressions against runtime PNX property schemas.
+6. Complete world-aware diagnostics for every generation stage and verify rollback leaves no durable partial placement.
+7. Only after all of the above, proceed to the Stage 50 compile-only package, then re-enable and run the full regression suite.
 
 ## Acceptance decision
 
-**NOT PASSED.** The registry must first be regenerated from the exact pinned ConfigPack tree; do not use the legacy coverage counts as a final audit. The current implementation makes unknown roots fail closed, but it does not yet provide bounds for all enabled roots, a complete alias manifest, or full diagnostic coverage. Do not treat the current TerraOverworldConfig pack as production-ready under the cross-chunk guard until the remaining work is complete.
+**NOT PASSED.** Source inventory and static block-state compatibility are now measured against the exact pinned repositories. Bounds coverage, dynamic nested-call certification, startup enforcement and complete diagnostic/rollback validation remain open.
