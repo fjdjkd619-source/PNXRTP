@@ -94,7 +94,7 @@ public class PNXServerWorld implements ServerWorld {
         level.applySubChunkUpdate();
     }
 
-    /** Begin a root feature placement. Unknown profiles and entity-bearing profiles fail closed. */
+    /** Begin a root feature placement. Structures without an audited profile are rejected before staging. */
     public PlacementGuardHost.PlacementScope beginPlacement(String featureId, String structureId,
                                                              Vector3Int origin, Rotation rotation) {
         if (activePlacement != null) {
@@ -102,9 +102,15 @@ public class PNXServerWorld implements ServerWorld {
         }
         ScriptBoundsProfile profile;
         try {
-            profile = OrigenBoundsCatalog.resolveRuntimeProfile(structureId);
+            if (OrigenBoundsCatalog.find(structureId).isEmpty()) {
+                publishUnsupported(featureId, structureId, origin,
+                        "No audited bounds profile in world " + worldKey + "; placement skipped (fail-closed)");
+                return PlacementGuardHost.PlacementScope.rejected();
+            }
+            profile = OrigenBoundsCatalog.requireVerified(structureId);
         } catch (IllegalArgumentException invalidId) {
-            publishUnsupported(featureId, structureId, origin, "Structure has no usable identifier; placement skipped");
+            publishUnsupported(featureId, structureId, origin,
+                    "Structure has no usable identifier in world " + worldKey + "; placement skipped");
             return PlacementGuardHost.PlacementScope.rejected();
         }
         Bounds3i.QuarterTurn turn = switch (rotation) {
