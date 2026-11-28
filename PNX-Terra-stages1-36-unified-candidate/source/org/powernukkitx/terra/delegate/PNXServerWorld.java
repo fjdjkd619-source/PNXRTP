@@ -34,6 +34,7 @@ import org.powernukkitx.terra.crosschunk.bounds.ScriptBoundsProfile;
 import org.powernukkitx.terra.crosschunk.diagnostics.DiagnosticSink;
 import org.powernukkitx.terra.crosschunk.diagnostics.GenerationDiagnostic;
 import org.powernukkitx.terra.crosschunk.journal.BlockEntityIntent;
+import org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent;
 import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
 import org.powernukkitx.terra.crosschunk.journal.PlacementKey;
 import org.powernukkitx.terra.crosschunk.journal.PhysicsIntent;
@@ -106,12 +107,6 @@ public class PNXServerWorld implements ServerWorld {
             publishUnsupported(featureId, structureId, origin, "Structure has no usable identifier; placement skipped");
             return PlacementGuardHost.PlacementScope.rejected();
         }
-        // Entity intents are not yet deferred/committed atomically by this adapter.
-        if (profile.maxEntitySpawns() != 0) {
-            publishUnsupported(featureId, structureId, origin, "Structure entity intents are not enabled in this adapter build");
-            return PlacementGuardHost.PlacementScope.rejected();
-        }
-
         Bounds3i.QuarterTurn turn = switch (rotation) {
             case NONE -> Bounds3i.QuarterTurn.NONE;
             // Seismic's CW_90 maps (x,z)->(z,-x), opposite the guard's CW label.
@@ -126,8 +121,8 @@ public class PNXServerWorld implements ServerWorld {
                 anchorSession.anchor(), featureId, structureId,
                 origin.getX(), origin.getY(), origin.getZ(), turn.ordinal(), journalTicket.ordinal());
         PlacementTransaction root = new PlacementTransaction(featureId, structureId, origin.getX(), origin.getY(), origin.getZ(),
-                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(), guardScope,
-                Thread.currentThread(), journalTicket, journalKey);
+                guard, new BlockManager(level.getLevel()), null, new ArrayList<>(), new ArrayList<>(),
+                new ArrayList<>(), guardScope, Thread.currentThread(), journalTicket, journalKey);
         activePlacement = root;
         return scopeFor(root, true);
     }
@@ -148,7 +143,7 @@ public class PNXServerWorld implements ServerWorld {
         }
         PlacementTransaction child = new PlacementTransaction(parent.featureId, structureId,
                 parent.originX, parent.originY, parent.originZ, parent.guard, new BlockManager(level.getLevel()), parent,
-                new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
+                new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), null, parent.owner, null, null);
         activePlacement = child;
         return scopeFor(child, false);
     }
@@ -171,6 +166,7 @@ public class PNXServerWorld implements ServerWorld {
                     transaction.parent.staged.merge(transaction.staged);
                     transaction.parent.blockEntities.addAll(transaction.blockEntities);
                     transaction.parent.physics.addAll(transaction.physics);
+                    transaction.parent.entitySpawns.addAll(transaction.entitySpawns);
                     finish();
                     return true;
                 }
@@ -178,7 +174,8 @@ public class PNXServerWorld implements ServerWorld {
                 int anchorChunkZ = transaction.originZ >> 4;
                 if (transaction.journalTicket == null) {
                     // Legacy construction remains fail-closed until the PopulateStage journal service is supplied.
-                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()) { abort(); return false; }
+                    if (!transaction.blockEntities.isEmpty() || !transaction.physics.isEmpty()
+                            || !transaction.entitySpawns.isEmpty()) { abort(); return false; }
                     for (Block block : transaction.staged.getBlocks()) {
                         if (block.getChunkX() != anchorChunkX || block.getChunkZ() != anchorChunkZ) {
                             abort();
@@ -187,14 +184,19 @@ public class PNXServerWorld implements ServerWorld {
                     }
                     level.merge(transaction.staged);
                 } else if (transaction.staged.getBlocks().isEmpty()
-                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()) {
+                        && transaction.blockEntities.isEmpty() && transaction.physics.isEmpty()
+                        && transaction.entitySpawns.isEmpty()) {
                     transaction.journalTicket.abort();
                 } else {
                     // Durable WAL first. Only anchor-local writes enter this stage's BlockManager;
                     // cross-chunk writes are left for the Stage18 journal applier after its barrier.
                     try {
+                        List<EntitySpawnIntent> entityIntents = new ArrayList<>(transaction.entitySpawns.size());
+                        for (int ordinal = 0; ordinal < transaction.entitySpawns.size(); ordinal++) {
+                            entityIntents.add(transaction.entitySpawns.get(ordinal).toIntent(transaction.journalKey, ordinal));
+                        }
                         PnxPlacementCommitter.commit(transaction.journalTicket, transaction.journalKey,
-                                transaction.staged, transaction.blockEntities, transaction.physics);
+                                transaction.staged, transaction.blockEntities, transaction.physics, entityIntents);
                     } catch (IOException journalFailure) {
                         diagnostics.publish(GenerationDiagnostic.failure("terra_populate", transaction.featureId,
                                 transaction.structureId, new ChunkPos(anchorChunkX, anchorChunkZ),
@@ -331,7 +333,17 @@ public class PNXServerWorld implements ServerWorld {
     public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
         PlacementTransaction tx = requirePlacement();
         tx.guard.beforeEntitySpawn((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
-        throw new UnsupportedOperationException("Entity spawn intents are not transactionally committed in this stage");
+        if (tx.journalTicket == null || tx.journalKey == null) {
+            throw new IllegalStateException("Entity spawning requires the durable placement journal");
+        }
+        Object handle = entityType == null ? null : entityType.getHandle();
+        if (!(handle instanceof String identifier)
+                || !identifier.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) {
+            throw new IllegalArgumentException("Terra entity type must expose a canonical namespaced PNX identifier");
+        }
+        PNXStagedEntityDelegate staged = new PNXStagedEntityDelegate(identifier, x, y, z, this);
+        tx.entitySpawns.add(staged);
+        return staged;
     }
 
     @Override
@@ -446,6 +458,7 @@ public class PNXServerWorld implements ServerWorld {
     private record PlacementTransaction(String featureId, String structureId, int originX, int originY, int originZ,
                                         PlacementRuntimeGuard guard, BlockManager staged, PlacementTransaction parent,
                                         List<BlockEntityIntent> blockEntities, List<PhysicsIntent> physics,
+                                        List<PNXStagedEntityDelegate> entitySpawns,
                                         PlacementGuardContext.Scope guardScope, Thread owner,
                                         CrossChunkDependencyScheduler.PlacementTicket journalTicket, PlacementKey journalKey) { }
 }
