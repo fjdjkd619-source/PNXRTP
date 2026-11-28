@@ -1,0 +1,115 @@
+name: R15 Stage 50 acceptance suite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [R15-stage50-prep]
+
+concurrency:
+  group: r15-stage50-acceptance
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  stage50-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Stage 50 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: R15-stage50-prep
+          path: candidate
+          fetch-depth: 0
+
+      - name: Checkout pinned PowerNukkitX
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: pnx
+
+      - name: Checkout pinned Terra 6.6.1
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/Terra
+          ref: 016961c19c41c2501737599175937ae40699beb1
+          path: terra
+
+      - name: Checkout pinned PNX-Terra adapter
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: adapter
+
+      - name: Checkout pinned TerraOverworldConfig
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/TerraOverworldConfig
+          ref: 445848bc9f9f28fab1d760f01f9a552d93944681
+          path: terra-config
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Python YAML parser
+        run: python3 -m pip install --user --disable-pip-version-check PyYAML
+
+      - name: Apply content overlay, audit pinned pack and generate bounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
+          bash "$CANDIDATE/content-pack/apply-fantasy-pack.sh" --terra-config "$GITHUB_WORKSPACE/terra-config"
+          python3 "$CANDIDATE/validation/audit-terra-pack.py" \
+            --root "$GITHUB_WORKSPACE/terra-config" \
+            --expected-head 445848bc9f9f28fab1d760f01f9a552d93944681 \
+            --pnx-root "$GITHUB_WORKSPACE/pnx" \
+            --pnx-expected-head c57499365737654eca32df008751ef6bca5af142 \
+            --output "$RUNNER_TEMP/terra-configpack-inventory.json"
+          python3 "$CANDIDATE/tools/generate_bounds_profiles.py" \
+            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \
+            --source-root "$GITHUB_WORKSPACE/terra-config" \
+            --output "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            | tee "$RUNNER_TEMP/bounds-profile-summary.json"
+          install -D "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            "$CANDIDATE/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java"
+          bash "$CANDIDATE/apply-stages1-48.sh" \
+            --pnx "$GITHUB_WORKSPACE/pnx" \
+            --terra "$GITHUB_WORKSPACE/terra" \
+            --adapter "$GITHUB_WORKSPACE/adapter" \
+            --pnx-ref c57499365737654eca32df008751ef6bca5af142
+          git -C "$GITHUB_WORKSPACE/terra-config" diff --check
+
+      - name: Run Stage 50 acceptance suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
+          bash "$CANDIDATE/validation/run-stage50-acceptance.sh" \
+            --candidate "$CANDIDATE" \
+            --terra-config "$GITHUB_WORKSPACE/terra-config" \
+            --pnx "$GITHUB_WORKSPACE/pnx" \
+            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \
+            --bounds-catalog "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            --bounds-summary "$RUNNER_TEMP/bounds-profile-summary.json" \
+            --output "$RUNNER_TEMP/stage50-acceptance.json" \
+            2>&1 | tee "$RUNNER_TEMP/stage50-acceptance.log"
+
+      - name: Upload Stage 50 acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage50-acceptance-evidence
+          path: |
+            ${{ runner.temp }}/stage50-acceptance.json
+            ${{ runner.temp }}/stage50-acceptance.log
+            ${{ runner.temp }}/bounds-profile-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
