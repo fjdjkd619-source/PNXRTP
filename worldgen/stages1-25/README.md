@@ -44,7 +44,7 @@ Added to this branch:
 
 The applier preflights all intents, resolves PNX registry types, rejects collisions, uses a SHA-256 intent marker to accept normalized persisted entities as replay-safe, and rolls back entities registered before a constructor failure is swallowed by the PNX factory. The coordinator now separates compute-pool block projection from PNX Level-scheduler intent application.
 
-Contract tests pass, including constructor-failure rollback. Still open: Terra structures/populators do not yet emit BlockEntity intents into the journal; full upstream dependency compilation and runtime save/restart certification remain pending.
+Contract tests pass, including constructor-failure rollback. TerraScript `state`/`loot` capture is now implemented for supported sign, spawner and inventory-container types. Still open: full upstream dependency compilation, Bedrock runtime generation, item-metadata fidelity, and durable save/restart/crash-window certification.
 
 ## Required completion gates
 
