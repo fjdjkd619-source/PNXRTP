@@ -136,3 +136,26 @@ The PNX patch sequence was then checked against the exact pinned upstream commit
 GitHub Actions [46147409727](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46147409727) completed SUCCESS. Java 21 core and contract suites passed; Stage37WalRecoveryTest passed 36 assertions and PlacementJournalEncodingLimitTest passed 6 assertions. This is stronger than the previous synthetic patch-context checks, but it still proves patch applicability and contract tests—not a full PNX Gradle build or live server integration.
 
 Remaining open findings: WAL compaction/checkpointing and retention are absent; PNX/Terra adapter full clean patch application has not been run as one integrated three-repository chain; full Gradle builds, JAR packaging, live generation, restart/replay, and long-soak tests remain outstanding. Physics executor, generic water-layer policy, Terra entity spawn capture, Origen bounds coverage, and complete property aliases remain unresolved. Production gate stays BLOCKED.
+
+
+## Recheck after initial audit — R15, 2026-11-28
+
+This section supersedes the time-of-audit statements in F-01 and F-02 where noted; earlier findings remain as historical observations.
+
+### Resolved integration findings
+
+- **F-01 resolved for pinned revisions:** the active workflow now applies Stage 7 followed by the rebased Stage 18 PNX patch to a clean checkout at `c57499365737654eca32df008751ef6bca5af142`. The complete Stage 1–42 chain subsequently applied successfully to clean pinned PNX, Terra and PNX-Terra checkouts. This proves patch application for these exact revisions, not for other snapshots.
+- **F-02 resolved:** `37-42-wal-hardening.patch` is active and `apply-stages1-42.sh` applies it after Stage 1–36. The patch is validated against the exact Stage 36 overlay baseline and byte-compared with the Stage 37–42 `PlacementJournal.java` source. Regression tests remain in the Java validation overlay.
+- **Stage 15 forwarding correction:** `BufferedWorld.beginPlacement` now forwards an origin translated by the buffer offsets before invoking the platform guard. Feature and TerraScript nested structure IDs fall back to `StringIdentifiable` or class name when no `IdentifiedStructure` implementation is present.
+
+### Latest verified validation
+
+GitHub Actions [46150102841](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46150102841) Java 21 job completed SUCCESS. It parsed every active patch, checked shell syntax, applied Stage 37–42 to the exact Stage 36 overlay baseline and compared the resulting source, applied Stage 7 then Stage 18 to pinned PNX, and passed the platform-neutral and PNX delegate/BlockEntity/runtime/entity-spawn/Stage 36 API contract suites.
+
+### Full Gradle build status
+
+The first exact-upstream Gradle attempt completed patch application and reached Terra `:common:api:compileJava`, then failed in `:platforms:bukkit:common:validateAccessWidener` with `java.nio.file.ClosedFileSystemException`. No Java source compilation error was reported before that task failure. The verification script was adjusted to use `--no-configuration-cache --max-workers=1 --stacktrace` for each upstream build. The rerun must complete successfully before the full upstream build can be marked PASS. The exact patch chain is therefore confirmed applied, but the modified upstream projects are not yet certified as built.
+
+### Remaining production blockers
+
+WAL compaction/checkpoint and bounded retained indexes remain absent; PNX physics executor remains fail-closed; WaterLayerPolicy remains unwired; Terra entity-spawn capture remains disabled; Origen static bounds and Terra↔PNX property alias catalog remain incomplete; runtime server generation, restart/replay, persistence and long soak tests remain outstanding. The desired medieval-fantasy ConfigPack content is not supplied by infrastructure stages 1–42. **Do not deploy R15.**
