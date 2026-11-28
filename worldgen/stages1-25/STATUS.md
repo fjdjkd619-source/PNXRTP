@@ -79,3 +79,18 @@ Run: https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46097388977
 At the last status query, the workflow had passed checkout, Java setup, Gradle setup, and the pinned-ref/protocol-version assertions. The PNX `publishToMavenLocal` build was still running. No adapter build result or JAR has been confirmed yet.
 
 This experiment does not change the pinned c574993 reference or the live server. If it passes, it establishes a viable later API 3.0.6 compatibility target; it does not automatically authorize changing the user's server.
+
+
+## Local regression rerun after CI repository-endpoint correction (2026-11-28)
+
+The preserved candidate workspace was re-tested after the CI workflow correction:
+
+- validation/run-core-tests.sh: **10/10 rounds PASS**.
+- Each round ran all 11 suites: Stage15AdapterGuardContractTest, Stage16JournalTest, Stage17DependencySchedulerTest, Stage18FinalizationTest, Stage19RecoveryTest, Stage20StressTest, Stage21StateBridgeTest, Stage22IntentJournalTest, Stage23WaterPhysicsTest, Stage24DiagnosticsTest, and Stage25IntentFinalizationTest.
+- This is 110 successful suite executions in this rerun.
+
+The CI workflow now rewrites the PNX-Terra adapter's OpenCollab repository URLs to the canonical Maven endpoints used by the PNX build. The correction was committed as 115c3e7b0cea687ce28c55fcbeafd04b2cf954c2; a follow-up audit-note commit 1a2ff39500fbd05eb73c8d3d28d9050ee4275d7c triggered another compatibility workflow attempt.
+
+The available GitHub connector in this session does not expose a list-workflow-runs endpoint for push-triggered runs, so the new run ID/result cannot be confirmed through that connector at this point. Do not infer success from the trigger commit. The previous confirmed compatibility run 46097388977 failed at dependency resolution and produced no JAR.
+
+**Overall remains BLOCKED.** The 10-round local test pass does not replace full PNX/Terra/adapter builds, upstream patch application, missing runtime subsystem integration, or runtime/recovery testing.
