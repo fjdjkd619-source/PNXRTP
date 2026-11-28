@@ -31,7 +31,7 @@ public final class Stage16JournalTest {
             journal.appendAnchorCompleted("world",new ChunkPos(0,0));
         }
         long goodSize=Files.size(wal);
-        Files.write(wal,new byte[]{1,2,3,4,5},StandardOpenOption.APPEND);
+        Files.write(wal,new byte[]{0x50,0x58,0x4A},StandardOpenOption.APPEND);
         try(PlacementJournal recovered=new PlacementJournal(wal)){
             check(recovered.events().size()==3,"replay valid records");
             check(recovered.isAnchorCompleted("world",new ChunkPos(0,0)),"replay completion marker");
@@ -42,7 +42,7 @@ public final class Stage16JournalTest {
         byte[] bytes=Files.readAllBytes(corrupt);bytes[bytes.length-1]^=0x44;Files.write(corrupt,bytes);
         byte[] damaged=Files.readAllBytes(corrupt);
         boolean crcRejected=false;
-        try(PlacementJournal ignored=new PlacementJournal(corrupt)){ }
+        try(PlacementJournal ignored=new PlacementJournal(corrupt)){ ignored.events(); }
         catch(java.io.IOException expected){crcRejected=true;}
         check(crcRejected,"complete final frame with bad CRC fails closed");
         check(Arrays.equals(damaged,Files.readAllBytes(corrupt)),"bad-CRC WAL remains byte-for-byte unchanged");
