@@ -120,6 +120,21 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
     return roots, block_targets, unresolved or (saw_structures_key and not roots and not block_targets)
 
 
+def parse_block_state(value: str) -> tuple[str, dict[str, str] | None]:
+    if "[" not in value:
+        return value, {}
+    base, raw = value.split("[", 1)
+    if not raw.endswith("]"):
+        return base, None
+    properties: dict[str, str] = {}
+    for item in raw[:-1].split(","):
+        if "=" not in item:
+            return base, None
+        name, property_value = item.split("=", 1)
+        properties[name] = property_value
+    return base, properties
+
+
 def normalize_block_state(value: str) -> str:
     if "[" not in value:
         return value
@@ -187,9 +202,11 @@ def main() -> int:
 
     def record_block_literals(path: Path, source: str) -> None:
         rel = path.relative_to(root).as_posix()
-        for state in BLOCK_LITERAL.findall(source):
-            block_sources[state].add(rel)
         for line in source.splitlines():
+            if line.lstrip().startswith("//") or line.lstrip().startswith("#"):
+                continue
+            for state in BLOCK_LITERAL.findall(line):
+                block_sources[state].add(rel)
             if ENTITY_LITERAL_CONTEXT.search(line):
                 entity_literals.update(re.findall(r"minecraft:[a-z0-9_./-]+", line))
             if BLOCK_CALL_LINE.search(line):
@@ -281,13 +298,31 @@ def main() -> int:
         state for state in block_candidates
         if state not in pnx_state_keys and normalize_block_state(state) in pnx_normalized_keys
     )
-    missing_state_variant = sorted(
-        state for state in block_candidates
-        if normalize_block_state(state) not in pnx_normalized_keys and state.split("[", 1)[0] in pnx_block_ids
-    )
+    pnx_states_by_block = defaultdict(list)
+    for pnx_state in pnx_state_keys:
+        pnx_states_by_block[pnx_state.split("[", 1)[0]].append(pnx_state)
+    subset_compatible = []
+    unmatched_property_variants = []
+    for state in block_candidates:
+        base, properties = parse_block_state(state)
+        candidates = pnx_states_by_block.get(base, [])
+        compatible = False
+        if properties is not None:
+            for candidate in candidates:
+                _, candidate_properties = parse_block_state(candidate)
+                if candidate_properties is not None and all(
+                    candidate_properties.get(name) == value
+                    for name, value in properties.items()
+                ):
+                    compatible = True
+                    break
+        if compatible:
+            subset_compatible.append(state)
+        elif "[" in state:
+            unmatched_property_variants.append(state)
     missing_block_id = sorted(
         state for state in block_candidates
-        if normalize_block_state(state) not in pnx_normalized_keys and state.split("[", 1)[0] not in pnx_block_ids
+        if state.split("[", 1)[0] not in pnx_block_ids
     )
     status_counts = Counter(record["status"] for record in script_records)
     summary = {
@@ -307,7 +342,8 @@ def main() -> int:
         "block_state_property_order_only_matches": len(order_only_matches),
         "entity_data_identifier_count": len(entity_only_literals),
         "dynamic_block_state_expression_count": len(dynamic_block_sources),
-        "block_state_variant_mismatches": len(missing_state_variant),
+        "block_state_property_subset_matches": len(subset_compatible),
+        "block_state_unmatched_property_variants": len(unmatched_property_variants),
         "block_identifier_mismatches": len(missing_block_id),
         "feature_BLOCK_palette_target_count": len(block_state_targets),
         "unresolved_feature_yaml_count": len(unresolved_features),
@@ -329,8 +365,9 @@ def main() -> int:
         "dynamic_block_state_expressions": {
             state: sorted(paths) for state, paths in dynamic_block_sources.items()
         },
-        "missing_state_variants": {
-            state: sorted(block_sources[state]) for state in missing_state_variant
+        "property_subset_compatible_states": sorted(subset_compatible),
+        "unmatched_property_variants": {
+            state: sorted(block_sources[state]) for state in unmatched_property_variants
         },
         "missing_block_identifiers": {
             state: sorted(block_sources[state]) for state in missing_block_id
