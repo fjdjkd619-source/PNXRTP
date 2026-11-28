@@ -1,0 +1,40 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+index 3826bbd..c6885b8 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+@@ -58,6 +58,12 @@ public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkH
+         chunk.reObfuscateChunk();
+     }
+
++    @Override
++    public void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> intents)
++            throws IOException {
++        PnxBlockEntityIntentApplier.apply(chunk, intents);
++    }
++
+     @Override
+     public void saveDurably() throws IOException {
+         if (chunk.getProvider() == null) throw new IOException("Target chunk has no storage provider");
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java
+index fbc2e0b..a619580 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxCrossChunkFinalizer.java
+@@ -6,6 +6,7 @@ import org.powernukkitx.level.format.IChunk;
+ import org.powernukkitx.terra.crosschunk.finalize.ChunkFinalizationCoordinator.Prepared;
+ import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
+ import org.powernukkitx.terra.crosschunk.runtime.PnxGenerationJournalRuntime;
++import org.powernukkitx.terra.crosschunk.runtime.PnxLevelExecutor;
+
+ import java.io.IOException;
+ import java.util.concurrent.CompletableFuture;
+@@ -17,7 +18,8 @@ public final class PnxCrossChunkFinalizer {
+     public static CompletableFuture<Void> applyTarget(PnxGenerationJournalRuntime runtime, Level level, IChunk generatingChunk) {
+         ChunkPos target = new ChunkPos(generatingChunk.getX(), generatingChunk.getZ());
+         ChunkFinalizationCoordinator<PnxChunkHandle> coordinator = new ChunkFinalizationCoordinator<>(
+-                runtime.worldKey(), runtime.journal(), Server.getInstance().getComputeThreadPool());
++                runtime.worldKey(), runtime.journal(), Server.getInstance().getComputeThreadPool(),
++                PnxLevelExecutor.forLevel(level));
+         return coordinator.prepare(target, runtime.activateTarget(target),
+                         () -> loadedHandle(level, target, generatingChunk))
+                 .thenAccept(prepared -> runtime.putPendingFinalization(target, prepared));
+}
