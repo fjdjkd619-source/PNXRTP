@@ -2,12 +2,7 @@ name: R15 full Gradle build and JAR artifacts
 # Rebuild with Beta8 camera source overlay and validated shell syntax.
 
 on:
-  push:
-    branches:
-      - R15
-    paths:
-      - "PNX-Terra-stages1-36-unified-candidate/**"
-      - ".github/workflows/build.yml"
+  # Deliberately manual until Stage 50 is complete; do not build intermediate stages.
   workflow_dispatch:
 
 concurrency:
@@ -68,7 +63,7 @@ jobs:
             --adapter "$GITHUB_WORKSPACE/adapter" \
             --pnx-ref c57499365737654eca32df008751ef6bca5af142
 
-      - name: Run full Gradle builds and adapter integration tests
+      - name: Compile and package Terra, PNX and adapter (tests deferred until Stage 50)
         shell: bash
         run: |
           set +e
