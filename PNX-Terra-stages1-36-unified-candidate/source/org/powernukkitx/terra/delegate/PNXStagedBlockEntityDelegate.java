@@ -1,6 +1,6 @@
 package org.powernukkitx.terra.delegate;
 
-import com.dfsek.seismic.type.vector.Vector3;
+import com.dfsek.terra.api.util.vector.Vector3;
 import com.dfsek.terra.api.block.entity.BlockEntity;
 import com.dfsek.terra.api.block.state.BlockState;
 import org.powernukkitx.nbt.tag.CompoundTag;

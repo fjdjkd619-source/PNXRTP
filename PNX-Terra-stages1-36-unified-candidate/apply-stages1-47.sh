@@ -39,6 +39,10 @@ git -C "$PNX" apply "$PNX_PATCH"
 # Copy the audited final source files into the pinned adapter checkout instead.
 install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXServerWorld.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java"
+install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java"
+install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java"
 install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
 install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \
@@ -50,6 +54,10 @@ install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedEntityDelegate
 
 cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXServerWorld.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java"
+cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXBlockEntityDelegate.java"
+cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedBlockEntityDelegate.java"
 cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
 cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \
