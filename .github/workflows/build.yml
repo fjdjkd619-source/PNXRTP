@@ -106,6 +106,21 @@ jobs:
           done
           exit 1
 
+      - name: Run Stage 50 acceptance suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
+          bash "$CANDIDATE/validation/run-stage50-acceptance.sh" \\
+            --candidate "$CANDIDATE" \\
+            --terra-config "$GITHUB_WORKSPACE/terra-config" \\
+            --pnx "$GITHUB_WORKSPACE/pnx" \\
+            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \\
+            --bounds-catalog "$RUNNER_TEMP/OrigenBoundsCatalog.java" \\
+            --bounds-summary "$RUNNER_TEMP/bounds-profile-summary.json" \\
+            --output "$RUNNER_TEMP/stage50-acceptance.json" \\
+            2>&1 | tee "$RUNNER_TEMP/stage50-acceptance.log"
+
       - name: Collect built JARs
         if: success()
         run: |
@@ -127,6 +142,8 @@ jobs:
             artifact-output/content-pack/manifest.json
           cp "$RUNNER_TEMP/terra-configpack-inventory.json" artifact-output/content-pack/
           cp "$RUNNER_TEMP/bounds-profile-summary.json" artifact-output/content-pack/
+          cp "$RUNNER_TEMP/stage50-acceptance.json" artifact-output/content-pack/
+          cp "$RUNNER_TEMP/stage50-acceptance.log" artifact-output/content-pack/
           (
             cd artifact-output
             find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
