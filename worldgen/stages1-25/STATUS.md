@@ -4,7 +4,7 @@
 
 ## Latest candidate overlay (2026-11-28, r8)
 
-The r8 candidate is the r7 overlay plus a pinned Terra BlockEntity capture-gap audit. The underlying candidate contains 39 Java source files, 11 test classes, 19 active patches, an exact-ref patch-application script, validation scripts/results, and 13 original archives.
+The r8 candidate is the r7 overlay plus a pinned Terra BlockEntity capture-gap audit. The underlying candidate contains 44 Java source files, 11 test classes, 21 active patches, an exact-ref patch-application script, validation scripts/results, and 13 original archives.
 
 Latest corrections carried in the candidate:
 
@@ -19,10 +19,10 @@ Latest corrections carried in the candidate:
 
 - Java 21 core compile: PASS, `--release 21 -Xlint:all -Werror`.
 - 11 core test suites x 10 complete rounds in the earlier recorded validation: **110/110 PASS**.
-- Fresh r7 rerun: all 11 core test suites PASS.
-- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r7.
-- PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations; freshly rerun for r5.
-- Active patch syntax: **19/19 PASS** using `git apply --stat`.
+- Fresh r8 rerun: all 11 core test suites PASS.
+- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r8.
+- PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations; freshly rerun for r8.
+- Active patch syntax: **21/21 PASS** using `git apply --stat`.
 - Supplemental hardening patch: clean `git apply --check` and application PASS against the reconstructed Stage 21–25 baseline overlay.
 - Original archive readability: **13/13 PASS**.
 - The exact-ref patch-application script passes shell syntax validation; it has not yet been run against full upstream checkouts.
@@ -39,9 +39,9 @@ The adapter intentionally remains fail-closed for BlockEntity mutation until Ter
 
 ## Latest recovery archive
 
-- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8.zip`
-- Size: 1,361,219 bytes
-- SHA-256: `0212e668bd3deb89e2da0d8f3734f8e2c91ced37a113f4758618e10ca1a36451`
+- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8-complete.zip`
+- Size: 1,452,073 bytes
+- SHA-256: `d845c9520d5e06fbfa97f59a04b5949974b0fd317569e5b0d4b6a150ba19a111`
 - ZIP integrity: PASS; re-materialized from Library and SHA-256 matched the source archive exactly.
 - The r8 ZIP, checksum sidecar, and new Terra BlockEntity capture audit are saved under `/PNX-Terra-Backups/`.
 - Earlier r3–r7 archives remain preserved; no prior copy was deleted or overwritten.
@@ -109,3 +109,16 @@ Production server and world remain untouched. Do not start stages 26–34 or dep
 This branch is the authoritative project history. Commit completed source changes, tests, patches, and status changes to `worldgen/stages1-25` before moving to the next task. Preserve branch history; do not force-push or rewrite commits.
 
 Persistent Library copies are additional recovery copies, not a substitute for the GitHub source history. Keep older copies until newer copies have been independently verified. The r5 archive's full binary payload is stored in the Library backup folder; it is not yet a binary asset in this repository.
+
+
+### Stage 22 TerraScript BlockEntity capture (r8)
+
+- Four adapter patches and one PNX core patch are now in the branch; the five patches are also preserved in the complete r8 Library archive.
+- Staged Sign delegates map `text0..text3`; MobSpawner delegates map Terra's documented state properties and require a registered PNX entity identifier; Container delegates stage loot inventory through PNX item serialization.
+- The active placement transaction journals detached BlockEntity intents; no live PNX BlockEntity is created during population.
+- The PNX core patch persists MobSpawner `Delay`, which the pinned PNX source previously kept only in memory.
+- The finalizer applies BlockEntity intents on the owning Level scheduler, durably saves before the next spawner heartbeat, and rolls back newly registered objects if creation or early save fails.
+- Contract tests pass for NBT/hash tampering, sign state, spawner properties, container item serialization, replay, collision refusal, constructor rollback, early-save rollback, and scheduler dispatch.
+- Full PNX/Terra upstream compilation, Bedrock runtime generation, and crash/restart certification remain pending.
+
+The r8 archive itself is stored in ChatGPT Library at `/PNX-Terra-Backups/PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8-complete.zip`. The binary ZIP is not committed to this GitHub branch; the branch contains the relevant source files, patch files, and audit/validation reports.
