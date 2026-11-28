@@ -60,19 +60,17 @@
 
 ## Stage 47 — Transactional Terra entity capture and finalization
 
-**Capture and WAL integration code added — not yet built or tested.**
+**Capture, WAL and replay-hardening code added — not yet built or tested.**
 
-- Replaced the unconditional spawn rejection with a placement-local Terra entity facade. It exposes mutable position/world through the Terra API but creates no live PNX entity during feature execution.
-- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to the existing WAL v4 format.
-- Staged entity position changes are checked against the root placement envelope, and the final position is revalidated immediately before WAL serialization; entity moves cannot escape the declared bounds. Entity position changes are rechecked against the same root write envelope and horizontal coordinate range.
-- Nested placements merge staged entity captures into the root savepoint; journal-less legacy construction rejects entity spawning rather than creating a non-durable entity.
-- Extended the PNX placement record factory and committer to carry entity intents; the existing PNX finalizer/applier performs UUID validation, chunk-local staging, synchronous durable save, activation and rollback. Current capture records only type and position with default yaw/pitch and empty NBT payload because the pinned Terra spawn API exposes no orientation or NBT parameters.
-- Added the Stage 47 patch and ordered runner. Entity factory compatibility, restart replay, cancellation and save-failure behavior remain unverified.
-- Replace the fail-closed PNXServerWorld.spawnEntity placeholder with a Terra spawn-capture path that creates deterministic EntitySpawnIntent records.
-- Preserve stable UUID ownership, entity type and position. Rotation and custom NBT payloads remain unsupported by the pinned Terra spawn API/adapter capture path; they must not be claimed as implemented.
-- Integrate the deferred PNX entity construction, pre-save staging, durable chunk save, post-save Level activation and network publication sequence.
-- Roll back only entities owned by the failed placement batch; replay must recognize already persisted UUIDs.
-- Acceptance: entity-bearing structures can be generated without early Level/chunk registration; save failure, factory failure, cancelled spawn, duplicate UUID, restart and replay cases preserve transactional guarantees.
+- Replaced the unconditional spawn rejection with a placement-local Terra entity facade. It creates no live PNX entity while Terra feature scripts are still executing.
+- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to WAL v4.
+- Nested placements merge staged captures into the root savepoint. Journal-less legacy construction rejects entity spawning rather than creating non-durable entities.
+- Entity movement is validated against the root placement envelope both when Terra changes position and immediately before WAL serialization.
+- Extended the PNX record factory and committer. Added PNX entity lifecycle-state accessors so replay can distinguish already-active entities from entities durably staged in the chunk but not yet activated.
+- The entity applier now reactivates persisted-but-not-yet-active entities idempotently and publishes each entity after activation. Rollback removes only entities created by the failed attempt.
+- Reordered finalization so any non-empty BlockEntity/entity/physics projection is durably saved before physics updates are queued or staged entities are exposed. If a later physics operation fails, durable entities are retained for WAL replay instead of being incorrectly rolled back.
+- Capture currently records type and position with default yaw/pitch and empty NBT payload because the pinned Terra spawn API exposes no orientation or NBT parameters.
+- Added the PNX core lifecycle-query patch, adapter capture/replay patch and ordered `apply-stages1-47.sh` runner. Build, cancellation, restart/replay, factory-failure and live-server behavior remain unverified.
 
 ## Stage 48 — Complete structure bounds, state aliases and diagnostics
 
