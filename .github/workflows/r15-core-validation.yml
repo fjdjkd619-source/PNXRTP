@@ -40,6 +40,17 @@ jobs:
       - name: Apply Stage 37–42 patch to exact Stage 36 overlay baseline
         working-directory: PNX-Terra-stages1-36-unified-candidate
         run: bash validation/check-stage37-42-patch.sh
+      - name: Checkout pinned PNX source for Stage 7/18 patch validation
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: pnx-pinned
+      - name: Apply Stage 7 then rebased Stage 18 PNX patches
+        run: |
+          git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/07-stage7-core.patch"
+          git -C pnx-pinned apply "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/07-stage7-core.patch"
+          git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/18-stage18-pnx-core.patch"
       - name: Compile and run platform-neutral regression suites
         working-directory: PNX-Terra-stages1-36-unified-candidate
         run: bash validation/run-core-tests.sh
