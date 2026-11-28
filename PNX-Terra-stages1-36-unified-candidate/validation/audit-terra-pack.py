@@ -19,8 +19,9 @@ BLOCK_READ = re.compile(r"\b(?:getBlock|blockState|check)\s*\(")
 LOOP = re.compile(r"\bfor\s*\(")
 BLOCK_TARGET = re.compile(r"BLOCK:[A-Za-z0-9_.:/-]+(?:\[[^]]+\])?")
 BLOCK_LITERAL = re.compile(r"minecraft:[a-z0-9_./-]+(?:\[[A-Za-z0-9_./-]+=[A-Za-z0-9_./-]+(?:,[A-Za-z0-9_./-]+=[A-Za-z0-9_./-]+)*\])?")
-DYNAMIC_BLOCK_STATE = re.compile(r"minecraft:[a-z0-9_./-]+\[[^]\r\n]*[\"']\\s*\\+")
+DYNAMIC_BLOCK_STATE = re.compile(r"minecraft:[a-z0-9_./-]+\[[^]\r\n]*[\"']\s*\+")
 ENTITY_LITERAL_CONTEXT = re.compile(r"entity_data|type=minecraft:")
+BLOCK_CALL_LINE = re.compile(r"\bblock\s*\(")
 
 YAML_FIELD = {
     "id": re.compile(r"(?m)^id:\s*([A-Za-z0-9_.:/-]+)\s*$"),
@@ -180,6 +181,7 @@ def main() -> int:
     script_records = []
     block_sources: dict[str, set[str]] = defaultdict(set)
     entity_literals: set[str] = set()
+    block_call_literals: set[str] = set()
     dynamic_block_sources: dict[str, set[str]] = defaultdict(set)
 
     def record_block_literals(path: Path, source: str) -> None:
@@ -189,6 +191,8 @@ def main() -> int:
         for line in source.splitlines():
             if ENTITY_LITERAL_CONTEXT.search(line):
                 entity_literals.update(re.findall(r"minecraft:[a-z0-9_./-]+", line))
+            if BLOCK_CALL_LINE.search(line):
+                block_call_literals.update(BLOCK_LITERAL.findall(line))
             for state in DYNAMIC_BLOCK_STATE.findall(line):
                 dynamic_block_sources[state].add(rel)
 
@@ -216,6 +220,9 @@ def main() -> int:
             "uses_random_or_math": bool(re.search(r"\b(random|randomInt|sampler|pow|sqrt)\b", source)),
             "notes": "Inventory only. No static bounds are certified by this script.",
         })
+
+    for path in all_yamls:
+        record_block_literals(path, path.read_text(encoding="utf-8"))
 
     structure_definitions = []
     for path in structure_yamls:
@@ -266,13 +273,7 @@ def main() -> int:
         script_id: paths for script_id, paths in sorted(scripts_by_id.items()) if len(paths) > 1
     }
 
-    entity_only_literals = {
-        state for state in entity_literals
-        if state in block_sources
-        and not any(state in BLOCK_LITERAL.findall(
-            path.read_text(encoding="utf-8")
-        ) for path in scripts if path.relative_to(root).as_posix() in block_sources[state])
-    }
+    entity_only_literals = entity_literals - block_call_literals
     block_candidates = set(block_sources) - entity_only_literals
     exact_mapped = sorted(state for state in block_candidates if normalize_block_state(state) in pnx_normalized_keys)
     order_only_matches = sorted(
