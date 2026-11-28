@@ -1,10 +1,10 @@
 # PNX–Terra Stage 1–50 status — 2026-11-28
 
-**Latest verified checkpoint: compile-only upstream build PASS** on R15 commit `61e60d573217793d62747266e76538c9a9132f68`. GitHub Actions run [46174452474](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46174452474) successfully applied the active Stage 1–47 patch chain and Stage 48 source overlays, compiled and packaged the pinned Terra 6.6.1, PowerNukkitX and PNX-Terra adapter, and uploaded the JAR artifact. Gradle tests were deliberately skipped with `-x test`.
+**Latest verified R15 checkpoint:** commit `77f54148276163528beb1a4081b17847d8525db7`. Stage 1–47 and Stage 1–48 patch validation both pass (runs [46177313782](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46177313782) and [46177313748](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46177313748)). The exact pinned Terra ConfigPack audit found 228 feature roots: 41 statically certified profiles and 187 deny-all profiles; YAML parse errors, duplicate script IDs, unresolved feature roots and unresolved feature YAML are all zero. All six Stage 49 fantasy structures have statically certified profiles. Audit artifact: [stage48-stage49-bounds-audit](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46177313748).
 
-**Release gate remains BLOCKED.** This is a compile-only upstream artifact set, not a certified installable generator release: the artifact contains the adapter, Terra and PNX JARs plus PNX dependency JARs, but no medieval-fantasy ConfigPack and no final release manifest. Stage 48 bounds acceptance is still NOT PASSED; Stage 49 content is not implemented; Stage 50 release packaging and runtime certification remain open. No live server/world test has been performed. Do not deploy.
+**Current full upstream build:** run [46177313702](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46177313702) is still compiling Terra 6.6.1, PNX and the adapter. No JAR artifact has yet been produced for commit `77f5414`; do not treat the earlier compile-only artifact from `61e60d5` as the current build.
 
-Detailed artifact names, hashes and limitations: [BUILD-R15-COMPILE-ONLY-2026-11-28.md](validation/BUILD-R15-COMPILE-ONLY-2026-11-28.md).
+**Release gate remains BLOCKED.** Stage 49 is a partial content slice containing floating islands, crystal clusters, ruined watchtowers, castle keeps, homesteads and underground crypts. Large castles/fortresses, villages, roads, bridges, waterfalls, cave networks, ancient cities, temples and sanctuaries remain unfinished. Stage 50 acceptance scripts have been prepared on branch `R15-stage50-prep`, but have not yet been executed or merged. No live server/world, persistence or restart test has been performed. Do not deploy.
 
 ---
 
