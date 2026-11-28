@@ -1,6 +1,6 @@
 # Stages 43–50 — completion plan for R15
 
-**Status: Stages 43–45 source/adapter patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 46–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Status: Stages 43–46 source/adapter/core patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 47–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
@@ -48,11 +48,15 @@
 
 ## Stage 46 — Bedrock two-layer and water-state integration
 
-- Wire WaterLayerPolicy into the real Terra-to-PNX block-state write path and chunk finalization.
-- Preserve both Bedrock block layers, waterlogged properties, flowing/still water identity and source-level semantics where supported by the pinned PNX API.
-- Reject unsupported or ambiguous state combinations rather than silently dropping a layer.
-- Ensure physics scheduling occurs only after durable block-state staging.
-- Acceptance: canonical Terra↔PNX mappings and two-layer round trips are verified for water, waterlogged blocks, kelp, seagrass, waterlily and representative modded/unknown states; no unintended fluid updates occur across unloaded chunk boundaries.
+**Code and ordered patches added — not yet built or tested.**
+
+- Added a PNX BlockManager layer-state accessor that reads the active placement cache first and never force-loads a missing chunk.
+- Corrected Terra population writes to distinguish intrinsic water plants, blocks that support waterlogging, explicit waterlogged state, and ordinary non-waterloggable blocks.
+- Preserves the existing source/flowing liquid state when replacing water with a waterloggable block; clears only stale water in layer one and leaves unrelated second-layer content untouched.
+- Applied the same policy to PNX ProtoChunk terrain writes, covering both terrain and structure/population generation paths.
+- Added the explicit PNX two-layer overload to `WaterLayerPolicy`, plus separate PNX-core and adapter patches and `apply-stages1-46.sh`.
+- Updated the manual compile-only workflow to apply stages 1–46. All Terra, PNX and adapter Gradle commands continue to pass `-x test`; no workflow was launched because tests/build certification remain deferred until Stage 50.
+- Acceptance remains open: compile the exact pinned sources, then verify round trips for flowing/still water, kelp, seagrass, waterlogged blocks, replacement/clearing semantics and unloaded-neighbor boundaries.
 
 ## Stage 47 — Transactional Terra entity capture and finalization
 
