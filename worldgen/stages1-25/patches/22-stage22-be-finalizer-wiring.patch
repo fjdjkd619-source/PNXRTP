@@ -1,15 +1,41 @@
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
-index 3826bbd..c6885b8 100644
+index 3826bbd..f0f762f 100644
 --- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
 +++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
-@@ -58,6 +58,12 @@ public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkH
+@@ -15,6 +15,7 @@ import java.util.NavigableMap;
+ /** PNX 3.0.6 chunk adapter. It only ever mutates the already-loaded target chunk instance. */
+ public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkHandle {
+     private final IChunk chunk;
++    private List<org.powernukkitx.blockentity.BlockEntity> pendingBlockEntityRollback = List.of();
+ 
+     public PnxChunkHandle(IChunk chunk) {
+         this.chunk = java.util.Objects.requireNonNull(chunk, "chunk");
+@@ -58,6 +59,30 @@ public final class PnxChunkHandle implements ChunkFinalizationCoordinator.ChunkH
          chunk.reObfuscateChunk();
      }
-
+ 
 +    @Override
 +    public void applyBlockEntityIntents(NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> intents)
 +            throws IOException {
-+        PnxBlockEntityIntentApplier.apply(chunk, intents);
++        pendingBlockEntityRollback = PnxBlockEntityIntentApplier.apply(chunk, intents);
++    }
++
++    @Override
++    public void rollbackBlockEntityIntents() {
++        List<org.powernukkitx.blockentity.BlockEntity> rollback = pendingBlockEntityRollback;
++        pendingBlockEntityRollback = List.of();
++        for (int i = rollback.size() - 1; i >= 0; i--) {
++            try {
++                rollback.get(i).close();
++            } catch (RuntimeException ignored) {
++                // Preserve the original finalization/save failure; all remaining objects still get closed.
++            }
++        }
++    }
++
++    @Override
++    public void confirmBlockEntityIntents() {
++        pendingBlockEntityRollback = List.of();
 +    }
 +
      @Override
@@ -24,7 +50,7 @@ index fbc2e0b..a619580 100644
  import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
  import org.powernukkitx.terra.crosschunk.runtime.PnxGenerationJournalRuntime;
 +import org.powernukkitx.terra.crosschunk.runtime.PnxLevelExecutor;
-
+ 
  import java.io.IOException;
  import java.util.concurrent.CompletableFuture;
 @@ -17,7 +18,8 @@ public final class PnxCrossChunkFinalizer {
@@ -37,4 +63,3 @@ index fbc2e0b..a619580 100644
          return coordinator.prepare(target, runtime.activateTarget(target),
                          () -> loadedHandle(level, target, generatingChunk))
                  .thenAccept(prepared -> runtime.putPendingFinalization(target, prepared));
-}
