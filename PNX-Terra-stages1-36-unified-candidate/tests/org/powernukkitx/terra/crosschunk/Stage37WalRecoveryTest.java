@@ -68,7 +68,6 @@ public final class Stage37WalRecoveryTest {
 
         Path garbage = directory.resolve("garbage.wal");
         createJournal(garbage);
-        byte[] original = Files.readAllBytes(garbage);
         Files.write(garbage, new byte[]{0x11, 0x22, 0x33, 0x44}, StandardOpenOption.APPEND);
         assertRejectedUnchanged(garbage, "unrecognized trailing bytes");
 
