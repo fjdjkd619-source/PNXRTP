@@ -1,8 +1,7 @@
 diff --git a/src/main/java/org/powernukkitx/terra/TerraGenerator.java b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
-index b97b6ae..e78dcc4 100644
 --- a/src/main/java/org/powernukkitx/terra/TerraGenerator.java
 +++ b/src/main/java/org/powernukkitx/terra/TerraGenerator.java
-@@ -18,6 +18,9 @@ import org.powernukkitx.level.generator.stages.LightPopulationStage;
+@@ -18,10 +18,12 @@
  import org.powernukkitx.level.generator.stages.FinishedStage;
  import org.powernukkitx.level.generator.stages.PopulatorStage;
  import org.powernukkitx.level.generator.stages.normal.NormalPopulatorStage;
@@ -12,7 +11,11 @@ index b97b6ae..e78dcc4 100644
  import org.powernukkitx.terra.delegate.PNXProtoChunk;
  import org.powernukkitx.terra.delegate.PNXProtoWorld;
  import org.powernukkitx.terra.delegate.PNXServerWorld;
-@@ -29,6 +32,7 @@ import com.dfsek.terra.api.world.chunk.generation.util.GeneratorWrapper;
+-import org.powernukkitx.terra.crosschunk.runtime.TerraCrossChunkRuntime;
+ import org.powernukkitx.registry.Registries;
+ import com.dfsek.terra.api.config.ConfigPack;
+ import com.dfsek.terra.api.world.biome.generation.BiomeProvider;
+@@ -30,6 +32,7 @@
  import com.dfsek.terra.api.world.info.WorldProperties;
  import lombok.extern.slf4j.Slf4j;
  
@@ -20,7 +23,7 @@ index b97b6ae..e78dcc4 100644
  import java.util.List;
  import java.util.Locale;
  import java.util.Map;
-@@ -40,6 +44,7 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+@@ -41,6 +44,7 @@
      private final ConfigPack configPack;
      private final WorldProperties worldProperties;
      private final ChunkGenerator chunkGenerator;
@@ -28,7 +31,7 @@ index b97b6ae..e78dcc4 100644
  
      public TerraGenerator(DimensionData dimensionData, Map<String, Object> options) {
          super(dimensionData, options);
-@@ -48,26 +53,10 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+@@ -49,26 +53,10 @@
          this.chunkGenerator = createGenerator(this.configPack);
          this.biomeProvider = this.configPack.getBiomeProvider();
          this.worldProperties = new WorldProperties() {
@@ -59,7 +62,7 @@ index b97b6ae..e78dcc4 100644
          };
      }
  
-@@ -75,124 +64,93 @@ public class TerraGenerator extends PopulatedGenerator implements GeneratorWrapp
+@@ -76,136 +64,95 @@
      public void stages(GenerateStage.Builder builder) {
          builder.start(new TerrainStage());
          builder.next(Registries.GENERATE_STAGE.get(GeneratedStage.NAME));
@@ -68,6 +71,9 @@ index b97b6ae..e78dcc4 100644
 -        }
 +        if ((boolean) options.getOrDefault("structures", true)) builder.next(new StructureStage());
          builder.next(new PopulateStage());
+-        if ((boolean) options.getOrDefault("terraJournalFinalization", false)) {
+-            builder.next(new JournalFinalizeStage());
+-        }
          builder.next(Registries.GENERATE_STAGE.get(LightPopulationStage.NAME));
          builder.next(Registries.GENERATE_STAGE.get(FinishedStage.NAME));
      }
@@ -163,6 +169,27 @@ index b97b6ae..e78dcc4 100644
 -        public String name() {
 -            return "terra_structure";
 -        }
+-    }
+-    class PopulateStage extends GenerateStage {
+-        @Override
+-        public void apply(ChunkGenerateContext context) {
+-            final IChunk chunk = context.getChunk();
+-            final int chunkX = chunk.getX();
+-            final int chunkZ = chunk.getZ();
+-            var serverWorld = new PNXServerWorld(TerraGenerator.this, context.getLevel());
+-            var protoWorld = new PNXProtoWorld(serverWorld, chunkX, chunkZ);
+-            try {
+-                for (var generationStage : configPack.getStages()) {
+-                    generationStage.populate(protoWorld);
+-                }
+-            } catch (Exception failure) {
+-                log.error("Terra feature population failed for chunk ({}, {})", chunkX, chunkZ, failure);
+-                throw new IllegalStateException("Terra feature population failed", failure);
+-            }
+-            serverWorld.apply(chunk);
+-            chunk.setChunkState(ChunkState.POPULATED);
+-        }
+-        @Override public String name() { return "terra_populate"; }
 +        private final ObjectArraySet<String> populators=new ObjectArraySet<>();
 +        public StructureStage(){populators.addAll(switch(dimensionData.getDimensionId()){
 +            case 1->List.of(BastionRemnantPopulator.NAME,NetherFortressPopulator.NAME,PopulatorRuinedPortal.NAME,NetherFossilPopulator.NAME);
@@ -172,19 +199,11 @@ index b97b6ae..e78dcc4 100644
 +        @Override public ObjectArraySet<String> populators(){return populators;}
 +        @Override public String name(){return "terra_structure";}
      }
--    class PopulateStage extends GenerateStage {
  
--        @Override
--        public void apply(ChunkGenerateContext context) {
--            final IChunk chunk = context.getChunk();
--            chunk.setChunkState(ChunkState.POPULATED);
--            final int chunkX = chunk.getX();
--            final int chunkZ = chunk.getZ();
--            var tmp1 = new PNXServerWorld(TerraGenerator.this, context.getLevel());
--            var tmp = new PNXProtoWorld(tmp1, chunkX, chunkZ);
+-    class JournalFinalizeStage extends GenerateStage {
 +    class PopulateStage extends GenerateStage {
-+        @Override public void apply(ChunkGenerateContext context) {
-+            final IChunk chunk=context.getChunk();chunk.setChunkState(ChunkState.POPULATED);
+         @Override public void apply(ChunkGenerateContext context) {
++            final IChunk chunk=context.getChunk();
 +            final int chunkX=chunk.getX(),chunkZ=chunk.getZ();
 +            PnxGenerationJournalRuntime runtime=getJournalRuntime(context.getLevel());
 +            ChunkPos anchor=new ChunkPos(chunkX,chunkZ);
@@ -196,30 +215,26 @@ index b97b6ae..e78dcc4 100644
 +            var serverWorld=new PNXServerWorld(TerraGenerator.this,context.getLevel(),anchorSession,runtime.worldKey());
 +            var protoWorld=new PNXProtoWorld(serverWorld,chunkX,chunkZ);
              try {
--                for (var generationStage : configPack.getStages()) {
--                    generationStage.populate(tmp);
--                }
--            } catch (Exception e) {
--                log.error("", e);
+-                TerraCrossChunkRuntime.forLevel(context.getLevel())
+-                        .finalizeChunk(context.getLevel(), context.getChunk());
+-            } catch (java.io.IOException failure) {
+-                throw new java.io.UncheckedIOException("Failed to durably finalize Terra chunk "
+-                        + context.getChunk().getX() + "," + context.getChunk().getZ(), failure);
 +                for(var generationStage:configPack.getStages())generationStage.populate(protoWorld);
 +                // This BlockManager contains only this anchor's writes; cross-chunk writes are in the WAL.
 +                serverWorld.apply(chunk);
 +                // Completion marker is durable only after every root ticket has committed and anchor writes applied.
 +                anchorSession.finishPopulation();
++                // Publish the dependency barrier only after all root tickets and anchor writes complete.
++                chunk.setChunkState(ChunkState.POPULATED);
 +            } catch(Exception e) {
 +                anchorSession.close();
 +                throw new IllegalStateException("Terra population failed for anchor "+anchor,e);
              }
--            tmp1.apply(chunk);
--        }
--
--        @Override
--        public String name() {
--            return "terra_populate";
          }
-+        @Override public String name(){return "terra_populate";}
-     }
- 
+-        @Override public String name() { return "terra_journal_finalize"; }
+-    }
+-
 -    public String getName() {
 -        return "terra";
 -    }
@@ -235,8 +250,9 @@ index b97b6ae..e78dcc4 100644
 -
 -    public DimensionData getDimensionData() {
 -        return dimensionData;
--    }
--
++        @Override public String name(){return "terra_populate";}
+     }
+ 
 -    public Level getLevel() {
 -        return level;
 -    }
