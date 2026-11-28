@@ -227,29 +227,113 @@ public final class PlacementJournal implements AutoCloseable {
         }
     }
 
+    /** Only a provably incomplete final write may be truncated; complete corruption fails closed. */
     private void recover() throws IOException {
         lock.lock();
+        long startedAt = System.nanoTime();
         try {
             long size = channel.size(), offset = 0, validEnd = 0;
+            boolean incompleteTail = false;
             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
-            while (offset + HEADER_BYTES + TRAILER_BYTES <= size) {
-                header.clear(); if (!readFully(channel, header, offset)) break; header.flip();
+            while (offset < size) {
+                long remaining = size - offset;
+                if (remaining < HEADER_BYTES) {
+                    if (isPartialMagicPrefix(offset, (int) remaining)) {
+                        incompleteTail = true;
+                        break;
+                    }
+                    throw corruption(offset, "incomplete bytes do not match frame magic");
+                }
+                header.clear();
+                if (!readFully(channel, header, offset)) throw corruption(offset, "incomplete frame header");
+                header.flip();
                 int magic = header.getInt(), length = header.getInt();
-                if (magic != MAGIC || length < 10 || length > MAX_FRAME
-                        || offset + HEADER_BYTES + (long) length + TRAILER_BYTES > size) break;
-                ByteBuffer body = ByteBuffer.allocate(length + TRAILER_BYTES);
-                if (!readFully(channel, body, offset + HEADER_BYTES)) break;
-                body.flip(); byte[] payload = new byte[length]; body.get(payload); int storedCrc = body.getInt();
-                CRC32C crc = new CRC32C(); crc.update(payload, 0, payload.length);
-                if ((int) crc.getValue() != storedCrc) break;
+                if (magic != MAGIC) throw corruption(offset, "invalid frame magic");
+                if (length < 10 || length > MAX_FRAME) throw corruption(offset, "invalid complete frame length " + length);
+                long frameBytes = HEADER_BYTES + (long) length + TRAILER_BYTES;
+                if (frameBytes > remaining) {
+                    incompleteTail = true;
+                    break;
+                }
+                byte[] payload = new byte[length];
+                if (!readFully(channel, ByteBuffer.wrap(payload), offset + HEADER_BYTES))
+                    throw corruption(offset, "could not read complete payload");
+                ByteBuffer crcBuffer = ByteBuffer.allocate(TRAILER_BYTES);
+                if (!readFully(channel, crcBuffer, offset + HEADER_BYTES + (long) length))
+                    throw corruption(offset, "could not read complete checksum");
+                crcBuffer.flip();
+                CRC32C crc = new CRC32C();
+                crc.update(payload, 0, payload.length);
+                if ((int) crc.getValue() != crcBuffer.getInt())
+                    throw corruption(offset, "CRC32C mismatch in complete frame");
                 JournalEvent event;
-                try { event = decode(payload); } catch (RuntimeException | IOException malformed) { break; }
-                if (eventSequence(event) != nextSequence) break;
-                acceptRecovered(event); nextSequence++;
-                offset += HEADER_BYTES + (long) length + TRAILER_BYTES; validEnd = offset;
+                try { event = decode(payload); }
+                catch (RuntimeException | IOException malformed) {
+                    throw new IOException("Corrupt complete WAL event at offset " + offset, malformed);
+                }
+                if (eventSequence(event) != nextSequence)
+                    throw corruption(offset, "unexpected sequence " + eventSequence(event) + ", expected " + nextSequence);
+                acceptRecovered(event);
+                nextSequence++;
+                offset += frameBytes;
+                validEnd = offset;
             }
-            if (validEnd != size) { channel.truncate(validEnd); channel.force(true); }
-        } finally { lock.unlock(); }
+            if (incompleteTail) {
+                recoveredTailBytes = size - validEnd;
+                preserveTornTail(validEnd, size);
+                channel.truncate(validEnd);
+                channel.force(true);
+            } else if (validEnd != size) {
+                throw corruption(validEnd, "unclassified trailing bytes");
+            }
+        } finally {
+            recoveryDurationNanos = System.nanoTime() - startedAt;
+            lock.unlock();
+        }
+    }
+
+    private boolean isPartialMagicPrefix(long offset, int length) throws IOException {
+        if (length < 1 || length >= Integer.BYTES) return false;
+        ByteBuffer prefix = ByteBuffer.allocate(length);
+        if (!readFully(channel, prefix, offset)) return false;
+        prefix.flip();
+        for (int i = 0; i < length; i++) {
+            int expected = (MAGIC >>> (24 - i * 8)) & 0xff;
+            if ((prefix.get() & 0xff) != expected) return false;
+        }
+        return true;
+    }
+
+    private IOException corruption(long offset, String reason) {
+        return new IOException("Placement WAL corruption at offset " + offset + ": " + reason
+                + "; original WAL left untouched: " + path);
+    }
+
+    private void preserveTornTail(long start, long end) throws IOException {
+        String base = path.getFileName() + ".torn-" + start;
+        IOException collision = null;
+        for (int suffix = 0; suffix < 10_000; suffix++) {
+            Path evidence = path.resolveSibling(suffix == 0 ? base : base + "-" + suffix);
+            try (FileChannel output = FileChannel.open(evidence, CREATE_NEW, WRITE)) {
+                long position = start;
+                ByteBuffer buffer = ByteBuffer.allocate(64 * 1024);
+                while (position < end) {
+                    buffer.clear();
+                    buffer.limit((int) Math.min(buffer.capacity(), end - position));
+                    int n = channel.read(buffer, position);
+                    if (n < 0) throw new EOFException("WAL shortened while preserving tail");
+                    if (n == 0) { Thread.onSpinWait(); continue; }
+                    buffer.flip();
+                    while (buffer.hasRemaining()) output.write(buffer);
+                    position += n;
+                }
+                output.force(true);
+                return;
+            } catch (FileAlreadyExistsException exists) {
+                collision = new IOException("Evidence file already exists: " + evidence, exists);
+            }
+        }
+        throw new IOException("Unable to create collision-safe torn-tail evidence", collision);
     }
 
     private void acceptRecovered(JournalEvent event) throws IOException {
