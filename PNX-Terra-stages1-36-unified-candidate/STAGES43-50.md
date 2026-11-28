@@ -1,6 +1,6 @@
 # Stages 43–50 — completion plan for R15
 
-**Status: Stages 43–47 source/adapter/core patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 45–47 remain uncompiled and untested. Stages 48–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Status: Stages 43–47 source/adapter/core patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 45–47 remain uncompiled and untested. Stage 48 has a partial fail-closed implementation and a measured coverage audit, but its acceptance gate is NOT PASSED. Stages 49–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
