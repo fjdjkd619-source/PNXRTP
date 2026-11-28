@@ -27,9 +27,6 @@ public final class OrigenBoundsCatalog {
             Map.entry("giant_sequoia_tree_procedural", profile("giant_sequoia_tree_procedural",
                     -24, -12, -24, 24, 80, 24, 30_000, 12_000, 0, List.of(),
                     "Pinned pack giant_sequoia_tree_procedural.tesf: trunkHeight 55..64; side branches and leaf clusters remain within the conservative +/-24 horizontal and 80-block vertical envelope; rootLength <=8")),
-            Map.entry("great_baobab_tree", profile("great_baobab_tree",
-                    -24, -12, -24, 24, 40, 24, 40_000, 15_000, 0, List.of("*"),
-                    "Pinned pack great_baobab_tree.tesf: trunk radius 5; horizontal/vertical branch lengths and leaf radius bounded by local constants")),
             Map.entry("great_azalea_tree", profile("great_azalea_tree",
                     -32, -8, -32, 32, 40, 32, 50_000, 20_000, 0, List.of("azalea_leaves_clump"),
                     "Pinned pack great_azalea_tree.tesf: trunk branches <=20, end branches <=11, leaf clump radius 4; read halo 1")),
@@ -57,12 +54,6 @@ public final class OrigenBoundsCatalog {
             Map.entry("large_underground_lava_lake", profile("large_underground_lava_lake",
                     -16, -20, -16, 16, 20, 16, 15_000, 10_000, 0, List.of(),
                     "Pinned pack large_underground_lava_lake.tesf: radius <=8 plus bounded warp; vertical squish >=1")),
-            Map.entry("trial_ruin_remnant", profile("trial_ruin_remnant",
-                    -8, -8, -8, 8, 8, 8, 8_000, 4_000, 0, List.of("*"),
-                    "Pinned pack trial_ruin_remnant.tesf: radial offset <=5; schematic closure bounded by +/-8")),
-            Map.entry("desert_well", profile("desert_well",
-                    -8, -8, -8, 8, 8, 8, 8_000, 4_000, 0, List.of("*"),
-                    "Pinned pack desert_well.tesf: depth <=5; top/bottom schematic closure bounded by +/-8"))
     );
 
     /**
@@ -124,7 +115,7 @@ public final class OrigenBoundsCatalog {
                 .max().orElse(0));
     }
 
-    /** Unknown scripts are still runtime-bounded; this method is only for explicit release audits. */
+    /** Requires a statically audited profile; never returns the deny-all fallback. */
     public static ScriptBoundsProfile requireVerified(String structureId) {
         return find(structureId).orElseThrow(() ->
                 new IllegalStateException("No verified Terra bounds profile for structure: " + structureId));
