@@ -46,6 +46,13 @@ jobs:
           ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
           path: adapter
 
+      - name: Checkout pinned TerraOverworldConfig
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/TerraOverworldConfig
+          ref: 445848bc9f9f28fab1d760f01f9a552d93944681
+          path: terra-config
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -55,9 +62,27 @@ jobs:
       - name: Configure Gradle dependency cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Apply Stage 1–47 patches and Stage 48 source overlays
+      - name: Apply Stage 49 content and generate certified bounds catalog
+        shell: bash
         run: |
-          bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-47.sh \
+          set -euo pipefail
+          CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
+          bash "$CANDIDATE/content-pack/apply-fantasy-pack.sh" --terra-config "$GITHUB_WORKSPACE/terra-config"
+          python3 "$CANDIDATE/validation/audit-terra-pack.py" \
+            --root "$GITHUB_WORKSPACE/terra-config" \
+            --expected-head 445848bc9f9f28fab1d760f01f9a552d93944681 \
+            --pnx-root "$GITHUB_WORKSPACE/pnx" \
+            --pnx-expected-head c57499365737654eca32df008751ef6bca5af142 \
+            --output "$RUNNER_TEMP/terra-configpack-inventory.json"
+          python3 -m pip install --user --disable-pip-version-check PyYAML
+          python3 "$CANDIDATE/tools/generate_bounds_profiles.py" \
+            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \
+            --source-root "$GITHUB_WORKSPACE/terra-config" \
+            --output "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            | tee "$RUNNER_TEMP/bounds-profile-summary.json"
+          install -D "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            "$CANDIDATE/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java"
+          bash "$CANDIDATE/apply-stages1-48.sh" \
             --pnx "$GITHUB_WORKSPACE/pnx" \
             --terra "$GITHUB_WORKSPACE/terra" \
             --adapter "$GITHUB_WORKSPACE/adapter" \
@@ -90,6 +115,22 @@ jobs:
           find adapter -type f -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp -t artifact-output/adapter {} +
           find artifact-output -type f -name '*.jar' -print
           test -n "$(find artifact-output -type f -name '*.jar' -print -quit)"
+
+      - name: Assemble ConfigPack and release metadata
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact-output/content-pack/terra-overworld-fantasy
+          cp -a terra-config/. artifact-output/content-pack/terra-overworld-fantasy/
+          cp candidate/PNX-Terra-stages1-36-unified-candidate/content-pack/fantasy/manifest.json \
+            artifact-output/content-pack/manifest.json
+          cp "$RUNNER_TEMP/terra-configpack-inventory.json" artifact-output/content-pack/
+          cp "$RUNNER_TEMP/bounds-profile-summary.json" artifact-output/content-pack/
+          (
+            cd artifact-output
+            find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          )
 
       - name: Upload JAR artifacts
         uses: actions/upload-artifact@v4
