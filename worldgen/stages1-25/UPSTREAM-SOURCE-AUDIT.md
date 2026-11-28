@@ -83,3 +83,6 @@ Source:
 
 
 The automated source-baseline check is defined in `.github/workflows/pinned-upstream-audit.yml`; it checks out all three exact commits and validates these known source conditions. A successful result from that workflow is not an integrated build.
+
+
+A separate workflow `.github/workflows/pinned-upstream-builds.yml` now attempts independent Gradle builds of all three pinned upstream repositories. These are baseline builds only; they do not apply the stage 1–25 patches or establish compatibility of the integrated generator.
