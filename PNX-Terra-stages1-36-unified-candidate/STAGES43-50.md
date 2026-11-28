@@ -1,10 +1,10 @@
 # Stages 43–50 — completion plan for R15
 
-**Status: Stages 43–47 source/adapter/core patches and ordered apply runners are present; full compile and runtime validation are deliberately deferred until Stage 50. Stage 44 retention is partial. Stages 45–47 remain uncompiled and untested. Stage 48 has a partial fail-closed implementation and a measured coverage audit, but its acceptance gate is NOT PASSED. Stages 49–50 remain planned.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
+**Current status: compile-only upstream build PASS on commit `61e60d573217793d62747266e76538c9a9132f68` (workflow run [46174452474](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46174452474)); the build applied stages 1–47 plus Stage 48 overlays and compiled Terra, PNX and adapter JARs. Tests were skipped with `-x test`. Stage 43–47 code and Stage 48 overlays therefore have compile evidence, but runtime and regression acceptance remain unverified. Stage 44 retention is incomplete. Stage 48 acceptance is NOT PASSED. Stage 49 content pack is not implemented. Stage 50 has only compile-only upstream artifacts; final pack packaging, manifest and runtime certification remain open.** These stages close the production blockers found in the Stage 1–42 audit. Stage numbers are work packages, not claims that the work is already complete. The R15 release gate stays BLOCKED until every acceptance condition below is met.
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
-**Code added — not yet built or tested.**
+**Compile-only upstream build: PASS; regression test and runtime acceptance remain unverified.**
 
 - Added JournalCheckpoint to the source overlay and Stage 43 adapter patch, plus the ordered apply-stages1-43.sh runner.
 - Added PlacementJournal.checkpointSnapshot() and writeCheckpoint(Path): both expose a consistent event list plus sequence watermark under the journal lock, and publish a durable checkpoint without rotating or truncating the WAL.
@@ -21,7 +21,7 @@
 
 ## Stage 44 — Crash-safe WAL compaction and bounded retention
 
-**Code added — not yet built or tested; retention remains incomplete.**
+**Compile-only upstream build: PASS; retention remains incomplete and regression tests remain unrun.**
 
 - Added a checksummed compaction marker and a recovery protocol that can finish a WAL truncate after a crash once the checkpoint and marker are durable.
 - Added a compaction integration test covering checkpoint replay, post-checkpoint WAL events, interrupted compaction and corrupt-marker fail-closed behavior. It has not been run.
@@ -35,7 +35,7 @@
 
 ## Stage 45 — Live PNX physics executor
 
-**Code and adapter patch added — not yet built or tested.**
+**Compile-only upstream build: PASS; live PNX physics scheduling and failure/retry behavior remain unverified.**
 
 - PnxChunkHandle now dispatches deterministic PhysicsIntentBatch work through the owning Level scheduler path used by PnxCrossChunkFinalizer.
 - Before calling PNX updateAround(), it verifies that the target and all cross-chunk neighbour chunks needed by the six-direction update are already loaded; it refuses to force-load missing neighbours.
@@ -48,7 +48,7 @@
 
 ## Stage 46 — Bedrock two-layer and water-state integration
 
-**Code and ordered patches added — not yet built or tested.**
+**Compile-only upstream build: PASS; Bedrock two-layer/water runtime behavior remains unverified.**
 
 - Added a PNX BlockManager layer-state accessor that reads the active placement cache first and never force-loads a missing chunk.
 - Corrected Terra population writes to distinguish intrinsic water plants, blocks that support waterlogging, explicit waterlogged state, and ordinary non-waterloggable blocks.
@@ -60,7 +60,7 @@
 
 ## Stage 47 — Transactional Terra entity capture and finalization
 
-**Capture, WAL and replay-hardening code added — not yet built or tested.**
+**Compile-only upstream build: PASS; entity capture, restart/replay and live-server behavior remain unverified.**
 
 - Replaced the unconditional spawn rejection with a placement-local Terra entity facade. It creates no live PNX entity while Terra feature scripts are still executing.
 - Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to WAL v4.
@@ -74,7 +74,7 @@
 
 ## Stage 48 — Complete structure bounds, state aliases and diagnostics
 
-**Partial implementation committed in R15; Stage 48 is NOT complete.**
+**Partial implementation committed and compiled in the compile-only build; Stage 48 acceptance is NOT PASSED.**
 
 - Changed unknown-script resolution from a permissive generic envelope to a deny-all profile: zero read/write/entity budgets.
 - Changed `PNXServerWorld.beginPlacement` to reject roots without a verified profile before opening a placement transaction or journal ticket. The warning includes stage, feature, structure, world key, chunk anchor and origin coordinates.

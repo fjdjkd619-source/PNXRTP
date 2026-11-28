@@ -1,4 +1,14 @@
-# PNX–Terra Stage 1–43 status — 2026-11-28
+# PNX–Terra Stage 1–50 status — 2026-11-28
+
+**Latest verified checkpoint: compile-only upstream build PASS** on R15 commit `61e60d573217793d62747266e76538c9a9132f68`. GitHub Actions run [46174452474](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46174452474) successfully applied the active Stage 1–47 patch chain and Stage 48 source overlays, compiled and packaged the pinned Terra 6.6.1, PowerNukkitX and PNX-Terra adapter, and uploaded the JAR artifact. Gradle tests were deliberately skipped with `-x test`.
+
+**Release gate remains BLOCKED.** This is a compile-only upstream artifact set, not a certified installable generator release: the artifact contains the adapter, Terra and PNX JARs plus PNX dependency JARs, but no medieval-fantasy ConfigPack and no final release manifest. Stage 48 bounds acceptance is still NOT PASSED; Stage 49 content is not implemented; Stage 50 release packaging and runtime certification remain open. No live server/world test has been performed. Do not deploy.
+
+Detailed artifact names, hashes and limitations: [BUILD-R15-COMPILE-ONLY-2026-11-28.md](validation/BUILD-R15-COMPILE-ONLY-2026-11-28.md).
+
+---
+
+## Historical audit notes
 
 **Integration gate: BLOCKED for production. Do not deploy.** Stage 1–42 applies to the clean pinned PNX, Terra 6.6.1 and adapter checkouts. Stage 43 adds a versioned, integrity-checked checkpoint snapshot codec to the source overlay and adapter patch chain; its regression test is written but intentionally deferred. Stages 44–50 remain open. The compile-only Gradle run that was triggered automatically on the preceding Stage 42 candidate is not a release build and must not be used as the Stage 43 artifact. Build and test workflows are now manual-only until Stage 50; all Terra, PNX and adapter Gradle build commands use `-x test`. See `STAGES43-50.md` for remaining work and acceptance gates.
 
