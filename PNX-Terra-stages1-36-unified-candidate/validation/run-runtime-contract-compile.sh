@@ -36,21 +36,9 @@ mapfile -t SOURCES < <(find "$ROOT/source" "$ROOT/tests" "$STUB" -name '*.java' 
   | grep -v '/delegate/PNXStagedBlockEntityDelegate.java$' \
   | grep -v '/delegate/PNXStagedSignDelegate.java$' \
   | grep -v '/delegate/PNXStagedMobSpawnerDelegate.java$' \
-  | grep -v '/delegate/PNXStagedContainerDelegate.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD/classes" "${SOURCES[@]}"
-echo "PnxGenerationJournalRuntime Java 21 contract compile: PASS (Level.isChunkGenerating API)"
- \
-  | grep -v '/delegate/PNXStagedEntityDelegate.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD/classes" "${SOURCES[@]}"
-echo "PnxGenerationJournalRuntime Java 21 contract compile: PASS (Level.isChunkGenerating API)"
- \
-  | grep -v '/delegate/PNXProtoChunk.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD/classes" "${SOURCES[@]}"
-echo "PnxGenerationJournalRuntime Java 21 contract compile: PASS (Level.isChunkGenerating API)"
- \
-  | grep -v '/delegate/PNXStagedInventory.java
-javac --release 21 -Xlint:all -Werror -d "$BUILD/classes" "${SOURCES[@]}"
-echo "PnxGenerationJournalRuntime Java 21 contract compile: PASS (Level.isChunkGenerating API)"
- )
+  | grep -v '/delegate/PNXStagedContainerDelegate.java$' \
+  | grep -v '/delegate/PNXStagedEntityDelegate.java$' \
+  | grep -v '/delegate/PNXProtoChunk.java$' \
+  | grep -v '/delegate/PNXStagedInventory.java$')
 javac --release 21 -Xlint:all -Werror -d "$BUILD/classes" "${SOURCES[@]}"
 echo "PnxGenerationJournalRuntime Java 21 contract compile: PASS (Level.isChunkGenerating API)"
