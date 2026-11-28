@@ -64,3 +64,6 @@ Stage 22 now includes detached TerraScript Sign, MobSpawner, and Container captu
 
 
 Stage 22 r8 also adds `PNXStagedSignDelegate`, `PNXStagedMobSpawnerDelegate`, `PNXStagedContainerDelegate`, and `PNXStagedInventory`. `PNXServerWorld` records their immutable BlockEntity intents in the active placement journal. The PNX spawner-delay patch and early Level-scheduler durable save/rollback are included. See `TERRA-STRUCTURE-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md`. Full r8 ZIP is in the ChatGPT Library; binary ZIP is not committed to this branch.
+
+
+**Backup boundary:** this GitHub branch contains the r8 Stage 22 source files, five Stage 22 patches, and their audit/test reports. The complete 21-patch stages 1–25 overlay, all historical archives, and the full source bundle are preserved in the verified r8 Library ZIP. The ZIP binary itself is not committed to this branch.
