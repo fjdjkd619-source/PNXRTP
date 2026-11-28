@@ -2,33 +2,49 @@
 
 **Status: BLOCKED — the complete modified stages 1–25 chain has not yet passed a full upstream build or runtime certification. It is not deployable.**
 
-## Latest candidate overlay (2026-11-28)
+## Latest candidate overlay (2026-11-28, r4)
 
-The local candidate now contains 36 Java source files, 11 test classes, 16 active patches, an exact-ref patch-application script, validation scripts/results, and 13 original archives.
+The candidate contains 36 Java source files, 11 test classes, 16 active patches, an exact-ref patch-application script, validation scripts/results, 13 original archives, and a new pinned PNX BlockEntity lifecycle audit.
 
-Latest corrections:
+Latest corrections carried in the candidate:
 
 1. **Stage 17 retry liveness:** accepted anchor requests are not resubmitted while PNX still owns the generation-queue slot. If PNX releases that slot without a durable anchor-complete WAL marker, the scheduler clears the stale request and retries using the pinned `Level.isChunkGenerating(x,z)` API.
 2. **Stage 17 self-dependency:** `PopulateStage` opens its `AnchorSession` before registering the target dependency envelope. The scheduler skips active sessions and waits for durable completion.
 3. **No force-load during Terra reads:** `PNXServerWorld.getChunkAt` uses `Level.getChunkIfLoaded` and rejects absent/uninitiated chunks.
 4. **Unknown Origen scripts:** unknown structure IDs use a hard runtime-bounded fallback (x/z +/-32, y +/-128, 65,536 reads/writes, zero entity spawns). Nested scripts share the root guard; any out-of-envelope operation aborts the placement. Namespaced IDs resolve to audited profiles where available. This is runtime containment, not static proof of every script's theoretical bounds.
 5. **Durability and ordering:** chunk persistence uses LevelDB `WriteOptions.sync(true)` before WAL acknowledgement; placement records use the per-anchor ticket ordinal.
-6. **PNX delegates:** `PNXChunkDelegate` now returns actual chunk X/Z. `PNXBlockStateDelegate` supports exact matching property schemas and fails closed on mismatches. `PNXServerWorld.getBlockEntity` reads only already-loaded chunks through a read-only wrapper; BE updates and NBT state mutations remain fail-closed.
+6. **PNX delegates:** `PNXChunkDelegate` returns actual chunk X/Z. `PNXBlockStateDelegate` supports exact matching property schemas and fails closed on mismatches. `PNXServerWorld.getBlockEntity` reads only already-loaded chunks through a read-only wrapper; BE updates and NBT state mutations remain fail-closed.
 
 ## Local validation
 
 - Java 21 core compile: PASS, `--release 21 -Xlint:all -Werror`.
-- 11 core test suites x 10 complete rounds: **110/110 PASS** after the latest scheduler/bounds changes.
-- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`.
-- PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations.
+- 11 core test suites x 10 complete rounds in the earlier recorded validation: **110/110 PASS**.
+- Fresh r4 rerun: all 11 core test suites PASS.
+- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r4.
+- PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations; freshly rerun for r4.
 - Active patch syntax: **16/16 PASS** using `git apply --stat`.
 - Supplemental hardening patch: clean `git apply --check` and application PASS against the reconstructed Stage 21–25 baseline overlay.
 - Original archive readability: **13/13 PASS**.
 - The exact-ref patch-application script passes shell syntax validation; it has not yet been run against full upstream checkouts.
 
-Latest local archive (source overlay only):
-- `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r3.zip`
-- SHA-256: `ca42ec84e497fca7a9e112ff145c5f827c61b3312a6e0aebd2c7c044e01dc804`
+### New pinned BlockEntity source audit
+
+Audited `PowerNukkitX/PowerNukkitX@c57499365737654eca32df008751ef6bca5af142` and confirmed:
+- `BlockEntity.createBlockEntity` resolves through `Registries.BLOCKENTITY`, runs `loadNBT`, and immediately registers in both chunk and level.
+- `BlockEntity.close` removes the object from both registries.
+- `Chunk.addBlockEntity` closes an existing tile at the same coordinate, so collisions must be rejected before creation.
+- The exact binary NBT codec and PNX-owned execution-context bridge are still unresolved.
+
+The adapter intentionally remains fail-closed for BlockEntity mutation until payload decoding, server-thread execution, collision handling, rollback, and durable recovery are implemented. Full audit: [BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md](BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md).
+
+## Latest recovery archive
+
+- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r4.zip`
+- Size: 1,3xx,xxx bytes (see Library file metadata for exact size)
+- SHA-256: `b6d0bd6d5bba0613d70d235f17bddc1040804d48d068b63d71a0dc33f64c6a06`
+- ZIP integrity: PASS
+- The r4 ZIP, checksum sidecar, and BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/`.
+- Earlier r3 archive and verified duplicate remain preserved; no prior copy was deleted or overwritten.
 
 ## Verified upstream baseline results
 
@@ -64,17 +80,8 @@ This is a compatibility baseline only; it does not contain the stages 1–25 ove
 
 Production server and world remain untouched. Do not start stages 26–34 or deploy while the gate is BLOCKED.
 
+## GitHub-first and backup policy
 
-## Recovery and source-of-truth policy (2026-11-28)
+This branch is the authoritative project history. Commit completed source changes, tests, patches, and status changes to `worldgen/stages1-25` before moving to the next task. Preserve branch history; do not force-push or rewrite commits.
 
-The candidate archive was recovered from the user's persistent ChatGPT Library and materialized successfully:
-
-- Archive: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r3.zip`
-- Size: 934,385 bytes
-- SHA-256: `ca42ec84e497fca7a9e112ff145c5f827c61b3312a6e0aebd2c7c044e01dc804`
-- ZIP integrity: PASS
-- Contents: 119 files (36 Java sources, 11 test classes, 16 active patches, validation records/scripts, historical patch/archive material).
-
-**Working policy:** this GitHub branch is the authoritative project history. Every completed source change, test, patch, and status change must be committed to `worldgen/stages1-25` before moving to the next task. Local/container copies are temporary working copies only and must never be treated as the sole copy of completed work. Preserve the existing branch history; do not force-push or rewrite commits. Do not mark the gate complete until the full upstream build and end-to-end checks pass.
-
-The recovered ZIP is currently retained in the user's persistent Library as a recovery backup. Its full binary payload has not yet been committed into this repository; the repository contains this verified identity/manifest record, not the ZIP itself.
+Persistent Library copies are additional recovery copies, not a substitute for the GitHub source history. Keep older copies until newer copies have been independently verified. The r4 archive's full binary payload is stored in the Library backup folder; it is not yet a binary asset in this repository.
