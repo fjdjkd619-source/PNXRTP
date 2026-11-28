@@ -14,6 +14,9 @@ Additive overlay for the pinned TerraOverworldConfig revision:
 - Rare castle keeps.
 - Small timber homesteads.
 - Underground crypt chambers.
+- Ancient stone sanctuaries with pillars and central altars.
+- Stone bridges spanning water channels.
+- Larger underground halls and chamber complexes.
 
 Every structure is a TerraScript with a finite coordinate envelope. The Stage 48 generator statically analyzes the script and admits only profiles that pass its finite bounds proof. Unverified structures remain denied by the adapter.
 

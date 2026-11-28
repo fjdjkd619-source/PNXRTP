@@ -1,0 +1,19 @@
+id: FANTASY_ANCIENT_SANCTUARIES
+type: FEATURE
+
+distributor:
+  type: PADDED_GRID
+  width: 1024
+  padding: 384
+  salt: 48104
+
+locator:
+  type: SURFACE
+  range:
+    min: ${meta.yml:ocean-level} + 2
+    max: $meta.yml:top-y
+
+structures:
+  distribution:
+    type: CONSTANT
+  structures: fantasy_ancient_sanctuary

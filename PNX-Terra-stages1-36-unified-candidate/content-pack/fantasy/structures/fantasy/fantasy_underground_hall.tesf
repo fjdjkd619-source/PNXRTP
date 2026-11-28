@@ -1,0 +1,17 @@
+// Large bounded underground hall with a stone shell and cleared interior.
+for (num x = -6; x <= 6; x = x + 1) {
+    for (num y = -3; y <= 3; y = y + 1) {
+        for (num z = -6; z <= 6; z = z + 1) {
+            if (x * x == 36 || z * z == 36 || y == -3 || y == 3) {
+                block(x, y, z, "minecraft:deepslate_bricks");
+            } else {
+                block(x, y, z, "minecraft:air");
+            }
+        }
+    }
+}
+
+for (num x = -2; x <= 2; x = x + 1) {
+    block(x, -2, 0, "minecraft:polished_deepslate");
+}
+block(0, -1, 0, "minecraft:amethyst_block");

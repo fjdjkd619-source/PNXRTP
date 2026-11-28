@@ -1,0 +1,28 @@
+// Ancient sanctuary with a bounded 11x11 foundation, four pillars and central altar.
+for (num x = -5; x <= 5; x = x + 1) {
+    for (num z = -5; z <= 5; z = z + 1) {
+        block(x, 0, z, "minecraft:stone_bricks");
+    }
+}
+
+for (num y = 1; y <= 7; y = y + 1) {
+    block(-4, y, -4, "minecraft:chiseled_stone_bricks");
+    block(-4, y, 4, "minecraft:chiseled_stone_bricks");
+    block(4, y, -4, "minecraft:chiseled_stone_bricks");
+    block(4, y, 4, "minecraft:chiseled_stone_bricks");
+}
+
+for (num x = -4; x <= 4; x = x + 1) {
+    block(x, 8, -4, "minecraft:stone_bricks");
+    block(x, 8, 4, "minecraft:stone_bricks");
+}
+for (num z = -3; z <= 3; z = z + 1) {
+    block(-4, 8, z, "minecraft:stone_bricks");
+    block(4, 8, z, "minecraft:stone_bricks");
+}
+
+for (num x = -1; x <= 1; x = x + 1) {
+    for (num z = -1; z <= 1; z = z + 1) {
+        block(x, 1, z, "minecraft:chiseled_stone_bricks");
+    }
+}

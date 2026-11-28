@@ -1,0 +1,17 @@
+// Stone bridge over a water channel. Bounded 15x5 footprint and 4-block support depth.
+for (num x = -7; x <= 7; x = x + 1) {
+    for (num z = -2; z <= 2; z = z + 1) {
+        block(x, 0, z, "minecraft:stone_bricks");
+        if (z == -2 || z == 2) {
+            block(x, 1, z, "minecraft:stone_brick_wall");
+        }
+    }
+}
+
+for (num x = -5; x <= 5; x = x + 5) {
+    for (num y = -3; y <= -1; y = y + 1) {
+        for (num z = -1; z <= 1; z = z + 1) {
+            block(x, y, z, "minecraft:stone_bricks");
+        }
+    }
+}

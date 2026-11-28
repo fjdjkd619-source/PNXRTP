@@ -44,6 +44,9 @@ add_feature_list("structures", [
     "FANTASY_CASTLE_KEEPS",
     "FANTASY_HOMESTEADS",
     "FANTASY_UNDERGROUND_CRYPTS",
+    "FANTASY_ANCIENT_SANCTUARIES",
+    "FANTASY_WATER_BRIDGES",
+    "FANTASY_UNDERGROUND_HALLS",
 ])
 add_feature_list("landforms", [
     "FANTASY_FLOATING_ISLANDS",

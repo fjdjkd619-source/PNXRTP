@@ -16,6 +16,9 @@ EXPECTED = {
     "FANTASY_CASTLE_KEEPS": "fantasy_castle_keep",
     "FANTASY_HOMESTEADS": "fantasy_homestead",
     "FANTASY_UNDERGROUND_CRYPTS": "fantasy_underground_crypt",
+    "FANTASY_ANCIENT_SANCTUARIES": "fantasy_ancient_sanctuary",
+    "FANTASY_WATER_BRIDGES": "fantasy_water_bridge",
+    "FANTASY_UNDERGROUND_HALLS": "fantasy_underground_hall",
 }
 
 
