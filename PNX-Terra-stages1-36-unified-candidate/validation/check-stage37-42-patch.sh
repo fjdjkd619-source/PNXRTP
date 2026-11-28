@@ -20,11 +20,7 @@ git -C "$TMP" apply "$PATCH"
 git -C "$TMP" diff --check
 
 cmp "$TMP/$TARGET_SOURCE" "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/PlacementJournal.java"
-cmp "$TMP/src/test/java/org/powernukkitx/terra/crosschunk/Stage16JournalTest.java" \
-    "$ROOT/tests/org/powernukkitx/terra/crosschunk/Stage16JournalTest.java"
-cmp "$TMP/src/test/java/org/powernukkitx/terra/crosschunk/Stage37WalRecoveryTest.java" \
-    "$ROOT/tests/org/powernukkitx/terra/crosschunk/Stage37WalRecoveryTest.java"
-cmp "$TMP/src/test/java/org/powernukkitx/terra/crosschunk/journal/PlacementJournalEncodingLimitTest.java" \
-    "$ROOT/tests/org/powernukkitx/terra/crosschunk/journal/PlacementJournalEncodingLimitTest.java"
+# Regression tests are kept in the validation overlay and compiled by run-core-tests.sh;
+# the upstream patch intentionally carries only production source.
 
-echo "Stage 37–42 adapter patch: exact baseline apply and overlay byte comparison PASS."
+echo "Stage 37–42 adapter patch: exact baseline apply and production-source overlay byte comparison PASS."
