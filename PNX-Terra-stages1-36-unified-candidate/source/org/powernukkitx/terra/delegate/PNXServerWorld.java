@@ -277,14 +277,19 @@ public class PNXServerWorld implements ServerWorld {
         } catch (IOException invalidWaterState) {
             throw new IllegalStateException("Could not encode canonical PNX water state", invalidWaterState);
         }
+        boolean preserveLegacyFluid = propertyName == null && previousFluid;
         WaterLayerPolicy.Result water = WaterLayerPolicy.resolve(identifier, propertyName, propertyValue,
-                intrinsicallyWaterContaining || previousFluid,
+                intrinsicallyWaterContaining || preserveLegacyFluid,
                 (block, name, value) -> "waterlogged".equals(name) && "true".equalsIgnoreCase(value),
                 canonicalWaterState);
 
         tx.staged.setBlockStateAt(x, y, z, innerBlockState);
         if (water.writeWaterLayer()) {
-            tx.staged.setBlockStateAt(x, y, z, 1, PNXProtoChunk.water);
+            try {
+                tx.staged.setBlockStateAt(x, y, z, 1, PnxBlockStateCodec.decode(water.canonicalWaterState()));
+            } catch (IOException invalidWaterState) {
+                throw new IllegalStateException("Could not decode canonical PNX water layer state", invalidWaterState);
+            }
         } else if (oldWaterLayer) {
             // Clear stale water only; do not destroy unrelated Bedrock layer-one content.
             tx.staged.setBlockStateAt(x, y, z, 1, BlockAir.STATE);
