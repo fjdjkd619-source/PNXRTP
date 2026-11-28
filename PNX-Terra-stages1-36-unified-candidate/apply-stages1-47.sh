@@ -29,12 +29,31 @@ done
 bash "$ROOT/apply-stages1-46.sh" "$@"
 
 PNX_PATCH="$ROOT/patches/47-pnx-entity-generation-state-query.patch"
-ADAPTER_PATCH="$ROOT/patches/47-transactional-terra-entity-capture.patch"
 
 git -C "$PNX" apply --check "$PNX_PATCH"
-git -C "$ADAPTER" apply --check "$ADAPTER_PATCH"
 git -C "$PNX" apply "$PNX_PATCH"
-git -C "$ADAPTER" apply "$ADAPTER_PATCH"
+
+# The candidate source tree is the complete post-Stage-47 adapter overlay.
+# Stages 1-46 modify several of these files, so a patch based on the pristine
+# upstream adapter cannot safely be applied after those transformations.
+# Copy the audited final source files into the pinned adapter checkout instead.
+install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXServerWorld.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java"
+install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
+install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java"
+install -D "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/PlacementRuntimeGuard.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/bounds/PlacementRuntimeGuard.java"
+install -D "$ROOT/source/org/powernukkitx/terra/delegate/PNXStagedEntityDelegate.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXStagedEntityDelegate.java"
+
+cmp "$ROOT/source/org/powernukkitx/terra/delegate/PNXServerWorld.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/delegate/PNXServerWorld.java"
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java"
 git -C "$PNX" diff --check
 git -C "$ADAPTER" diff --check
 
