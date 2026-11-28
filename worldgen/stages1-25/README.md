@@ -4,7 +4,7 @@ This branch is reserved for the unified procedural world-generation project. It 
 
 ## Current gate: BLOCKED
 
-The r7 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. Core and narrow contract tests pass, but full patch application to clean upstream repositories, full adapter compilation, and runtime certification remain outstanding.
+The r8 source overlay is not a complete upstream checkout, full modified-source Gradle build, integrated JAR, or deployable package. Core and narrow contract tests pass, but full patch application to clean upstream repositories, full adapter compilation, and runtime certification remain outstanding.
 
 ## Pinned upstream revisions
 
@@ -14,12 +14,12 @@ The r7 source overlay is not a complete upstream checkout, full modified-source 
 - Origen: `228426bb192a8d6029952aae1a77008dea5f3cda`
 - Java compile target: 21
 
-## Candidate r7
+## Candidate r8
 
-The latest recovered candidate contains 39 Java source files, 11 core test classes, 19 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
+The latest recovered candidate contains 44 Java source files, 11 core test classes, 21 active patch files, the exact-ref patch application script, validation scripts/results, 13 historical archives, and the pinned BlockEntity lifecycle audit.
 
 Persistent Library archive:
-`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r7.zip`
+`PNX-Terra-stages1-25-unified-candidate-2026-11-28-r8.zip`
 
 SHA-256:
 `9874916e2ffeaaac4a3b1c6e5c3cc3fabd815fa41cd692e6431590e03b20a0e9`
@@ -58,3 +58,6 @@ Contract tests pass, including constructor-failure rollback. Still open: Terra s
 ## Safety
 
 Do not deploy this branch to the production server. The existing world remains untouched. Do not start stages 26–34 before stages 1–25 pass their full acceptance gates.
+
+
+Stage 22 now includes detached TerraScript Sign, MobSpawner, and Container capture, journaled BlockEntity intents, PNX spawner Delay persistence, and an early durable save on the Level scheduler. See `TERRA-STRUCTURE-BLOCKENTITY-CAPTURE-AUDIT-2026-11-28.md` and the R8 contract reports. The full r8 ZIP is in the ChatGPT Library; the binary ZIP is not committed to this branch.
