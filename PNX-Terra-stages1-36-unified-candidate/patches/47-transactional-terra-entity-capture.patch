@@ -1622,7 +1622,7 @@ diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEnti
 diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
 --- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
 +++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
-@@ -1,164 +1,171 @@
+@@ -1,164 +1,175 @@
 -package org.powernukkitx.terra.crosschunk.finalize;
 -
 -import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
@@ -1859,15 +1859,19 @@ diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinal
 +                            PlacementProjection.resolveEntitySpawns(pending.records, target);
 +                    pending.chunk.applyEntitySpawnIntents(entitySpawns);
 +                    if (!entitySpawns.isEmpty()) pending.chunk.prepareEntitySpawnIntentsForSave();
++                    List<org.powernukkitx.terra.crosschunk.journal.PhysicsIntent> physics =
++                            PlacementProjection.resolvePhysics(pending.records, target);
 +
-+                    // Persist the complete block/BE/entity projection before queuing physics.
-+                    // Level.updateAround() can schedule neighbour work for the next tick; it must
-+                    // never observe an uncommitted in-memory projection after a failed disk save.
-+                    pending.chunk.saveDurably();
-+                    durableSaved = true;
-+                    pending.chunk.confirmEntitySpawnIntents();
-+                    pending.chunk.confirmBlockEntityIntents();
-+                    pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
++                    // Persist the complete projection before queuing physics or exposing staged
++                    // BlockEntities/entities. Empty targets need no pre-light save; the persist
++                    // stage will save them after lighting.
++                    if (!blockEntities.isEmpty() || !entitySpawns.isEmpty() || !physics.isEmpty()) {
++                        pending.chunk.saveDurably();
++                        durableSaved = true;
++                        pending.chunk.confirmEntitySpawnIntents();
++                        pending.chunk.confirmBlockEntityIntents();
++                    }
++                    if (!physics.isEmpty()) pending.chunk.applyPhysicsIntents(physics);
 +                } catch (Exception failure) {
 +                    // Once the durable save succeeds, these intents are committed. Do not tear down
 +                    // entities/BlockEntities from the live chunk if a later physics queue operation
