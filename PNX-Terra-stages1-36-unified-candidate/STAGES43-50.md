@@ -63,7 +63,8 @@
 **Capture and WAL integration code added — not yet built or tested.**
 
 - Replaced the unconditional spawn rejection with a placement-local Terra entity facade. It exposes mutable position/world through the Terra API but creates no live PNX entity during feature execution.
-- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to the existing WAL v4 format. Entity position changes are rechecked against the same root write envelope and horizontal coordinate range.
+- Root commit derives deterministic UUIDs from the durable PlacementKey and feature-local spawn order, then appends typed EntitySpawnIntent records to the existing WAL v4 format.
+- Staged entity position changes are checked against the root placement envelope, and the final position is revalidated immediately before WAL serialization; entity moves cannot escape the declared bounds. Entity position changes are rechecked against the same root write envelope and horizontal coordinate range.
 - Nested placements merge staged entity captures into the root savepoint; journal-less legacy construction rejects entity spawning rather than creating a non-durable entity.
 - Extended the PNX placement record factory and committer to carry entity intents; the existing PNX finalizer/applier performs UUID validation, chunk-local staging, synchronous durable save, activation and rollback. Current capture records only type and position with default yaw/pitch and empty NBT payload because the pinned Terra spawn API exposes no orientation or NBT parameters.
 - Added the Stage 47 patch and ordered runner. Entity factory compatibility, restart replay, cancellation and save-failure behavior remain unverified.
