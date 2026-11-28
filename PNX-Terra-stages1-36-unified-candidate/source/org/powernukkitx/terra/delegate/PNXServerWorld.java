@@ -341,7 +341,7 @@ public class PNXServerWorld implements ServerWorld {
                 || !identifier.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) {
             throw new IllegalArgumentException("Terra entity type must expose a canonical namespaced PNX identifier");
         }
-        PNXStagedEntityDelegate staged = new PNXStagedEntityDelegate(identifier, x, y, z, this);
+        PNXStagedEntityDelegate staged = new PNXStagedEntityDelegate(identifier, x, y, z, this, tx.guard);
         tx.entitySpawns.add(staged);
         return staged;
     }
