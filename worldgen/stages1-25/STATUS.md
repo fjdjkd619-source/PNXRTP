@@ -2,9 +2,9 @@
 
 **Status: BLOCKED — the complete modified stages 1–25 chain has not yet passed a full upstream build or runtime certification. It is not deployable.**
 
-## Latest candidate overlay (2026-11-28, r4)
+## Latest candidate overlay (2026-11-28, r5)
 
-The candidate contains 36 Java source files, 11 test classes, 16 active patches, an exact-ref patch-application script, validation scripts/results, 13 original archives, and a new pinned PNX BlockEntity lifecycle audit.
+The candidate contains 38 Java source files, 11 test classes, 17 active patches, an exact-ref patch-application script, validation scripts/results, 13 original archives, and a new pinned PNX BlockEntity lifecycle audit.
 
 Latest corrections carried in the candidate:
 
@@ -19,10 +19,10 @@ Latest corrections carried in the candidate:
 
 - Java 21 core compile: PASS, `--release 21 -Xlint:all -Werror`.
 - 11 core test suites x 10 complete rounds in the earlier recorded validation: **110/110 PASS**.
-- Fresh r4 rerun: all 11 core test suites PASS.
-- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r4.
-- PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations; freshly rerun for r4.
-- Active patch syntax: **16/16 PASS** using `git apply --stat`.
+- Fresh r5 rerun: all 11 core test suites PASS.
+- Runtime journal Java 21 contract-stub compile: PASS against `Level.isChunkGenerating(x,z)`; freshly rerun for r5.
+- PNX block-state/chunk/block-entity delegate Java 21 contract compile and behavior test: PASS for exact property matching/get/set/serialization, chunk coordinates, read-only BE access and fail-closed BE mutations; freshly rerun for r5.
+- Active patch syntax: **17/17 PASS** using `git apply --stat`.
 - Supplemental hardening patch: clean `git apply --check` and application PASS against the reconstructed Stage 21–25 baseline overlay.
 - Original archive readability: **13/13 PASS**.
 - The exact-ref patch-application script passes shell syntax validation; it has not yet been run against full upstream checkouts.
@@ -33,18 +33,27 @@ Audited `PowerNukkitX/PowerNukkitX@c57499365737654eca32df008751ef6bca5af142` and
 - `BlockEntity.createBlockEntity` resolves through `Registries.BLOCKENTITY`, runs `loadNBT`, and immediately registers in both chunk and level.
 - `BlockEntity.close` removes the object from both registries.
 - `Chunk.addBlockEntity` closes an existing tile at the same coordinate, so collisions must be rejected before creation.
-- The exact binary NBT codec and PNX-owned execution-context bridge are still unresolved.
+- The pinned little-endian NBT codec and level-scheduler executor helper are now implemented and pass a narrow Java 21 contract-stub test; they are not yet wired into finalization.
 
-The adapter intentionally remains fail-closed for BlockEntity mutation until payload decoding, server-thread execution, collision handling, rollback, and durable recovery are implemented. Full audit: [BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md](BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md).
+The adapter intentionally remains fail-closed for BlockEntity mutation until intent capture/finalizer wiring, collision handling, rollback, and durable recovery are implemented. Full audit: [BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md](BLOCK-ENTITY-UPSTREAM-API-AUDIT-2026-11-28.md).
 
 ## Latest recovery archive
 
-- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r4.zip`
-- Size: 1,275,536 bytes
-- SHA-256: `b6d0bd6d5bba0613d70d235f17bddc1040804d48d068b63d71a0dc33f64c6a06`
+- File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r5.zip`
+- Size: 1,314,615 bytes
+- SHA-256: `b3b5aed92678ffb37666036effef508077a873c22da7642a8dce0330233c475b`
 - ZIP integrity: PASS
-- The r4 ZIP, checksum sidecar, and BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/`.
+- The r5 ZIP, checksum sidecar, and updated BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/` and the ZIP was re-downloaded and re-verified by SHA-256 and ZIP CRC.
 - Earlier r3 archive and verified duplicate remain preserved; no prior copy was deleted or overwritten.
+
+
+### Stage 22 groundwork added in r5
+
+- `PnxBlockEntityNbtCodec` follows the pinned PNX LevelDB chunk serializer's little-endian NBT format; identity/coordinate drift is rejected.
+- `PnxLevelExecutor` dispatches through `Level.getScheduler().scheduleTask`.
+- New patch `22-stage22-be-nbt-codec-and-level-executor.patch` parses and applies cleanly to an empty synthetic adapter tree.
+- Contract-stub test: PASS. This is not a full upstream NBT/runtime test and is not yet wired into the finalizer.
+- The two source files, patch, audit, and validation result have been committed to this GitHub branch.
 
 ## Verified upstream baseline results
 
@@ -84,4 +93,4 @@ Production server and world remain untouched. Do not start stages 26–34 or dep
 
 This branch is the authoritative project history. Commit completed source changes, tests, patches, and status changes to `worldgen/stages1-25` before moving to the next task. Preserve branch history; do not force-push or rewrite commits.
 
-Persistent Library copies are additional recovery copies, not a substitute for the GitHub source history. Keep older copies until newer copies have been independently verified. The r4 archive's full binary payload is stored in the Library backup folder; it is not yet a binary asset in this repository.
+Persistent Library copies are additional recovery copies, not a substitute for the GitHub source history. Keep older copies until newer copies have been independently verified. The r5 archive's full binary payload is stored in the Library backup folder; it is not yet a binary asset in this repository.
