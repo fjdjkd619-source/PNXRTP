@@ -27,6 +27,8 @@ public final class PlacementJournal implements AutoCloseable {
     private static final byte PLACEMENT = 1, ANCHOR_COMPLETE = 2, ANCHOR_STARTED = 3, CHUNK_APPLIED = 4;
 
     private final Path path;
+    private final Path checkpointPath;
+    private final Path compactionMarkerPath;
     private final FileChannel channel;
     private final FileLock processLock;
     private final ReentrantLock lock = new ReentrantLock();
@@ -42,6 +44,7 @@ public final class PlacementJournal implements AutoCloseable {
     private final Map<AnchorId, Long> completedAnchorSequences = new HashMap<>();
     private final Map<ChunkId, Long> appliedSequences = new HashMap<>();
     private long nextSequence = 1;
+    private long checkpointWatermark;
     private long recoveryDurationNanos;
     private long recoveredTailBytes;
     private boolean closed;
@@ -49,6 +52,8 @@ public final class PlacementJournal implements AutoCloseable {
 
     public PlacementJournal(Path path) throws IOException {
         this.path = Objects.requireNonNull(path, "path");
+        this.checkpointPath = path.resolveSibling(path.getFileName() + ".checkpoint");
+        this.compactionMarkerPath = path.resolveSibling(path.getFileName() + ".compact");
         Path parent = path.toAbsolutePath().getParent();
         if (parent != null) Files.createDirectories(parent);
         channel = FileChannel.open(path, CREATE, READ, WRITE);
@@ -63,6 +68,8 @@ public final class PlacementJournal implements AutoCloseable {
             throw new IOException("Placement journal is locked by another process: " + path);
         }
         try {
+            loadCheckpoint();
+            finishInterruptedCompaction();
             recover();
             channel.position(channel.size());
         } catch (IOException | RuntimeException failure) {
@@ -201,6 +208,57 @@ public final class PlacementJournal implements AutoCloseable {
         JournalCheckpoint.writeAtomically(destination, checkpointSnapshot());
     }
 
+    /**
+     * Checkpoints the current WAL prefix, durably publishes an intent marker, then truncates
+     * the WAL. Recovery completes the truncate if the process stops after marker publication.
+     */
+    public void compact() throws IOException {
+        lock.lock();
+        try {
+            ensureOpen();
+            JournalCheckpoint.Snapshot snapshot =
+                    new JournalCheckpoint.Snapshot(nextSequence - 1, List.copyOf(events));
+            JournalCheckpoint.writeAtomically(checkpointPath, snapshot);
+            JournalCompactionMarker.writeAtomically(compactionMarkerPath, snapshot.lastSequence());
+            try {
+                channel.truncate(0);
+                channel.position(0);
+                channel.force(true);
+                Files.delete(compactionMarkerPath);
+                forceDirectory(path.toAbsolutePath().getParent());
+                checkpointWatermark = snapshot.lastSequence();
+                compactEventHistory();
+            } catch (IOException failure) {
+                poisoned = true;
+                throw failure;
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void compactEventHistory() {
+        Map<String, JournalEvent> latest = new HashMap<>();
+        for (JournalEvent event : events) {
+            String key;
+            if (event instanceof JournalEvent.PlacementCommitted placement) {
+                key = "placement:" + placement.record().key().stableId();
+            } else if (event instanceof JournalEvent.AnchorStarted anchor) {
+                key = "started:" + anchor.worldKey() + ":" + anchor.anchor();
+            } else if (event instanceof JournalEvent.AnchorCompleted anchor) {
+                key = "completed:" + anchor.worldKey() + ":" + anchor.anchor();
+            } else if (event instanceof JournalEvent.ChunkApplied applied) {
+                key = "applied:" + applied.worldKey() + ":" + applied.target();
+            } else {
+                throw new IllegalStateException("Unknown journal event: " + event.getClass().getName());
+            }
+            latest.put(key, event);
+        }
+        events.clear();
+        latest.values().stream().sorted(Comparator.comparingLong(PlacementJournal::eventSequence))
+                .forEach(events::add);
+    }
+
     public List<JournalEvent> events() {
         lock.lock(); try { return List.copyOf(events); } finally { lock.unlock(); }
     }
@@ -268,12 +326,37 @@ public final class PlacementJournal implements AutoCloseable {
     }
 
     /** Only a provably incomplete final write may be truncated; complete corruption fails closed. */
+    private void loadCheckpoint() throws IOException {
+        if (!Files.exists(checkpointPath)) return;
+        JournalCheckpoint.Snapshot snapshot = JournalCheckpoint.read(checkpointPath);
+        for (JournalEvent event : snapshot.events()) acceptRecovered(event);
+        checkpointWatermark = snapshot.lastSequence();
+        if (checkpointWatermark == Long.MAX_VALUE)
+            throw new IOException("Checkpoint sequence watermark is exhausted");
+        nextSequence = checkpointWatermark + 1;
+    }
+
+    /** A durable marker proves that the checkpoint covers every byte in the old WAL. */
+    private void finishInterruptedCompaction() throws IOException {
+        if (!Files.exists(compactionMarkerPath)) return;
+        if (!Files.exists(checkpointPath))
+            throw new IOException("WAL compaction marker exists without its checkpoint; refusing recovery");
+        long markerWatermark = JournalCompactionMarker.read(compactionMarkerPath);
+        if (markerWatermark != checkpointWatermark)
+            throw new IOException("WAL compaction marker/checkpoint watermark mismatch");
+        channel.truncate(0);
+        channel.position(0);
+        channel.force(true);
+        Files.delete(compactionMarkerPath);
+        forceDirectory(path.toAbsolutePath().getParent());
+    }
+
     private void recover() throws IOException {
         lock.lock();
         long startedAt = System.nanoTime();
         try {
-            long size = channel.size(), offset = 0, validEnd = 0;
-            boolean incompleteTail = false;
+            long size = channel.size(), offset = 0, validEnd = 0, lastWalSequence = 0;
+            boolean incompleteTail = false, sawPostCheckpoint = false;
             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
             while (offset < size) {
                 long remaining = size - offset;
@@ -304,17 +387,42 @@ public final class PlacementJournal implements AutoCloseable {
                 crcBuffer.flip();
                 CRC32C crc = new CRC32C();
                 crc.update(payload, 0, payload.length);
-                if ((int) crc.getValue() != crcBuffer.getInt())
+                long rawSequence = rawSequence(payload);
+                if ((int) crc.getValue() != crcBuffer.getInt()) {
+                    if (isCheckpointCovered(rawSequence, lastWalSequence, sawPostCheckpoint)) {
+                        lastWalSequence = rawSequence;
+                        offset += frameBytes;
+                        validEnd = offset;
+                        continue;
+                    }
                     throw corruption(offset, "CRC32C mismatch in complete frame");
+                }
                 JournalEvent event;
                 try { event = decode(payload); }
                 catch (RuntimeException | IOException malformed) {
+                    if (isCheckpointCovered(rawSequence, lastWalSequence, sawPostCheckpoint)) {
+                        lastWalSequence = rawSequence;
+                        offset += frameBytes;
+                        validEnd = offset;
+                        continue;
+                    }
                     throw new IOException("Corrupt complete WAL event at offset " + offset, malformed);
                 }
-                if (eventSequence(event) != nextSequence)
-                    throw corruption(offset, "unexpected sequence " + eventSequence(event) + ", expected " + nextSequence);
+                long sequence = eventSequence(event);
+                if (sequence <= checkpointWatermark) {
+                    if (!isCheckpointCovered(sequence, lastWalSequence, sawPostCheckpoint))
+                        throw corruption(offset, "stale WAL sequence is out of order or follows post-checkpoint data");
+                    lastWalSequence = sequence;
+                    offset += frameBytes;
+                    validEnd = offset;
+                    continue;
+                }
+                if (sequence != nextSequence)
+                    throw corruption(offset, "unexpected sequence " + sequence + ", expected " + nextSequence);
+                sawPostCheckpoint = true;
                 acceptRecovered(event);
                 nextSequence++;
+                lastWalSequence = sequence;
                 offset += frameBytes;
                 validEnd = offset;
             }
@@ -329,6 +437,23 @@ public final class PlacementJournal implements AutoCloseable {
         } finally {
             recoveryDurationNanos = System.nanoTime() - startedAt;
             lock.unlock();
+        }
+    }
+
+    private boolean isCheckpointCovered(long sequence, long previousWalSequence, boolean sawPostCheckpoint) {
+        return checkpointWatermark > 0 && sequence > previousWalSequence
+                && sequence > 0 && sequence <= checkpointWatermark && !sawPostCheckpoint;
+    }
+
+    private static long rawSequence(byte[] payload) {
+        if (payload.length < 10) return -1;
+        return ByteBuffer.wrap(payload, 2, Long.BYTES).getLong();
+    }
+
+    private static void forceDirectory(Path directory) throws IOException {
+        if (directory == null) return;
+        try (FileChannel directoryChannel = FileChannel.open(directory, READ)) {
+            directoryChannel.force(true);
         }
     }
 
