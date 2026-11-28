@@ -40,7 +40,7 @@ The adapter intentionally remains fail-closed for BlockEntity mutation until pay
 ## Latest recovery archive
 
 - File: `PNX-Terra-stages1-25-unified-candidate-2026-11-28-r4.zip`
-- Size: 1,3xx,xxx bytes (see Library file metadata for exact size)
+- Size: 1,275,536 bytes
 - SHA-256: `b6d0bd6d5bba0613d70d235f17bddc1040804d48d068b63d71a0dc33f64c6a06`
 - ZIP integrity: PASS
 - The r4 ZIP, checksum sidecar, and BlockEntity audit report have been saved to the user's persistent Library under `/PNX-Terra-Backups/`.
