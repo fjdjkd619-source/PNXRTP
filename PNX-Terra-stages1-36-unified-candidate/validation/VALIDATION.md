@@ -10,7 +10,7 @@ Command used:
 
 Compilation flags: `--release 21 -Xlint:all -Werror`.
 
-Result: PASS for the independent core and 11 test classes. The 11 test classes were run for 10 complete rounds in this candidate revision (110 suite executions total), all PASS. The suites include regression tests proving that an already-accepted in-flight anchor is not resubmitted while PNX owns the queue slot, that an accepted request is retried after PNX releases the slot without a durable completion marker, that an anchor with an active AnchorSession is not recursively requested by its own target barrier, and that unknown Origen scripts are constrained by a hard runtime envelope (x/z +/-32, y +/-128) with entity spawning disabled.
+Result: PASS for the independent core and 12 test classes. The 11 test classes were run for 10 complete rounds in this candidate revision (110 suite executions total), all PASS. The suites include regression tests proving that an already-accepted in-flight anchor is not resubmitted while PNX owns the queue slot, that an accepted request is retried after PNX releases the slot without a durable completion marker, that an anchor with an active AnchorSession is not recursively requested by its own target barrier, and that unknown Origen scripts are constrained by a hard runtime envelope (x/z +/-32, y +/-128) with entity spawning disabled.
 
 The core compile deliberately excludes classes requiring the complete PNX/Terra upstream classpaths: `TerraGenerator`, `PNXServerWorld`, `PnxChunkHandle`, `PnxCrossChunkFinalizer`, and `journal/pnx/*`. Separate Java 21 contract-stub checks include `PnxGenerationJournalRuntime` (confirming the exact pinned `Level.isChunkGenerating(x,z)` API) and the actual `PNXBlockStateDelegate`/`PNXChunkDelegate`/`PNXBlockEntityDelegate` source files. The delegate behavior test verifies exact property-schema matching, property get/set, canonical property serialization, rejection of mismatched value schemas, real chunk X/Z delegation, loaded BlockEntity read wrapping, and fail-closed mutation/update methods. These are narrow contract checks, not a full adapter compile. Therefore these checks are **not** a PNX/Terra Gradle build and do not prove that the entire adapter compiles against the full pinned repositories.
 
@@ -64,3 +64,12 @@ The Stage 27–34 tests validate platform-neutral contracts only. The Stage 35�
 - Entity applier contract and finalization-order regression tests pass under Java 21.
 - The PNX API patch is based on inspected pinned/successor source contexts but has not been applied to a complete upstream checkout or compiled by Gradle.
 - Terra `ServerWorld.spawnEntity` capture remains fail-closed; no entity-bearing Origen structures are enabled.
+
+
+## Stage 37 WAL encoder allocation guard — follow-up R15
+
+- `PlacementJournal.encodePlacement` now serializes through a bounded output stream capped at `MAX_FRAME` (64 MiB). Previously, the complete placement payload was accumulated in an unbounded `ByteArrayOutputStream` and checked only afterward, so an oversized placement could allocate excessive heap before rejection.
+- The bound is enforced before each byte/bulk write reaches the backing buffer; exactly-at-limit payloads remain valid and over-limit writes fail with `IOException`.
+- `PlacementJournalEncodingLimitTest` covers exact-limit acceptance, single-byte overflow, bulk-write overflow, backing-buffer non-growth on rejection, and a zero-byte limit.
+- GitHub Actions run [46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903), commit `0f1d6508b57581d4825e9e4591f163512e3ef69e`: SUCCESS. Java 21 compilation, platform-neutral suites, PNX delegate contract, BlockEntity contract, runtime contract, entity-spawn contract, Stage 36 API fixture and shell/patch checks all passed.
+- This closes the pre-serialization allocation defect for placement frames. It does **not** solve append-only WAL growth, retained in-memory indexes, compaction/checkpointing, or the missing Stage 37–42 upstream patch/apply chain.
