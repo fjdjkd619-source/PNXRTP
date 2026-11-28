@@ -75,6 +75,8 @@ jobs:
           python3 "$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate/validation/audit-terra-pack.py" \
             --root "$GITHUB_WORKSPACE/terra-config" \
             --expected-head 445848bc9f9f28fab1d760f01f9a552d93944681 \
+            --pnx-root "$GITHUB_WORKSPACE/pnx" \
+            --pnx-expected-head c57499365737654eca32df008751ef6bca5af142 \
             --output "$RUNNER_TEMP/terra-configpack-inventory.json"
 
       - name: Upload Stage 48 source inventory
