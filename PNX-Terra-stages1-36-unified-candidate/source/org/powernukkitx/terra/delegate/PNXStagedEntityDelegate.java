@@ -18,16 +18,14 @@ final class PNXStagedEntityDelegate implements Entity {
     private final Object stagedHandle = new Object();
     private final PNXServerWorld owner;
     private final PlacementRuntimeGuard guard;
-    private final org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard guard;
     private double x;
     private double y;
     private double z;
 
     PNXStagedEntityDelegate(String identifier, double x, double y, double z, PNXServerWorld owner,
-                            org.powernukkitx.terra.crosschunk.bounds.PlacementRuntimeGuard guard) {
+                            PlacementRuntimeGuard guard) {
         this.identifier = Objects.requireNonNull(identifier, "identifier");
         this.owner = Objects.requireNonNull(owner, "owner");
-        this.guard = Objects.requireNonNull(guard, "guard");
         this.guard = Objects.requireNonNull(guard, "guard");
         setPosition(x, y, z);
     }
@@ -42,7 +40,6 @@ final class PNXStagedEntityDelegate implements Entity {
         Objects.requireNonNull(position, "position");
         guard.beforeEntityMove((int) Math.floor(position.getX()), (int) Math.floor(position.getY()),
                 (int) Math.floor(position.getZ()));
-        guard.beforeEntityMove((int) Math.floor(position.getX()), (int) Math.floor(position.getY()), (int) Math.floor(position.getZ()));
         setPosition(position.getX(), position.getY(), position.getZ());
     }
 
