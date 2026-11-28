@@ -14,7 +14,8 @@ import java.util.zip.CRC32C;
 import static java.nio.file.StandardOpenOption.*;
 
 /**
- * Append-only, fsync-before-return WAL. Invalid/torn tail is truncated to the last verified frame.
+ * Append-only, fsync-before-return WAL. Only a provably incomplete final frame is truncated;
+ * complete-frame corruption fails closed and preserves the original journal.
  * Frame: magic, payload length, payload, CRC32C(payload). All values are explicit and versioned.
  */
 public final class PlacementJournal implements AutoCloseable {
@@ -171,6 +172,8 @@ public final class PlacementJournal implements AutoCloseable {
             }
             appendFrame(bytes.toByteArray());
             events.add(new JournalEvent.AnchorCompleted(sequence, worldKey, anchor));
+            startedAnchors.add(id);
+            startedAnchorSequences.putIfAbsent(id, sequence);
             completedAnchors.add(id); completedAnchorSequences.put(id, sequence); nextSequence++;
             return sequence;
         } finally { lock.unlock(); }
@@ -364,6 +367,7 @@ public final class PlacementJournal implements AutoCloseable {
         } else if (event instanceof JournalEvent.AnchorCompleted a) {
             AnchorId id = new AnchorId(a.worldKey(), a.anchor());
             startedAnchors.add(id);
+            startedAnchorSequences.putIfAbsent(id, a.sequence());
             completedAnchors.add(id);
             completedAnchorSequences.putIfAbsent(id, a.sequence());
         } else if (event instanceof JournalEvent.ChunkApplied a) {
