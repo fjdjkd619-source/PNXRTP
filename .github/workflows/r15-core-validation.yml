@@ -50,6 +50,8 @@ jobs:
         run: |
           git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/07-stage7-core.patch"
           git -C pnx-pinned apply "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/07-stage7-core.patch"
+          git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/11-stage11-pnx-durable-storage.patch"
+          git -C pnx-pinned apply "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/11-stage11-pnx-durable-storage.patch"
           git -C pnx-pinned apply --check "$GITHUB_WORKSPACE/PNX-Terra-stages1-36-unified-candidate/patches/18-stage18-pnx-core.patch"
       - name: Compile and run platform-neutral regression suites
         working-directory: PNX-Terra-stages1-36-unified-candidate
