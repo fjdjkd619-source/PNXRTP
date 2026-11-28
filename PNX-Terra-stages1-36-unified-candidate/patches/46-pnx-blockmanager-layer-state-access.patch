@@ -2,7 +2,7 @@ diff --git a/src/main/java/org/powernukkitx/level/generator/object/BlockManager.
 --- a/src/main/java/org/powernukkitx/level/generator/object/BlockManager.java
 +++ b/src/main/java/org/powernukkitx/level/generator/object/BlockManager.java
 @@ -74,1 +74,20 @@
-     public String getBlockIdAt(int x, int y, int z) {
++++ b/src/main/java/org/powernukkitx/level/generator/object/BlockManager.java
 +    /**
 +     * Returns a staged or loaded block state from the requested Bedrock layer without
 +     * forcing a chunk load. The cache is authoritative for in-progress Terra placements.
@@ -22,3 +22,4 @@ diff --git a/src/main/java/org/powernukkitx/level/generator/object/BlockManager.
 +        return getBlockStateAt(x, y, z, 0);
 +    }
 +
+ undefined
