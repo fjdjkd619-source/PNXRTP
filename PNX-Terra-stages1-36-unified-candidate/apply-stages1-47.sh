@@ -54,6 +54,27 @@ cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementComm
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementCommitter.java"
 cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java" \
   "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxPlacementRecordFactory.java"
+
+# Stage 48 bounded catalog and its runtime guard dependencies.
+for file in \
+  "crosschunk/bounds/Bounds3i.java" \
+  "crosschunk/bounds/BoundsViolationException.java" \
+  "crosschunk/bounds/HorizontalFootprintProjection.java" \
+  "crosschunk/bounds/OrigenBoundsCatalog.java" \
+  "crosschunk/bounds/PlacementGuardContext.java" \
+  "crosschunk/bounds/PlacementRuntimeGuard.java" \
+  "crosschunk/bounds/ScriptBoundsProfile.java" \
+  "crosschunk/bounds/StructureFootprint.java" \
+  "crosschunk/validation/BoundsCatalogValidator.java"; do
+  install -D "$ROOT/source/org/powernukkitx/terra/$file" \
+    "$ADAPTER/src/main/java/org/powernukkitx/terra/$file"
+done
+
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/bounds/OrigenBoundsCatalog.java"
+cmp "$ROOT/source/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java" \
+  "$ADAPTER/src/main/java/org/powernukkitx/terra/crosschunk/validation/BoundsCatalogValidator.java"
+
 git -C "$PNX" diff --check
 git -C "$ADAPTER" diff --check
 
