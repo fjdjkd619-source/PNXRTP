@@ -111,14 +111,14 @@ jobs:
         run: |
           set -euo pipefail
           CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
-          bash "$CANDIDATE/validation/run-stage50-acceptance.sh" \\
-            --candidate "$CANDIDATE" \\
-            --terra-config "$GITHUB_WORKSPACE/terra-config" \\
-            --pnx "$GITHUB_WORKSPACE/pnx" \\
-            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \\
-            --bounds-catalog "$RUNNER_TEMP/OrigenBoundsCatalog.java" \\
-            --bounds-summary "$RUNNER_TEMP/bounds-profile-summary.json" \\
-            --output "$RUNNER_TEMP/stage50-acceptance.json" \\
+          bash "$CANDIDATE/validation/run-stage50-acceptance.sh" \
+            --candidate "$CANDIDATE" \
+            --terra-config "$GITHUB_WORKSPACE/terra-config" \
+            --pnx "$GITHUB_WORKSPACE/pnx" \
+            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \
+            --bounds-catalog "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            --bounds-summary "$RUNNER_TEMP/bounds-profile-summary.json" \
+            --output "$RUNNER_TEMP/stage50-acceptance.json" \
             2>&1 | tee "$RUNNER_TEMP/stage50-acceptance.log"
 
       - name: Collect built JARs
