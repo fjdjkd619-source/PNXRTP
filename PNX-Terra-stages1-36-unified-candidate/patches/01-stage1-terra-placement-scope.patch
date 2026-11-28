@@ -42,6 +42,7 @@ index 0000000..1111111
 +        };
 +    }
 +}
+
 diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementScopeProvider.java
 new file mode 100644
 index 0000000..1111111
@@ -57,6 +58,7 @@ index 0000000..1111111
 +public interface PlacementScopeProvider {
 +    PlacementScope beginPlacement(PlacementDescriptor descriptor);
 +}
+
 diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java b/common/api/src/main/java/com/dfsek/terra/api/world/PlacementDescriptor.java
 new file mode 100644
 index 0000000..1111111
@@ -95,25 +97,24 @@ index 0000000..1111111
 +            Vector3Int.of(origin.getX() + x, origin.getY() + y, origin.getZ() + z), rotation);
 +    }
 +}
+
 diff --git a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
-index 0000000..2222222 100644
 --- a/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
 +++ b/common/api/src/main/java/com/dfsek/terra/api/world/BufferedWorld.java
-@@ -13,3 +13,6 @@
- import com.dfsek.terra.api.world.util.Interceptors;
- import com.dfsek.terra.api.world.util.ReadInterceptor;
- import com.dfsek.terra.api.world.util.WriteInterceptor;
-+import com.dfsek.terra.api.world.PlacementDescriptor;
-+import com.dfsek.terra.api.world.PlacementScope;
-+import com.dfsek.terra.api.world.PlacementScopeProvider;
-@@ -23,1 +26,1 @@
+@@ -20,7 +20,7 @@
+  * A {@link WritableWorld} implementation which delegates read/write operations to
+  * another {@link WritableWorld}, at an offset.
+  */
 -public class BufferedWorld implements WritableWorld {
 +public class BufferedWorld implements WritableWorld, PlacementScopeProvider {
-@@ -105,3 +108,11 @@
+     private final WritableWorld delegate;
+     private final int offsetX, offsetY, offsetZ;
+ 
+@@ -105,6 +105,14 @@
      public WritableWorld getDelegate() {
          return delegate;
      }
-+
++ 
 +    @Override
 +    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
 +        if(delegate instanceof PlacementScopeProvider provider) {
@@ -121,18 +122,28 @@ index 0000000..2222222 100644
 +        }
 +        return PlacementScope.noop();
 +    }
+ 
+ 
+     public static final class Builder {
+
+
 diff --git a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
-index 0000000..3333333 100644
 --- a/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
 +++ b/common/addons/generation-stage-feature/src/main/java/com/dfsek/terra/addons/generation/feature/FeatureGenerationStage.java
-@@ -18,2 +18,5 @@ import com.dfsek.terra.api.registry.key.StringIdentifiable;
+@@ -20,6 +20,9 @@
+ import com.dfsek.terra.api.properties.PropertyKey;
+ import com.dfsek.terra.api.registry.key.StringIdentifiable;
  import com.dfsek.terra.api.world.WritableWorld;
 +import com.dfsek.terra.api.world.PlacementDescriptor;
 +import com.dfsek.terra.api.world.PlacementScope;
 +import com.dfsek.terra.api.world.PlacementScopeProvider;
  import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
-@@ -67,9 +70,28 @@ public class FeatureGenerationStage implements GenerationStage, StringIdentifiable {
-                                             .getSuitableCoordinates(column.clamp(min, max))
+ import com.dfsek.terra.api.world.chunk.generation.stage.GenerationStage;
+ import com.dfsek.terra.api.world.chunk.generation.util.Column;
+@@ -82,14 +85,33 @@
+                                         if(feature.getDistributor().matches(x, z, seed)) {
+                                             feature.getLocator()
+                                                 .getSuitableCoordinates(column.clamp(min, max))
 -                                                .forEach(y -> feature.getStructure(world, x, y, z)
 -                                                    .generate(Vector3Int.of(x, y, z),
 -                                                        world,
@@ -168,16 +179,28 @@ index 0000000..3333333 100644
 +                                                        }
 +                                                    }
 +                                                });
+                                         }
+                                         platform.getProfiler().pop(feature.getID());
+                                     });
+
+
 diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
-index 0000000..4444444 100644
 --- a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
 +++ b/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/terra/addons/terrascript/script/functions/StructureFunction.java
-@@ -23,1 +23,4 @@ import com.dfsek.terra.api.registry.Registry;
+@@ -25,6 +25,9 @@
+ import com.dfsek.terra.api.Platform;
+ import com.dfsek.terra.api.registry.Registry;
  import com.dfsek.terra.api.structure.Structure;
 +import com.dfsek.terra.api.world.PlacementDescriptor;
 +import com.dfsek.terra.api.world.PlacementScope;
 +import com.dfsek.terra.api.world.PlacementScopeProvider;
-@@ -68,16 +71,32 @@ public class StructureFunction implements Function<Boolean> {
+ 
+ 
+ public class StructureFunction implements Function<Boolean> {
+@@ -75,22 +78,38 @@
+                 return false;
+             }
+ 
 -            if(script instanceof StructureScript structureScript) {
 -                return structureScript.generate(arguments.getOrigin(),
 -                    arguments.getWorld()
@@ -186,14 +209,6 @@ index 0000000..4444444 100644
 -                            FloatingPointFunctions.round(xz.getZ())),
 -                    arguments.getRandom(),
 -                    arguments.getRotation().rotate(rotation1), arguments.getRecursions() + 1);
--            }
--            return script.generate(arguments.getOrigin(),
--                arguments.getWorld()
--                    .buffer(FloatingPointFunctions.round(xz.getX()),
--                        y.apply(implementationArguments, scope).intValue(),
--                        FloatingPointFunctions.round(xz.getZ())),
--                arguments.getRandom(),
--                arguments.getRotation().rotate(rotation1));
 +            int offsetX = FloatingPointFunctions.round(xz.getX());
 +            int offsetY = y.apply(implementationArguments, scope).intValue();
 +            int offsetZ = FloatingPointFunctions.round(xz.getZ());
@@ -225,4 +240,15 @@ index 0000000..4444444 100644
 +                    placement.abort();
 +                }
 +                return generated;
-+            }
+             }
+-            return script.generate(arguments.getOrigin(),
+-                arguments.getWorld()
+-                    .buffer(FloatingPointFunctions.round(xz.getX()),
+-                        y.apply(implementationArguments, scope).intValue(),
+-                        FloatingPointFunctions.round(xz.getZ())),
+-                arguments.getRandom(),
+-                arguments.getRotation().rotate(rotation1));
+         }).orElseGet(() -> {
+             LOGGER.error("No such structure {}", app);
+             return false;
+
