@@ -52,6 +52,9 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      - name: Configure Gradle dependency cache
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Apply complete Stage 1–42 patch chain
         run: |
           bash candidate/PNX-Terra-stages1-36-unified-candidate/apply-stages1-42.sh \
@@ -61,11 +64,22 @@ jobs:
             --pnx-ref c57499365737654eca32df008751ef6bca5af142
 
       - name: Run full Gradle builds and adapter integration tests
+        shell: bash
         run: |
-          bash candidate/PNX-Terra-stages1-36-unified-candidate/validation/verify-upstream-build.sh \
-            --pnx "$GITHUB_WORKSPACE/pnx" \
-            --terra "$GITHUB_WORKSPACE/terra" \
-            --adapter "$GITHUB_WORKSPACE/adapter"
+          set +e
+          for attempt in 1 2 3; do
+            bash candidate/PNX-Terra-stages1-36-unified-candidate/validation/verify-upstream-build.sh \
+              --pnx "$GITHUB_WORKSPACE/pnx" \
+              --terra "$GITHUB_WORKSPACE/terra" \
+              --adapter "$GITHUB_WORKSPACE/adapter" 2>&1 | tee "$RUNNER_TEMP/upstream-build-$attempt.log"
+            result=${PIPESTATUS[0]}
+            if [[ "$result" -eq 0 ]]; then exit 0; fi
+            if ! grep -Eqi '429|Too Many Requests|502 Bad Gateway|503 Service Unavailable|504 Gateway Time-out' "$RUNNER_TEMP/upstream-build-$attempt.log"; then
+              exit "$result"
+            fi
+            if [[ "$attempt" -lt 3 ]]; then sleep $((attempt * 30)); fi
+          done
+          exit 1
 
       - name: Collect built JARs
         if: success()
