@@ -4,6 +4,7 @@ import org.powernukkitx.block.BlockAir;
 import org.powernukkitx.block.BlockProperties;
 import org.powernukkitx.block.property.type.BlockPropertyType;
 import org.powernukkitx.registry.Registries;
+import org.powernukkitx.terra.crosschunk.state.BlockStatePropertyBridge;
 import com.dfsek.terra.api.block.BlockType;
 import com.dfsek.terra.api.block.state.BlockState;
 import com.dfsek.terra.api.block.state.properties.Property;
@@ -15,6 +16,7 @@ import java.util.Objects;
 
 /** Terra state view over a canonical PNX state. Only exactly matching property schemas are exposed. */
 public record PNXBlockStateDelegate(org.powernukkitx.block.BlockState innerBlockState) implements BlockState {
+    private static final BlockStatePropertyBridge BLOCK_ALIASES = BlockStatePropertyBridge.vanillaDefaults();
     @Override
     public boolean matches(BlockState blockState) {
         return blockState instanceof PNXBlockStateDelegate other
@@ -73,11 +75,7 @@ public record PNXBlockStateDelegate(org.powernukkitx.block.BlockState innerBlock
 
     @Override
     public String getAsString(boolean properties) {
-        String name = switch (innerBlockState.getIdentifier()) {
-            case "minecraft:snow_layer" -> "minecraft:snow";
-            case "minecraft:snow" -> "minecraft:snow_block";
-            default -> innerBlockState.getIdentifier();
-        };
+        String name = BLOCK_ALIASES.toTerraIdentifier(innerBlockState.getIdentifier());
         if (!properties || innerBlockState.getBlockPropertyValues().isEmpty()) return name;
         List<String> encoded = innerBlockState.getBlockPropertyValues().stream()
                 .sorted(Comparator.comparing(value -> value.getPropertyType().getName()))
