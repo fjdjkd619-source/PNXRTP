@@ -1,0 +1,22 @@
+diff --git a/src/main/java/org/powernukkitx/blockentity/BlockEntityMobSpawner.java b/src/main/java/org/powernukkitx/blockentity/BlockEntityMobSpawner.java
+index 5d2f3e1..a6b93c4 100644
+--- a/src/main/java/org/powernukkitx/blockentity/BlockEntityMobSpawner.java
++++ b/src/main/java/org/powernukkitx/blockentity/BlockEntityMobSpawner.java
+@@ -70,5 +70,9 @@ public class BlockEntityMobSpawner extends BlockEntitySpawnable {
+     public void loadNBT() {
+         super.loadNBT();
++        if (!this.nbt.contains("Delay") || !(this.nbt.get("Delay") instanceof ShortTag)) {
++            this.nbt.putShort("Delay", (short) 0);
++        }
++        this.delay = this.nbt.getShort("Delay");
+         if (!this.nbt.contains(TAG_SPAWN_RANGE) || !(this.nbt.get(TAG_SPAWN_RANGE) instanceof ShortTag)) {
+             this.nbt.putShort(TAG_SPAWN_RANGE, (short) SPAWN_RANGE);
+         }
+@@ -201,6 +201,7 @@ public class BlockEntityMobSpawner extends BlockEntitySpawnable {
+     public void saveNBT() {
+         super.saveNBT();
+ 
++        this.nbt.putShort("Delay", (short) this.delay);
+         this.nbt.remove(TAG_ENTITY_ID);
+         this.nbt.remove(TAG_ENTITY_IDENTIFIER);
+         this.nbt.remove(TAG_SPAWN_DATA);
