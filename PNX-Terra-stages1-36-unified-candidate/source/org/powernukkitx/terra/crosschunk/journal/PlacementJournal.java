@@ -44,6 +44,7 @@ public final class PlacementJournal implements AutoCloseable {
     private long recoveryDurationNanos;
     private long recoveredTailBytes;
     private boolean closed;
+    private boolean poisoned;
 
     public PlacementJournal(Path path) throws IOException {
         this.path = Objects.requireNonNull(path, "path");
@@ -227,6 +228,7 @@ public final class PlacementJournal implements AutoCloseable {
                 channel.truncate(start);
                 channel.force(true);
             } catch (IOException rollbackFailure) {
+                poisoned = true;
                 failure.addSuppressed(rollbackFailure);
             }
             throw failure;
@@ -363,7 +365,7 @@ public final class PlacementJournal implements AutoCloseable {
             AnchorId id = new AnchorId(a.worldKey(), a.anchor());
             startedAnchors.add(id);
             completedAnchors.add(id);
-            completedAnchorSequences.put(id, a.sequence());
+            completedAnchorSequences.putIfAbsent(id, a.sequence());
         } else if (event instanceof JournalEvent.ChunkApplied a) {
             ChunkId id = new ChunkId(a.worldKey(), a.target());
             appliedDigests.put(id, a.digest());
@@ -516,6 +518,7 @@ public final class PlacementJournal implements AutoCloseable {
 
     private void ensureOpen() throws IOException {
         if (closed || !channel.isOpen()) throw new IOException("Placement journal is closed: " + path);
+        if (poisoned) throw new IOException("Placement journal is poisoned after a failed append rollback: " + path);
     }
 
     public JournalStats stats() throws IOException {
