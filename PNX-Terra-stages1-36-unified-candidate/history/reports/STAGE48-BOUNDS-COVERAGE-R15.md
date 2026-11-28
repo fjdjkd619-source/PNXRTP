@@ -10,6 +10,17 @@
 - Registry source head: `228426bb192a8d6029952aae1a77008dea5f3cda`
 - Candidate branch: `R15`
 
+## Critical source-integrity finding
+
+The checked-in bounds registry is **not proven to describe the pinned ConfigPack commit**:
+
+- Registry `source_git_head`: `228426bb192a8d6029952aae1a77008dea5f3cda`
+- Pinned ConfigPack commit: `445848bc9f9f28fab1d760f01f9a552d93944681`
+- Registry lists `structures/boulders/boulder.tesf`, while the pinned commit tree contains `structures/geological/boulders/boulder.tesf`.
+- The pinned commit tree contains 287 `.tesf` files and 333 feature YAML files; the checked-in registry contains only 159 script records.
+
+Therefore the 159/73/3/70 figures below describe the **old registry snapshot only**. They are useful as a warning, but they are not valid coverage metrics for the pinned commit. Stage 48 must regenerate the inventory and feature-root graph directly from commit `445848bc9f9f28fab1d760f01f9a552d93944681` before any profile can be accepted against it.
+
 ## Measured coverage
 
 | Measure | Count |
@@ -23,7 +34,7 @@
 | Scripts with dynamic nested targets | 10 |
 | Runtime catalog entries after excluding wildcard-dependent profiles | 12 |
 
-The 12 runtime entries are not equivalent to 12 enabled feature roots. Only three names overlap the 73 root references. A registry entry marked UNKNOWN is not upgraded to VERIFIED merely because a similarly named profile exists in Java.
+The 12 runtime entries are not equivalent to 12 enabled feature roots. These counts are provisional because the registry source mismatch described above invalidates the registry as a pinned-commit inventory. Only three names overlap the 73 root references. A registry entry marked UNKNOWN is not upgraded to VERIFIED merely because a similarly named profile exists in Java.
 
 ## Root references still lacking a verified runtime profile
 
@@ -137,4 +148,4 @@ Dynamic nested targets cannot be covered by a hand-written list of static child 
 
 ## Acceptance decision
 
-**NOT PASSED.** The current implementation makes unknown roots fail closed, but it does not yet provide bounds for all enabled roots, a complete alias manifest, or full diagnostic coverage. Do not treat the current TerraOverworldConfig pack as production-ready under the cross-chunk guard until the remaining work is complete.
+**NOT PASSED.** The registry must first be regenerated from the exact pinned ConfigPack tree; do not use the legacy coverage counts as a final audit. The current implementation makes unknown roots fail closed, but it does not yet provide bounds for all enabled roots, a complete alias manifest, or full diagnostic coverage. Do not treat the current TerraOverworldConfig pack as production-ready under the cross-chunk guard until the remaining work is complete.
