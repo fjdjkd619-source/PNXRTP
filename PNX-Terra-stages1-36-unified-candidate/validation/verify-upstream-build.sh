@@ -70,7 +70,7 @@ fi
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
 (cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test --stacktrace)
 mapfile -t TERRA_JARS < <(find "$TERRA/platforms/bukkit/common/build/libs" -maxdepth 1 -type f -name '*shaded.jar' | sort)
-[[ "${#TERRA_JARS[@]}" -eq 1 ]] || { echo "Expected exactly one Terra 6.6.1 shaded Bukkit-common jar, found ${#TERRA_JARS[@]}" >&2; printf '%s\\n' "${TERRA_JARS[@]}" >&2; exit 1; }
+[[ "${#TERRA_JARS[@]}" -eq 1 ]] || { echo "Expected exactly one Terra 6.6.1 shaded Bukkit-common jar, found ${#TERRA_JARS[@]}" >&2; printf '%s\n' "${TERRA_JARS[@]}" >&2; exit 1; }
 TERRA_M2="$HOME/.m2/repository/org/powernukkitx/Terra/6.6.1-BETA"
 mkdir -p "$TERRA_M2"
 cp "${TERRA_JARS[0]}" "$TERRA_M2/Terra-6.6.1-BETA.jar"
@@ -154,14 +154,14 @@ if anchor not in content:
     raise SystemExit("Adapter repositories block not found; refusing to rewrite")
 for repo in repos:
     if repo not in content:
-        content = content.replace(anchor, anchor + "\\n    " + repo, 1)
+        content = content.replace(anchor, anchor + "\n    " + repo, 1)
 force = """
 configurations.configureEach {
     resolutionStrategy.force("org.cloudburstmc.math:immutable:2.0-20220327.162752-1")
 }
 """
 if 'org.cloudburstmc.math:immutable:2.0-20220327.162752-1' not in content:
-    content += "\\n" + force
+    content += "\n" + force
 path.write_text(content)
 PY
 (cd "$ADAPTER" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build -x test --stacktrace)
