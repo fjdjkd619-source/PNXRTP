@@ -136,7 +136,6 @@ diff --git a/common/addons/structure-terrascript-loader/src/main/java/com/dfsek/
  import com.dfsek.terra.api.util.MathUtil;
  import com.dfsek.terra.api.util.Rotation;
  import com.dfsek.terra.api.util.vector.Vector3Int;
-
 @@ -49,7 +49,7 @@
  import com.dfsek.terra.api.world.WritableWorld;
  
