@@ -1,20 +1,20 @@
-# PNX–Terra: единый кандидат исходников стадий 1–36
+# PNX–Terra: единый кандидат исходников стадий 1–43
 
-**Статус: единый кандидат overlay исходников стадий 1–36. Это ещё не готовая upstream-сборка и не пакет для установки.**
+**Статус: единый кандидат overlay исходников стадий 1–43. Это ещё не готовая upstream-сборка и не пакет для установки.**
 
 ## Закреплённые версии
 
 - PowerNukkitX 3.0.6 — `c57499365737654eca32df008751ef6bca5af142`
 - PNX-Terra 1.0.0 — `74318b4a1eae95322550f12d5eb8a76d92a93731`
-- Terra 6.6.1-BETA — `05ddc8b8a66e17412670647cce78ef837b091256`
+- Terra 6.6.1-BETA — `016961c19c41c2501737599175937ae40699beb1`
 - Origen 2.2.0 — `228426bb192a8d6029952aae1a77008dea5f3cda`
 - Java compile target — 21
 
 ## Содержимое
 
-- `source/` — объединённый adapter/core overlay стадий 1–36; новые модули стадий 27–34 описаны в `STAGES27-34.md`, а entity-finalization adapter стадий 35–36 — в `STAGE35.md` и `STAGE36.md`.
-- `tests/` — 18 тестовых наборов стадий 15–34, включая WAL v4, entity-intent finalization, physics dispatch, property aliases, diagnostics, bounds и lifecycle. Отдельный Stage 35–36 PNX entity-applier contract suite запускается через `validation/run-entity-spawn-contract-compile.sh`.
-- `patches/` — 22 активных патча цепочки стадий 1–26, Stage 27–34 core overlay, два Stage 35 adapter/PNX lifecycle patch и два Stage 36 deferred-entity lifecycle patch; исходные эксперименты Stage 26 сохранены в `history/experimental-stage26/`.
+- `source/` — объединённый adapter/core overlay стадий 1–43; новые модули стадий 27–34 описаны в `STAGES27-34.md`, entity-finalization adapter стадий 35–36 — в `STAGE35.md` и `STAGE36.md`, а checkpoint snapshot codec Stage 43 — в `STAGES43-50.md`.
+- `tests/` — существующие regression suites стадий 15–42 и добавленный `JournalCheckpointTest` для Stage 43; тесты Stage 43 пока намеренно не запускались согласно отложенному тестовому циклу. Отдельный Stage 35–36 PNX entity-applier contract suite запускается через `validation/run-entity-spawn-contract-compile.sh`.
+- `patches/` — активные патчи цепочки стадий 1–43, включая WAL hardening 37–42 и Stage 43 checkpoint snapshot codec; исходные эксперименты Stage 26 сохранены в `history/experimental-stage26/`.
 - `history/original-archives/` — исходные ZIP стадий, использованные при восстановлении.
 - `history/reports/` — отчёты стадий 1, 2, 13 и 14 и исходный каталог границ Origen.
 - `validation/` — воспроизводимая компиляция независимого ядра и результаты проверок.
@@ -127,4 +127,4 @@ A path audit also found that the Stage 21–25 patch had package paths rooted at
 The candidate includes the Stage 27–34 core overlay, Stage 35 entity adapter/rollback seam, and Stage 36 deferred PNX entity lifecycle. Stage 36 fixes an important Stage 35 flaw: before the durable chunk write an entity is absent from the ticking Level; it is staged in the chunk save set, then activated and published only after the synchronous save succeeds. UUID-based replay matching and transaction-owned rollback remain. Terra’s `ServerWorld.spawnEntity` capture path still fails closed, so entity-bearing Origen structures remain disabled. Physics callbacks are still fail-closed. See `STAGES27-34.md`, `STAGE35.md`, and `STAGE36.md`. This is not an installable release.
 
 
-For the PNX revision gate, `apply-stages1-26.sh` and `apply-stages1-36.sh` accept `--pnx-ref`. The default remains the exact original 3.0.6 commit `c574993...`; the known standalone-compatible successor `ff86b15...` can be selected explicitly for an application/build experiment. The full Stage 1–36 patch chain has not yet been verified on that successor.
+For the PNX revision gate, `apply-stages1-26.sh`, `apply-stages1-36.sh`, `apply-stages1-42.sh` and `apply-stages1-43.sh` accept the exact pinned PNX source. `apply-stages1-43.sh` layers the Stage 43 checkpoint codec after the verified Stage 1–42 chain. Terra is pinned to 6.6.1 commit `016961c...`. Full Gradle packaging and live runtime certification remain blocked; see `STATUS.md` and `STAGES43-50.md`.
