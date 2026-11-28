@@ -4,7 +4,7 @@
 
 ## Stage 43 — WAL checkpoint format and snapshot model
 
-<badge>Code added — not yet built or tested</badge>
+**Code added — not yet built or tested.**
 
 - Added JournalCheckpoint to the source overlay, Stage 43 adapter patch and apply-stages1-43.sh runner.
 - The codec writes a versioned PXCP snapshot with a SHA-256 integrity digest, strict payload/count limits, deterministic event encoding and strict UTF-8 decoding.
