@@ -57,7 +57,7 @@ def extract_feature_targets(source: str) -> tuple[set[str], set[str], bool]:
             child_indent = len(child) - len(child.lstrip(" \t"))
             if child_indent <= base_indent:
                 break
-            item = re.match(r"^[ \t]+([A-Za-z0-9_.:/-]+):[ \t]*[^#]+$", child)
+            item = re.match(r"^[ \t]+-?\s*([A-Za-z0-9_.:/-]+):[ \t]*[^#]+$", child)
             if item:
                 values.add(item.group(1))
         if values:
@@ -264,7 +264,7 @@ def main() -> int:
         source = path.read_text(encoding="utf-8")
         record_block_literals(path, source)
         ids, blocks, unresolved = extract_feature_targets(source)
-        is_abstract = bool(re.search(r"(?m)^abstract:\\s*true\\s*$", source))
+        is_abstract = bool(re.search(r"(?m)^abstract:\s*true\s*$", source))
         if unresolved and not is_abstract:
             unresolved_features.append(rel)
         block_state_targets.update(blocks)
