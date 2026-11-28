@@ -1,7 +1,7 @@
-diff --git a/source/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java b/source/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
 index f0f762f..92a60fe 100644
---- a/source/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
-+++ b/source/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/PnxChunkHandle.java
 @@ -5,6 +5,8 @@ import org.powernukkitx.level.format.IChunk;
  import org.powernukkitx.level.format.leveldb.LevelDBProvider;
  import org.powernukkitx.terra.crosschunk.journal.ChunkPos;
@@ -47,11 +47,11 @@ index f0f762f..92a60fe 100644
      @Override
      public void saveDurably() throws IOException {
          if (chunk.getProvider() == null) throw new IOException("Target chunk has no storage provider");
-diff --git a/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEntitySpawnIntentApplier.java b/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEntitySpawnIntentApplier.java
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEntitySpawnIntentApplier.java b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEntitySpawnIntentApplier.java
 new file mode 100644
 index 0000000..b4785d2
 --- /dev/null
-+++ b/source/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEntitySpawnIntentApplier.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/journal/pnx/PnxEntitySpawnIntentApplier.java
 @@ -0,0 +1,128 @@
 +package org.powernukkitx.terra.crosschunk.journal.pnx;
 +
