@@ -23,6 +23,15 @@ grep -q 'includeImmediateChildren(file("platforms")' "$TERRA/settings.gradle.kts
 }
 grep -q 'type == "platform" && it.name == "allay"' "$TERRA/settings.gradle.kts" || \
   sed -i '/if (!it.isDirectory || !File(it, "build.gradle.kts").exists()) return@forEach/a\        if (type == "platform" && it.name == "allay") return@forEach' "$TERRA/settings.gradle.kts"
+# The pinned Terra revision targets Minecraft 1.21.5. In that mapping VillagerType.PLAINS
+# is a RegistryKey<VillagerType>, while the biome-to-villager map stores VillagerType values.
+# Resolve the key through the built-in registry before inserting the fallback value.
+LIFECYCLE_BIOME_UTIL="$TERRA/platforms/mixin-lifecycle/src/main/java/com/dfsek/terra/lifecycle/util/LifecycleBiomeUtil.java"
+[[ -f "$LIFECYCLE_BIOME_UTIL" ]] || { echo "Missing pinned Terra lifecycle biome utility" >&2; exit 1; }
+grep -q 'import net.minecraft.registry.Registry;' "$LIFECYCLE_BIOME_UTIL" || { echo "Unexpected LifecycleBiomeUtil imports" >&2; exit 1; }
+grep -q 'villagerMap.getOrDefault(vanilla, VillagerType.PLAINS)' "$LIFECYCLE_BIOME_UTIL" || { echo "Unexpected pinned Terra VillagerType fallback expression" >&2; exit 1; }
+sed -i '/import net.minecraft.registry.Registry;/a import net.minecraft.registry.Registries;' "$LIFECYCLE_BIOME_UTIL"
+sed -i 's/villagerMap.getOrDefault(vanilla, VillagerType.PLAINS)/villagerMap.getOrDefault(vanilla, Objects.requireNonNull(Registries.VILLAGER_TYPE.get(VillagerType.PLAINS)))/' "$LIFECYCLE_BIOME_UTIL"
 # Build the exact Terra 6.6.1 Bukkit-common distribution consumed by the PNX adapter.
 # The adapter uses org.powernukkitx:Terra:6.6.1-BETA, not Terra's internal com.dfsek.terra modules.
 (cd "$TERRA" && ./gradlew --no-daemon --no-configuration-cache --no-parallel --max-workers=1 clean build --stacktrace)
