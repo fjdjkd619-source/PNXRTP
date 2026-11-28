@@ -179,6 +179,28 @@ public final class PlacementJournal implements AutoCloseable {
         } finally { lock.unlock(); }
     }
 
+    /**
+     * Captures a consistent, immutable checkpoint view under the journal lock.
+     * The returned watermark and event list always describe the same WAL prefix.
+     */
+    public JournalCheckpoint.Snapshot checkpointSnapshot() throws IOException {
+        lock.lock();
+        try {
+            ensureOpen();
+            return new JournalCheckpoint.Snapshot(nextSequence - 1, List.copyOf(events));
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Publishes a durable checkpoint without truncating or rotating the WAL.
+     * WAL compaction is intentionally deferred to Stage 44.
+     */
+    public void writeCheckpoint(Path destination) throws IOException {
+        JournalCheckpoint.writeAtomically(destination, checkpointSnapshot());
+    }
+
     public List<JournalEvent> events() {
         lock.lock(); try { return List.copyOf(events); } finally { lock.unlock(); }
     }
