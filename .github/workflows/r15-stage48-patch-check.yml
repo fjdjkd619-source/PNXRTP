@@ -49,6 +49,15 @@ jobs:
           ref: 445848bc9f9f28fab1d760f01f9a552d93944681
           path: terra-config
 
+      - name: Apply Stage 49 fantasy content overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n "$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate/content-pack/apply-fantasy-pack.sh"
+          bash "$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate/content-pack/apply-fantasy-pack.sh" \
+            --terra-config "$GITHUB_WORKSPACE/terra-config"
+          git -C "$GITHUB_WORKSPACE/terra-config" diff --check
+
       - name: Validate shell syntax and patch chain 1-48
         shell: bash
         run: |
@@ -79,10 +88,25 @@ jobs:
             --pnx-expected-head c57499365737654eca32df008751ef6bca5af142 \
             --output "$RUNNER_TEMP/terra-configpack-inventory.json"
 
-      - name: Upload Stage 48 source inventory
+      - name: Generate fail-closed bounds catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE="$GITHUB_WORKSPACE/candidate/PNX-Terra-stages1-36-unified-candidate"
+          python3 -m pip install --user --disable-pip-version-check PyYAML
+          python3 "$CANDIDATE/tools/generate_bounds_profiles.py" \
+            --inventory "$RUNNER_TEMP/terra-configpack-inventory.json" \
+            --source-root "$GITHUB_WORKSPACE/terra-config" \
+            --output "$RUNNER_TEMP/OrigenBoundsCatalog.java" \
+            | tee "$RUNNER_TEMP/bounds-profile-summary.json"
+
+      - name: Upload Stage 48 and 49 audit artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stage48-terra-configpack-inventory
-          path: ${{ runner.temp }}/terra-configpack-inventory.json
+          name: stage48-stage49-bounds-audit
+          path: |
+            ${{ runner.temp }}/terra-configpack-inventory.json
+            ${{ runner.temp }}/OrigenBoundsCatalog.java
+            ${{ runner.temp }}/bounds-profile-summary.json
           if-no-files-found: error
           retention-days: 14
