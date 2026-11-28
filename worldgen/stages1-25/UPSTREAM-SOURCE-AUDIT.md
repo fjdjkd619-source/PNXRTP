@@ -86,3 +86,10 @@ The automated source-baseline check is defined in `.github/workflows/pinned-upst
 
 
 A separate workflow `.github/workflows/pinned-upstream-builds.yml` now attempts independent Gradle builds of all three pinned upstream repositories. These are baseline builds only; they do not apply the stage 1–25 patches or establish compatibility of the integrated generator.
+
+
+## Compatibility-path experiment
+
+The PNX 3.0.6 API successor commit `ff86b15d18e3699459c7913eb1ebec16521b7ad0` updates the protocol dependency to `3.0.0.Beta8-SNAPSHOT` and migrates the server's camera code to the corresponding camera-instruction API. GitHub's release metadata identifies this snapshot as API 3.0.6. A separate workflow now tests building that server commit, publishing its exact server artifact to Maven Local, and compiling the pinned PNX-Terra adapter against that artifact under Java 21.
+
+This is a compatibility experiment, not a silent replacement of the original c574993 reference. The live server remains untouched. If the experiment passes, the user will still need to decide whether to target the later API 3.0.6 snapshot or keep c574993 and reconstruct its matching historical protocol dependency.
