@@ -58,7 +58,7 @@ def main() -> int:
             "root_feature_references": [],
             "nested_static_ids": nested_ids,
             "nested_call_count": calls,
-            "dynamic_nested_target": calls > len(nested_ids),
+            "dynamic_nested_target": calls > len(nested),
             "loop_count": len(LOOP.findall(source)),
             "block_write_call_count": len(BLOCK_WRITE.findall(source)),
             "block_read_or_check_call_count": len(BLOCK_READ.findall(source)),
