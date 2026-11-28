@@ -2,26 +2,52 @@
 
 **Status: BLOCKED — not an integrated build and not deployable.**
 
-Latest local verification (2026-11-28):
+## Newly completed upstream source audit (2026-11-28)
+
+The exact pinned Git objects and recursive source trees have now been verified through GitHub:
+
+- PNX: `PowerNukkitX/PowerNukkitX@c57499365737654eca32df008751ef6bca5af142`
+- PNX-Terra: `PowerNukkitX-Bundle/PNX-Terra@74318b4a1eae95322550f12d5eb8a76d92a93731`
+- Terra: `PolyhedralDev/Terra@05ddc8b8a66e17412670647cce78ef837b091256`
+
+The pinned PNX-Terra source tree is present and includes the wrapper/build files and Java adapter. Source inspection confirmed:
+- PNX LevelDB normal chunk writes use `WriteOptions.sync(false)`.
+- PNX-Terra `PNXServerWorld.getBlockEntity` and `PNXProtoWorld.getBlockEntity` return null.
+- PNX-Terra block-state property methods are stubs (`has=false`, `get=null`, `set=null`).
+- PNX-Terra chunk delegate `getX/getZ` return 0.
+- PNX-Terra compiles against `server:nightly-SNAPSHOT`, not a dependency explicitly pinned to the selected PNX commit.
+
+Detailed evidence: [UPSTREAM-SOURCE-AUDIT.md](UPSTREAM-SOURCE-AUDIT.md).
+
+A reproducible GitHub Actions workflow has been added to checkout these exact commits and assert the known baseline gaps. It is a source audit only, not a build. Its run result is pending.
+
+## Previously passed local checks
+
 - Java 21 independent-core compile and 11 test classes: PASS for 10 consecutive rounds (110/110 executions).
 - Patch syntax parse: 29/29 PASS using `git apply --stat`; no applicability claim.
 - Original archive CRC/readability: 13/13 PASS.
 - Source overlay: 33 Java source files and 11 tests.
 
-GitHub Actions:
-- Workflow run 46096537147: FAILURE by design at the acceptance-gate step because this status is BLOCKED. It did not run Gradle builds.
+## Not passed / not run
 
-Unresolved blockers:
-1. Complete portable patch/source history for stages 3–6 is missing.
-2. Complete upstream patch history for stages 12–14 is missing.
-3. Clean pinned PNX/Terra/PNX-Terra source checkouts are not included; full apply-check and Gradle builds cannot be performed.
-4. Block Entity NBT and actual PNX BlockEntity factory integration absent.
-5. Entity creation absent; entity-bearing structures fail closed.
-6. Physics executor not connected; WaterLayerPolicy not wired to live PNX updates.
-7. Complete Terra↔PNX block/property registry absent.
-8. Global stage diagnostics incomplete.
-9. Origen safe-bounds coverage incomplete; unknown scripts remain blocked.
-10. No full runtime, restart/recovery, persistence or load integration tests.
-11. No integrated JAR.
+- Full local clean checkout of all pinned upstream repos and complete `git apply --check` for the whole historical patch sequence.
+- Recovery of portable source history for stages 3–6 and complete patch history for stages 12–14.
+- Full PowerNukkitX, Terra and PNX-Terra Gradle builds.
+- Full adapter compile against pinned upstream APIs.
+- Block Entity NBT and actual PNX BlockEntity factory integration.
+- Entity creation integration and failure handling.
+- Runtime physics executor / WaterLayerPolicy integration.
+- Complete block/property mapping and correction of the PNX-Terra coordinate delegate.
+- Global stage diagnostics.
+- Complete Origen safe-bounds catalogue.
+- Runtime generation, restart/recovery, durable persistence and load tests.
+- Integrated JAR packaging.
 
-Do not start stages 26–34 or deploy. Continue stage 1–25 only after the missing source history and pinned upstream working trees are recovered.
+## Actions
+
+- The earlier `stages1-25.yml` workflow is an acceptance gate that intentionally fails while status is BLOCKED. It is not a Gradle build.
+- The previous apparent green run was caused by a faulty status-marker match and must not be treated as a build.
+- The corrected gate has failed as intended on the BLOCKED state.
+- The new pinned-upstream source audit workflow has been added; its result is not yet confirmed.
+
+Do not start stages 26–34 or deploy. Continue stages 1–25 only.
