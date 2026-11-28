@@ -58,3 +58,11 @@ The production server, existing world, player data and installed plugins remain 
 ## Full Stage 1–42 audit — R15
 
 The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-R15.md`. Result: **BLOCKED for production**. Key findings: Stage 7/18 PNX patch overlap must be rebased and checked on clean upstream repositories; stages 37–42 have no active upstream apply patches/runner; WAL has no compaction or bounded retention; PNX physics and generic water-layer handling remain unwired; Terra entity spawning remains fail-closed; Origen static bounds and Terra↔PNX aliases/diagnostics are incomplete. The Java 21 core suite passes, but this does not certify the full upstream integration or live server behavior. Do not deploy.
+
+
+## WAL encoder follow-up — 2026-11-28
+
+- Placement serialization is now bounded during encoding at `MAX_FRAME` (64 MiB), before each write reaches the backing buffer. An oversized placement fails with `IOException` instead of first accumulating an arbitrarily large byte array.
+- Added `PlacementJournalEncodingLimitTest` for exact-boundary acceptance, single-byte and bulk overflow, no backing-buffer growth on rejection, and zero-byte limits.
+- Java 21 full source-overlay validation: [GitHub Actions 46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903) — SUCCESS. All workflow steps passed, including platform-neutral regression suites and all existing contract checks.
+- This does not implement WAL compaction/checkpointing or bound retained journal history/indexes. Stages 37–42 still lack upstream patch files and an apply runner. Production remains BLOCKED; do not deploy.
