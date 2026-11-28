@@ -28,9 +28,9 @@ public final class OrigenBoundsCatalog {
      * Runtime-enforced fallback for scripts not yet statically certified. This is not a claim
      * that the script's theoretical bounds are known: every read/write is checked against this
      * hard envelope, and a single escape aborts the whole root placement. The 32-block horizontal
-     * limit matches the current scheduler horizon and covers the already audited 31-block read
-     * halo of the largest verified Origen root. Entity spawning remains disabled until it can be
-     * journaled and committed atomically.
+     * limit matches the current scheduler horizon and covers the audited 31-block read halo of
+     * the largest verified root. Entity spawning remains disabled for this fallback; only profiles
+     * with an explicit audited entity budget may use the deferred WAL entity path.
      */
     private static final int FALLBACK_HORIZONTAL_REACH = 32;
     private static final ScriptBoundsProfile BOUNDED_FALLBACK = new ScriptBoundsProfile(
