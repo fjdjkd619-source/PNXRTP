@@ -53,3 +53,8 @@ The production server, existing world, player data and installed plugins remain 
 - Added Stage37WalRecoveryTest and changed Stage16JournalTest so a complete bad-CRC frame must fail closed and remain byte-for-byte unchanged.
 
 **Independent core validation: PASS.** GitHub Actions run 46146027245 compiled the source overlay with Java 21 (`javac --release 21 -Xlint:all -Werror`) and passed all 18 test suites, including Stage37WalRecoveryTest (28 assertions). Full output: validation/CORE-TESTS-2026-11-28-R15.txt. The R15 repository contains a Java source overlay and scripts, not a complete Gradle project: no build.gradle or Gradle wrapper is present in the candidate root. The exact-ref upstream PNX/Terra/adapter build, clean patch application and runtime certification remain outstanding. Production status remains BLOCKED; do not deploy.
+
+
+## Full Stage 1–42 audit — R15
+
+The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-R15.md`. Result: **BLOCKED for production**. Key findings: Stage 7/18 PNX patch overlap must be rebased and checked on clean upstream repositories; stages 37–42 have no active upstream apply patches/runner; WAL has no compaction or bounded retention; PNX physics and generic water-layer handling remain unwired; Terra entity spawning remains fail-closed; Origen static bounds and Terra↔PNX aliases/diagnostics are incomplete. The Java 21 core suite passes, but this does not certify the full upstream integration or live server behavior. Do not deploy.
