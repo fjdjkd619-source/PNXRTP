@@ -24,7 +24,7 @@
 +    @Override
 +    public PlacementGuardHost.PlacementScope beginNestedPlacement(String structureId) {
 +        if (delegate instanceof PlacementGuardHost host) return host.beginNestedPlacement(structureId);
-+        return PlacementScope.rejected();
++        return PlacementGuardHost.PlacementScope.rejected();
 +    }
 +
 +
