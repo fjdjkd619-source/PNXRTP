@@ -40,7 +40,12 @@ public final class Stage16JournalTest {
         Path corrupt=dir.resolve("corrupt.wal");
         try(PlacementJournal j=new PlacementJournal(corrupt)){j.appendPlacement(a);}
         byte[] bytes=Files.readAllBytes(corrupt);bytes[bytes.length-1]^=0x44;Files.write(corrupt,bytes);
-        try(PlacementJournal j=new PlacementJournal(corrupt)){check(j.events().isEmpty(),"CRC failure truncates invalid tail");}
+        byte[] damaged=Files.readAllBytes(corrupt);
+        boolean crcRejected=false;
+        try(PlacementJournal ignored=new PlacementJournal(corrupt)){ }
+        catch(java.io.IOException expected){crcRejected=true;}
+        check(crcRejected,"complete final frame with bad CRC fails closed");
+        check(Arrays.equals(damaged,Files.readAllBytes(corrupt)),"bad-CRC WAL remains byte-for-byte unchanged");
         check(ChunkPos.fromBlock(-1,-17).equals(new ChunkPos(-1,-2)),"negative block-to-chunk mapping");
 
         Path concurrentWal=dir.resolve("concurrent.wal");
