@@ -1,0 +1,61 @@
+name: Pinned upstream source audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - worldgen/stages1-25
+    paths:
+      - '.github/workflows/pinned-upstream-audit.yml'
+      - 'worldgen/stages1-25/UPSTREAM-SOURCE-AUDIT.md'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-pinned-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PNX 3.0.6 source
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX/PowerNukkitX
+          ref: c57499365737654eca32df008751ef6bca5af142
+          path: upstream/pnx
+
+      - name: Checkout PNX-Terra baseline
+        uses: actions/checkout@v4
+        with:
+          repository: PowerNukkitX-Bundle/PNX-Terra
+          ref: 74318b4a1eae95322550f12d5eb8a76d92a93731
+          path: upstream/pnx-terra
+
+      - name: Checkout Terra baseline
+        uses: actions/checkout@v4
+        with:
+          repository: PolyhedralDev/Terra
+          ref: 05ddc8b8a66e17412670647cce78ef837b091256
+          path: upstream/terra
+
+      - name: Verify pinned commits
+        shell: bash
+        run: |
+          test "$(git -C upstream/pnx rev-parse HEAD)" = "c57499365737654eca32df008751ef6bca5af142"
+          test "$(git -C upstream/pnx-terra rev-parse HEAD)" = "74318b4a1eae95322550f12d5eb8a76d92a93731"
+          test "$(git -C upstream/terra rev-parse HEAD)" = "05ddc8b8a66e17412670647cce78ef837b091256"
+
+      - name: Verify known upstream integration gaps
+        shell: bash
+        run: |
+          grep -q 'writeOptions.sync(false)' upstream/pnx/src/main/java/org/powernukkitx/level/format/leveldb/LevelDBStorage.java
+          grep -q 'storage.writeChunk(chunk)' upstream/pnx/src/main/java/org/powernukkitx/level/format/leveldb/LevelDBProvider.java
+          grep -q 'return null;' upstream/pnx-terra/src/main/java/org/powernukkitx/terra/delegate/PNXProtoWorld.java
+          grep -q 'return false;' upstream/pnx-terra/src/main/java/org/powernukkitx/terra/delegate/PNXBlockStateDelegate.java
+          grep -q 'return 0;' upstream/pnx-terra/src/main/java/org/powernukkitx/terra/delegate/PNXChunkDelegate.java
+          grep -q 'nightly-SNAPSHOT' upstream/pnx-terra/build.gradle.kts
+
+      - name: Report scope
+        run: |
+          echo "Pinned upstream source audit passed."
+          echo "This job verifies source refs and known baseline gaps only."
+          echo "It does NOT apply stages 1-25, run Gradle builds, or produce a deployable JAR."
