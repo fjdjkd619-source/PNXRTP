@@ -61,25 +61,32 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
             return new Pending<>(worldKey, target, digest, chunk, alreadyApplied, records);
         }, executor).thenApplyAsync(pending -> {
             if (!pending.alreadyApplied) {
+                boolean durableSaved = false;
                 try {
                     NavigableMap<PlacementProjection.Position, PlacementProjection.EntityWinner> blockEntities =
                             PlacementProjection.resolveBlockEntities(pending.records, target);
                     pending.chunk.applyBlockEntityIntents(blockEntities);
-                    pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
                     List<org.powernukkitx.terra.crosschunk.journal.EntitySpawnIntent> entitySpawns =
                             PlacementProjection.resolveEntitySpawns(pending.records, target);
                     pending.chunk.applyEntitySpawnIntents(entitySpawns);
                     if (!entitySpawns.isEmpty()) pending.chunk.prepareEntitySpawnIntentsForSave();
-                    if (!blockEntities.isEmpty() || !entitySpawns.isEmpty()) {
-                        // Some PNX BlockEntity constructors schedule their own tick immediately.
-                        // Persist in the same level-scheduler task before that heartbeat can run them.
-                        pending.chunk.saveDurably();
-                        pending.chunk.confirmEntitySpawnIntents();
-                        pending.chunk.confirmBlockEntityIntents();
-                    }
+
+                    // Persist the complete block/BE/entity projection before queuing physics.
+                    // Level.updateAround() can schedule neighbour work for the next tick; it must
+                    // never observe an uncommitted in-memory projection after a failed disk save.
+                    pending.chunk.saveDurably();
+                    durableSaved = true;
+                    pending.chunk.confirmEntitySpawnIntents();
+                    pending.chunk.confirmBlockEntityIntents();
+                    pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
                 } catch (Exception failure) {
-                    pending.chunk.rollbackEntitySpawnIntents();
-                    pending.chunk.rollbackBlockEntityIntents();
+                    // Once the durable save succeeds, these intents are committed. Do not tear down
+                    // entities/BlockEntities from the live chunk if a later physics queue operation
+                    // fails; the unacknowledged WAL will replay them idempotently on retry.
+                    if (!durableSaved) {
+                        pending.chunk.rollbackEntitySpawnIntents();
+                        pending.chunk.rollbackBlockEntityIntents();
+                    }
                     throw new FinalizationException("Could not apply and durably save complete journal intents to " + target, failure);
                 }
             }
