@@ -11,6 +11,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Objects;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 /**
  * Canonical little-endian, uncompressed PNX CompoundTag encoding for durable BlockEntity intents.
@@ -18,6 +21,7 @@ import java.util.Objects;
  */
 public final class PnxBlockEntityNbtCodec {
     private static final int MAX_PAYLOAD_BYTES = 1_048_576;
+    public static final String INTENT_HASH_TAG = "PNXTerraIntentHash";
 
     private PnxBlockEntityNbtCodec() { }
 
@@ -56,7 +60,9 @@ public final class PnxBlockEntityNbtCodec {
     public static BlockEntityIntent toIntent(int x, int y, int z, String type, CompoundTag source) throws IOException {
         if (type == null || type.isBlank()) throw new IOException("BlockEntity type is blank");
         CompoundTag canonical = Objects.requireNonNull(source, "source").copy();
+        canonical.remove(INTENT_HASH_TAG);
         canonical.putString("id", type).putInt("x", x).putInt("y", y).putInt("z", z);
+        canonical.putString(INTENT_HASH_TAG, sha256(encode(canonical)));
         return new BlockEntityIntent(x, y, z, type, encode(canonical));
     }
 
@@ -70,6 +76,23 @@ public final class PnxBlockEntityNbtCodec {
         if (tag.getInt("x") != intent.x() || tag.getInt("y") != intent.y() || tag.getInt("z") != intent.z()) {
             throw new IOException("BlockEntity NBT coordinates do not match journal intent position");
         }
+        String expectedHash = tag.getString(INTENT_HASH_TAG);
+        if (expectedHash == null || expectedHash.isBlank()) {
+            throw new IOException("BlockEntity NBT is missing its durable intent hash");
+        }
+        CompoundTag withoutHash = tag.copy();
+        withoutHash.remove(INTENT_HASH_TAG);
+        if (!expectedHash.equals(sha256(encode(withoutHash)))) {
+            throw new IOException("BlockEntity NBT intent hash does not match its payload");
+        }
         return tag;
+    }
+
+    private static String sha256(byte[] payload) throws IOException {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(payload));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IOException("SHA-256 is unavailable", impossible);
+        }
     }
 }
