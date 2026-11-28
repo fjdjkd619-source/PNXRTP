@@ -57,7 +57,7 @@ The production server, existing world, player data and installed plugins remain 
 
 ## Full Stage 1–42 audit — R15
 
-The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-R15.md`. Result: **BLOCKED for production**. Key findings: Stage 7/18 PNX patch overlap must be rebased and checked on clean upstream repositories; stages 37–42 have no active upstream apply patches/runner; WAL has no compaction or bounded retention; PNX physics and generic water-layer handling remain unwired; Terra entity spawning remains fail-closed; Origen static bounds and Terra↔PNX aliases/diagnostics are incomplete. The Java 21 core suite passes, but this does not certify the full upstream integration or live server behavior. Do not deploy.
+The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-R15.md`. Result: **BLOCKED for production**. Key findings: Stage 7/18 PNX patch overlap must be rebased and checked on clean upstream repositories; Stage 37–42 now have a WAL adapter patch and apply runner; that patch is validated against the extracted Stage 36 overlay baseline, but not yet against a full clean PNX-Terra checkout; WAL has no compaction or bounded retention; PNX physics and generic water-layer handling remain unwired; Terra entity spawning remains fail-closed; Origen static bounds and Terra↔PNX aliases/diagnostics are incomplete. The Java 21 core suite passes, but this does not certify the full upstream integration or live server behavior. Do not deploy.
 
 
 ## WAL encoder follow-up — 2026-11-28
@@ -66,3 +66,13 @@ The full source-overlay audit is recorded in `validation/FULL-AUDIT-STAGES-1-42-
 - Added `PlacementJournalEncodingLimitTest` for exact-boundary acceptance, single-byte and bulk overflow, no backing-buffer growth on rejection, and zero-byte limits.
 - Java 21 full source-overlay validation: [GitHub Actions 46146537903](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46146537903) — SUCCESS. All workflow steps passed, including platform-neutral regression suites and all existing contract checks.
 - This does not implement WAL compaction/checkpointing or bound retained journal history/indexes. Stages 37–42 still lack upstream patch files and an apply runner. Production remains BLOCKED; do not deploy.
+
+
+## R15 follow-up: WAL and pinned PNX patch integration
+
+- Added `patches/37-42-wal-hardening.patch` and `apply-stages1-42.sh`. The Stage 37–42 patch applies to the Stage 36 adapter overlay baseline and byte-matches the R15 source/test overlay.
+- Rebased Stage 18 on Stage 7, corrected/rebased Stage 11 durable LevelDB writes, and rebased Stage 36 deferred entity lifecycle on the exact pinned PNX `Entity.java` after Stage 35.
+- GitHub Actions [46147409727](https://github.com/fjdjkd619-source/PNXRTP/actions/runs/46147409727) — SUCCESS. The workflow applied PNX patches in order against pinned PNX `c57499365737654eca32df008751ef6bca5af142`: 7 → 11 → 18 → 22 → 35 → 36. Java 21 core/contract checks also passed; Stage37 WAL recovery test: 36 assertions; bounded encoder test: 6 assertions.
+- WAL placement encoding is now bounded during serialization at `MAX_FRAME`, and append avoids a second full-size frame buffer allocation.
+
+**Production remains BLOCKED.** This does not establish a complete Terra + PNX + PNX-Terra adapter patch-chain build, a full Gradle compile, integrated JAR packaging, live server generation, restart/replay correctness, or long-duration memory/disk stability. WAL compaction/checkpointing, PNX physics execution, generic water-layer policy, Terra entity-spawn capture, complete Origen bounds, and complete Terra↔PNX property aliases remain open.
