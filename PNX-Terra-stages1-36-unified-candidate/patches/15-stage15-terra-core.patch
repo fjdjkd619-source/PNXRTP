@@ -9,6 +9,17 @@
      private final WritableWorld delegate;
      private final int offsetX, offsetY, offsetZ;
  
+@@ -109,7 +109,7 @@
+     @Override
+-    public PlacementScope beginPlacement(PlacementDescriptor descriptor) {
++    public com.dfsek.terra.api.world.PlacementScope beginPlacement(PlacementDescriptor descriptor) {
+         if(delegate instanceof PlacementScopeProvider provider) {
+             return provider.beginPlacement(descriptor.offset(offsetX, offsetY, offsetZ));
+         }
+-        return PlacementScope.noop();
++        return com.dfsek.terra.api.world.PlacementScope.noop();
+     }
+ 
 @@ -114,7 +114,21 @@
          return PlacementScope.noop();
      }
