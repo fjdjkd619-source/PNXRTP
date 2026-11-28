@@ -1,0 +1,63 @@
+diff --git a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+index 1900949..bd3cf51 100644
+--- a/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
++++ b/src/main/java/org/powernukkitx/terra/crosschunk/finalize/ChunkFinalizationCoordinator.java
+@@ -22,12 +22,20 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+     private final String worldKey;
+     private final PlacementJournal journal;
+     private final Executor executor;
++    private final Executor intentExecutor;
+
+     public ChunkFinalizationCoordinator(String worldKey, PlacementJournal journal, Executor executor) {
++        this(worldKey, journal, executor, executor);
++    }
++
++    /** Separate the block projection worker from PNX-owned intent application. */
++    public ChunkFinalizationCoordinator(String worldKey, PlacementJournal journal, Executor executor,
++                                        Executor intentExecutor) {
+         if (worldKey == null || worldKey.isBlank()) throw new IllegalArgumentException("worldKey is blank");
+         this.worldKey = worldKey;
+         this.journal = Objects.requireNonNull(journal, "journal");
+         this.executor = Objects.requireNonNull(executor, "executor");
++        this.intentExecutor = Objects.requireNonNull(intentExecutor, "intentExecutor");
+     }
+
+     public CompletableFuture<Prepared<C>> prepare(ChunkPos target, CompletableFuture<Void> dependencyBarrier,
+@@ -46,14 +54,22 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+                         PlacementProjection.resolve(records, target);
+                 try {
+                     chunk.applyProjection(projection);
+-                    chunk.applyBlockEntityIntents(PlacementProjection.resolveBlockEntities(records, target));
+-                    chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(records, target));
+                 } catch (Exception failure) {
+-                    throw new FinalizationException("Could not apply complete journal projection/intents to " + target, failure);
++                    throw new FinalizationException("Could not apply block projection to " + target, failure);
+                 }
+             }
+-            return new Prepared<>(worldKey, target, digest, chunk, alreadyApplied);
+-        }, executor);
++            return new Pending<>(worldKey, target, digest, chunk, alreadyApplied, records);
++        }, executor).thenApplyAsync(pending -> {
++            if (!pending.alreadyApplied) {
++                try {
++                    pending.chunk.applyBlockEntityIntents(PlacementProjection.resolveBlockEntities(pending.records, target));
++                    pending.chunk.applyPhysicsIntents(PlacementProjection.resolvePhysics(pending.records, target));
++                } catch (Exception failure) {
++                    throw new FinalizationException("Could not apply complete journal intents to " + target, failure);
++                }
++            }
++            return new Prepared<>(pending.worldKey, pending.target, pending.digest, pending.chunk, pending.alreadyApplied);
++        }, intentExecutor);
+     }
+
+     public void persist(Prepared<C> prepared, Supplier<C> loadedOnlyLookup) throws IOException {
+@@ -99,6 +115,9 @@ public final class ChunkFinalizationCoordinator<C extends ChunkFinalizationCoord
+         void saveDurably() throws Exception;
+     }
+
++    private record Pending<C extends ChunkHandle>(String worldKey, ChunkPos target, String digest,
++                                                   C chunk, boolean alreadyApplied, List<PlacementRecord> records) { }
++
+     public static final class Prepared<C extends ChunkFinalizationCoordinator.ChunkHandle> {
+         private final String worldKey;
+         private final ChunkPos target;
