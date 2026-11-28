@@ -140,6 +140,22 @@ grep -q 'force("org.cloudburstmc.math:immutable:2.0")' "$PNX/build.gradle.kts" |
 # (RakNet/libdatachannel/immutable) in a second, independent Gradle build. The PNX
 # shaded JAR already contains those runtime classes; PNX remains compileOnly in adapter.
 ADAPTER_BUILD="$ADAPTER/build.gradle.kts"
+# Stage overlays use Seismic vector/rotation types. The pinned Terra 6.6.1
+# revision predates this API dependency, so add the exact library version
+# currently declared by Terra upstream. Keep it as implementation because
+# the adapter's shaded runtime jar must carry these classes.
+python3 - "$ADAPTER_BUILD" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+content = path.read_text()
+repo = 'maven("https://maven.solo-studios.ca/releases")'
+dependency = 'implementation("com.dfsek:seismic:2.5.7")'
+if repo not in content:
+    content = content.replace('repositories {', 'repositories {\n    ' + repo, 1)
+if dependency not in content:
+    content = content.replace('dependencies {', 'dependencies {\n    ' + dependency, 1)
+path.write_text(content)
+PY
 PNX_BUILT_JAR="$PNX/build/powernukkitx.jar"
 [[ -s "$PNX_BUILT_JAR" ]] || { echo "Missing compiled PNX shaded JAR: $PNX_BUILT_JAR" >&2; exit 1; }
 [[ -f "$ADAPTER_BUILD" ]] || { echo "Missing adapter build file" >&2; exit 1; }
